@@ -1,4 +1,4 @@
-// API для управления устройствами и passkeys пользователя (issue #507)
+// API for managing the user's devices and passkeys (issue #507)
 
 import { Hono } from 'hono';
 import type { Env } from './types';
@@ -25,7 +25,7 @@ import { isDemoMode } from './demo-flag';
 const passkeysApi = new Hono<{ Bindings: Env }>();
 
 /**
- * Список всех passkeys текущего пользователя (с метаданными и статусом).
+ * List every passkey for the current user, with metadata and status.
  */
 passkeysApi.get('/', async (c) => {
   const creds = await getCredentials(c.env);
@@ -47,7 +47,7 @@ passkeysApi.get('/', async (c) => {
 });
 
 /**
- * Генерация options для регистрации нового passkey авторизованным пользователем.
+ * Generate registration options for a new passkey for an authorized user.
  */
 passkeysApi.post('/register-options', async (c) => {
   if (isDemoMode(c.env)) return fail(c, 'DEMO_PASSKEY_DISABLED', 403);
@@ -65,7 +65,7 @@ passkeysApi.post('/register-options', async (c) => {
 });
 
 /**
- * Верификация и сохранение нового passkey от авторизованного пользователя.
+ * Verify and store a new passkey from an authorized user.
  */
 passkeysApi.post('/register-verify', async (c) => {
   if (isDemoMode(c.env)) return fail(c, 'DEMO_PASSKEY_DISABLED', 403);
@@ -103,7 +103,7 @@ passkeysApi.post('/register-verify', async (c) => {
 });
 
 /**
- * Обновление passkey: переименование (label) или отключение/включение (disabled).
+ * Update a passkey: rename (label) or disable/enable (disabled).
  */
 passkeysApi.patch('/:id', async (c) => {
   const id = c.req.param('id');
@@ -162,7 +162,7 @@ passkeysApi.patch('/:id', async (c) => {
 });
 
 /**
- * Удаление passkey.
+ * Delete a passkey.
  */
 passkeysApi.delete('/:id', async (c) => {
   const id = c.req.param('id');

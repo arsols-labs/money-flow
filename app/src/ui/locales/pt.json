@@ -117,9 +117,9 @@
     "signOut": "Terminar sessão",
     "signOutAria": "Terminar sessão e limpar esta sessão",
     "setupTokenQueryRemoved": "O setup token foi retirado do fragmento do endereço e colocado no campo abaixo.",
-    "setupTokenQueryIgnored": "Um setup token na query do endereço é ignorado. Introduzi-lo no campo abaixo.",
-    "demoBanner": "Isto é uma demo pública, não dados de produção. As alterações ficam nesta sessão do browser. O código-fonte do Money Flow está sob a licença PolyForm Noncommercial 1.0.0.",
-    "demoPasskeysDisabled": "O registo de Passkey está desativado nesta demo pública. O início de sessão continua disponível. O livro é privado desta sessão do browser."
+    "setupTokenQueryIgnored": "A setup token in the address query is ignored. Enter it in the field below.",
+    "demoBanner": "This is a public demo, not production data. Changes stay in this browser session. The Money Flow source code is licensed under PolyForm Noncommercial 1.0.0.",
+    "demoPasskeysDisabled": "Passkey enrollment is disabled on this public demo. Session sign-in still works. The ledger is private to this browser session."
   },
   "validation": {
     "enterAmount": "Introduzir um montante",
@@ -1068,8 +1068,8 @@
     "BACKUP_IMPORT_FAILED": "Não foi possível restaurar a cópia de segurança",
     "RESET_CONFIRM_REQUIRED": "Repor apaga todos os dados financeiros — enviar confirm: true após o aviso da UI",
     "RESET_PHRASE_REQUIRED": "Escreva RESET para confirmar o apagamento de todos os dados financeiros",
-    "RESET_FAILED": "Não foi possível repor a instância",
-    "DEMO_PASSKEY_DISABLED": "O registo de Passkey está desativado na demo pública",
-    "DEMO_LEDGER_UNAVAILABLE": "O livro da demo não está disponível"
+    "RESET_FAILED": "Could not reset the instance",
+    "DEMO_PASSKEY_DISABLED": "Passkey enrollment is disabled on the public demo",
+    "DEMO_LEDGER_UNAVAILABLE": "The demo ledger is unavailable"
   }
 }

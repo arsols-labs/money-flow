@@ -55,14 +55,14 @@ export const api = {
   updateAccount: (id, patch) =>
     request(`/api/v2/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteAccount: (id) => request(`/api/v2/accounts/${id}`, { method: 'DELETE' }),
-  // «Сверился с банком, сумма та же» — переставляет balance_updated_at, не
-  // трогая сумму (issue #223). Тела у запроса нет: подтверждать нечего, кроме
-  // самого факта проверки.
+  // "Checked with the bank, same amount" moves balance_updated_at without
+  // changing the amount (issue #223). The request has no body: the only fact
+  // to confirm is that the check happened.
   confirmAccountBalance: (id) =>
     request(`/api/v2/accounts/${id}/confirm-balance`, { method: 'POST' }),
-  // Алиасы счетов — привязка виртуальных карт к реальному счёту (issue #339).
-  // Список алиасов приходит внутри GET /accounts (поле `aliases`), поэтому
-  // отдельного list-вызова здесь нет; добавление/удаление — отдельные эндпоинты.
+  // Account aliases bind virtual cards to a real account (issue #339).
+  // The alias list arrives inside GET /accounts (the `aliases` field), so
+  // there is no separate list call here; add and delete are their own endpoints.
   addAccountAlias: (id, aliasText) =>
     request(`/api/v2/accounts/${id}/aliases`, {
       method: 'POST',
@@ -94,9 +94,10 @@ export const api = {
   skipRecurringItemPeriod: (id) =>
     request(`/api/v2/recurring-items/${id}/skip-period`, { method: 'POST' }),
 
-  // Операции — траты, доходы и возвраты (S1-5a). Счёт обязателен, валюта не
-  // передаётся вовсе (она у счёта), сумма правит баланс счёта на сервере:
-  // после любого из этих вызовов счета надо перечитать.
+  // Operations are expenses, income, and refunds (S1-5a). An account is
+  // required, currency is not sent (it belongs to the account), and the amount
+  // updates the account balance on the server: reload accounts after any of
+  // these calls.
   listOperations: () => request('/api/v2/operations'),
   createOperation: (payload) =>
     request('/api/v2/operations', { method: 'POST', body: JSON.stringify(payload) }),
@@ -110,7 +111,7 @@ export const api = {
     request(`/api/v2/transfers/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteTransfer: (id) => request(`/api/v2/transfers/${id}`, { method: 'DELETE' }),
 
-  // days необязателен — сервер сам подставит горизонт по умолчанию (365).
+  // days is optional. The server fills in the default horizon (365).
   getForecast: (days) =>
     request(`/api/v2/forecast${days ? `?days=${days}` : ''}`),
   getAnalytics: (payload = {}) =>

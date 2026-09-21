@@ -66,12 +66,12 @@ export const CANONICAL_PREVIEW_HOSTS = [
 ] as const;
 
 /**
- * Валидация хоста для защиты от Host Header Injection и Origin Spoofing.
- * Разрешены только:
- * 1. Edge-хост запроса (гарантируется Cloudflare)
- * 2. Явно сконфигурированный env.APP_DOMAIN
- * 3. Канонические staging/dev preview-алиасы этого проекта
- * 4. Localhost / 127.0.0.1 для локальной разработки
+ * Host validation against Host header injection and origin spoofing.
+ * Only these hosts are allowed:
+ * 1. The request edge host (guaranteed by Cloudflare)
+ * 2. An explicitly configured env.APP_DOMAIN
+ * 3. Canonical staging/dev preview aliases of this project
+ * 4. Localhost / 127.0.0.1 for local development
  */
 export function isAllowedHost(
   hostname: string,
@@ -81,10 +81,10 @@ export function isAllowedHost(
   const h = hostname.toLowerCase();
   const edge = edgeHostname.toLowerCase();
 
-  // 1. Совпадение с edge-хостом Cloudflare
+  // 1. Match the Cloudflare edge host
   if (h === edge) return true;
 
-  // 2. Совпадение с APP_DOMAIN
+  // 2. Match APP_DOMAIN
   if (appDomain) {
     let configured = appDomain.trim().toLowerCase();
     try {
@@ -94,7 +94,7 @@ export function isAllowedHost(
     if (h === configured) return true;
   }
 
-  // 3. Только известные staging/dev preview-алиасы — не весь *.workers.dev
+  // 3. Only known staging/dev preview aliases, not all of *.workers.dev
   if ((CANONICAL_PREVIEW_HOSTS as readonly string[]).includes(h)) {
     return true;
   }
@@ -130,7 +130,7 @@ function getHeader(req: RequestLike, name: string): string | undefined {
 }
 
 /**
- * Безопасное определение Origin запроса.
+ * Resolve the request origin safely.
  */
 export function resolveOrigin(c: OriginContext): string {
   let edgeOrigin = 'http://localhost:8787';
@@ -141,7 +141,7 @@ export function resolveOrigin(c: OriginContext): string {
     edgeHost = u.hostname;
   } catch {}
 
-  // 1. Origin header (браузер шлёт при POST / WebAuthn verify)
+  // 1. Origin header (the browser sends it on POST / WebAuthn verify)
   const originHeader = getHeader(c.req, 'origin');
   if (originHeader) {
     try {
@@ -152,7 +152,7 @@ export function resolveOrigin(c: OriginContext): string {
     } catch {}
   }
 
-  // 2. Host / X-Forwarded-Host (например, в wrangler dev при rewrite url)
+  // 2. Host / X-Forwarded-Host (for example wrangler dev when it rewrites the URL)
   const hostHeader = getHeader(c.req, 'x-forwarded-host') || getHeader(c.req, 'host');
   if (hostHeader) {
     const hostWithoutPort = hostHeader.split(':')[0].trim();
@@ -169,7 +169,7 @@ export function resolveOrigin(c: OriginContext): string {
     return edgeOrigin;
   }
 
-  // 4. Fallback на сконфигурированный APP_DOMAIN
+  // 4. Fall back to the configured APP_DOMAIN
   if (c.env?.APP_DOMAIN) {
     const domain = c.env.APP_DOMAIN.trim();
     return domain.startsWith('http://') || domain.startsWith('https://')
@@ -181,8 +181,8 @@ export function resolveOrigin(c: OriginContext): string {
 }
 
 /**
- * Безопасное определение WebAuthn Relying Party ID.
- * RP ID не должен содержать схему (https://) или порт (:8787).
+ * Resolve the WebAuthn Relying Party ID safely.
+ * The RP ID must not include a scheme (https://) or a port (:8787).
  */
 export function resolveRpID(c: OriginContext): string {
   let edgeHost = 'localhost';
@@ -229,7 +229,7 @@ export function resolveRpID(c: OriginContext): string {
 }
 
 /**
- * Проверка допустимости origin для CORS.
+ * Check whether an origin is allowed for CORS.
  * Loopback is exact-origin only (scheme+host+port). Other hosts still use the
  * allowlist, never a wildcard of localhost ports.
  */
@@ -464,7 +464,7 @@ export async function hasCredentials(env: Env): Promise<boolean> {
   return creds.some((c) => !c.disabled);
 }
 
-// ---------- registration (гейт: SETUP_TOKEN) ----------
+// ---------- registration (gate: SETUP_TOKEN) ----------
 
 export async function registrationOptions(env: Env, rpID: string) {
   if (isDemoMode(env)) throw new AuthError('DEMO_PASSKEY_DISABLED', 403);

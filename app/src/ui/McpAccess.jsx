@@ -1,4 +1,4 @@
-// S2-2: Экран «Доступ» и журнал вызовов MCP (issue #262)
+// S2-2: Access screen and MCP call log (issue #262)
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -338,7 +338,7 @@ export default function McpAccess({ demoMode = false }) {
   const [revokingId, setRevokingId] = useState(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
-  // Сворачиваемые блоки с персистентностью в localStorage
+  // Collapsible sections persisted in localStorage
   const [sectionsState, setSectionsState] = useState(loadMcpSectionsState);
 
   const toggleSection = (key) => {
@@ -349,7 +349,7 @@ export default function McpAccess({ demoMode = false }) {
     });
   };
 
-  // Фильтры, поиск, сортировка и пагинация журнала вызовов
+  // Filters, search, sort, and pagination for the call log
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // all | success | error | pending
   const [clientFilter, setClientFilter] = useState('all');
@@ -426,7 +426,7 @@ export default function McpAccess({ demoMode = false }) {
 
   const activeClients = useMemo(() => clients.filter((c) => c.tokens && c.tokens.length > 0), [clients]);
 
-  // Опции для выпадающих списков фильтров
+  // Options for the filter dropdowns
   const clientOptions = useMemo(() => {
     const map = new Map();
     for (const l of logs) {
@@ -445,14 +445,14 @@ export default function McpAccess({ demoMode = false }) {
     return Array.from(set).sort();
   }, [logs]);
 
-  // Статистика журнала
+  // Call-log statistics
   const successCount = useMemo(() => logs.filter((l) => l.status === 'success').length, [logs]);
   const errorCount = useMemo(() => logs.filter((l) => l.status === 'error').length, [logs]);
   const pendingCount = useMemo(() => logs.filter((l) => l.status === 'pending').length, [logs]);
   const successRate = logs.length > 0 ? Math.round((successCount / logs.length) * 100) : 100;
   const errorRate = logs.length > 0 ? Math.round((errorCount / logs.length) * 100) : 0;
 
-  // Отфильтрованный и отсортированный список
+  // Filtered and sorted list
   const filteredLogs = useMemo(() => {
     return filterAndSortAuditLogs(logs, {
       search,
@@ -464,7 +464,7 @@ export default function McpAccess({ demoMode = false }) {
     });
   }, [logs, search, statusFilter, clientFilter, toolFilter, sortField, sortDir]);
 
-  // Пагинированный список для отображения
+  // Paginated list for display
   const visibleLogs = useMemo(() => {
     return paginateAuditLogs(filteredLogs, limit, visibleCount);
   }, [filteredLogs, limit, visibleCount]);
@@ -515,7 +515,7 @@ export default function McpAccess({ demoMode = false }) {
         <div className="card loading-state">{t('access.loading')}</div>
       ) : (
         <>
-          {/* Блок 1: Устройства и passkeys (issue #507) */}
+          {/* Section 1: Devices and passkeys (issue #507) */}
           <PasskeysSection
             open={sectionsState.passkeysOpen}
             onToggle={() => toggleSection('passkeysOpen')}
@@ -523,7 +523,7 @@ export default function McpAccess({ demoMode = false }) {
             demoMode={demoMode}
           />
 
-          {/* Блок 2: Подключения */}
+          {/* Section 2: Connections */}
           <CollapsibleSection
             title={t('access.connections.title')}
             subtitle={String(activeClients.length)}
@@ -639,7 +639,7 @@ export default function McpAccess({ demoMode = false }) {
             )}
           </CollapsibleSection>
 
-          {/* Блок 2: Журнал вызовов */}
+          {/* Section 2: Call log */}
           <CollapsibleSection
             title={t('access.audit.title')}
             subtitle={String(logs.length)}
@@ -656,7 +656,7 @@ export default function McpAccess({ demoMode = false }) {
               </div>
             ) : (
               <>
-                {/* Панель инструментов: поиск, фильтры и статус-статистика */}
+                {/* Toolbar: search, filters, and status statistics */}
                 <div className="mcp-audit-toolbar">
                   <div className="mcp-audit-toolbar-top">
                     <div className="mcp-audit-search-box">
@@ -725,7 +725,7 @@ export default function McpAccess({ demoMode = false }) {
                     </div>
                   </div>
 
-                  {/* Единая горизонтальная скроллируемая строка статус-чипов со встроенной статистикой */}
+                  {/* One horizontal scrolling row of status chips with inline statistics */}
                   <div className="mcp-status-filter-scroll" role="group" aria-label={t('access.audit.statusAria')}>
                     <button
                       type="button"
@@ -844,7 +844,7 @@ export default function McpAccess({ demoMode = false }) {
                       </table>
                     </div>
 
-                    {/* Пагинация и Показать ещё */}
+                    {/* Pagination and Show more */}
                     <div className="mcp-audit-pagination">
                       {hiddenCount > 0 && limit !== 'all' && (
                         <button
