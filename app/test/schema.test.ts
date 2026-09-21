@@ -636,7 +636,7 @@ describe('accounts — NOT NULL у остальных колонок', () => {
 // Кавычки вокруг имени таблицы — след `ALTER TABLE ... RENAME TO`, а не часть
 // смысла схемы.
 const ACCOUNTS_DDL = `
-  CREATE TABLE "accounts" (
+  CREATE TABLE accounts (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL CHECK (length(trim(name)) > 0),
     bank TEXT,
@@ -652,7 +652,9 @@ const ACCOUNTS_DDL = `
       AND substr(balance_updated_at, 12, 2) <= '23'
     ),
     sort INTEGER NOT NULL DEFAULT 0,
-    archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1)) , account_number TEXT)`;
+    archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1)),
+    account_number TEXT
+  )`;
 
 describe('accounts — пересборка таблицы миграцией 0004', () => {
   it('сохранила определение таблицы целиком: колонки, DEFAULT, все CHECK', async () => {
@@ -662,71 +664,9 @@ describe('accounts — пересборка таблицы миграцией 00
     expect(normalizeDdl(row!.sql)).toBe(normalizeDdl(ACCOUNTS_DDL));
   });
 
-  /** Повторный прогон самой миграции — единственный способ увидеть перелив. */
-  async function replayMigration(): Promise<void> {
-    const rebuild = env.TEST_MIGRATIONS.find((m) => m.name.startsWith('0004'));
-    expect(rebuild, 'миграция 0004 не найдена в TEST_MIGRATIONS').toBeDefined();
-    await env.DB.batch(rebuild!.queries.map((q) => env.DB.prepare(q)));
-  }
-
-  it('перелила строку без потерь — списки колонок INSERT ... SELECT сходятся', async () => {
-    // Эталон DDL выше держит ОПРЕДЕЛЕНИЕ новой таблицы, но о самом переливе не
-    // знает ничего, а порча данных живёт именно там: переставленные местами
-    // колонки в списках копирования — валидный SQL, валидная схема и
-    // перепутанные значения. Setup применяет миграции к пустой базе, поэтому
-    // перелив там не исполняется ни на одной строке — и пересборка гоняется
-    // повторно, уже на непустой таблице.
-    //
-    // Фикстура здесь СВОЯ, а не `insertAccount()`, и это не дублирование.
-    // Тест сравнивает строку до и после, поэтому видит ровно те перестановки,
-    // где значения РАЗЛИЧНЫ; на паре одинаковых он слеп. `insertAccount()`
-    // оставляет `sort` и `archived` на DEFAULT 0, а `id` после `DELETE` в
-    // `beforeEach` снова равен 1 и до, и после перелива, — с ней перестановка
-    // `sort`/`archived`, выпадение `sort` и выпадение `id` из списков
-    // копирования проходили молча (проверено мутациями). Поэтому здесь заданы
-    // все одиннадцать колонок, попарно различными значениями: `id` заметный,
-    // `sort` ненулевой и не равный `archived`, тексты разные.
-    await env.DB.prepare(
-      `INSERT INTO accounts
-         (id, name, bank, type, owner, country, currency, balance_minor, balance_updated_at, sort, archived)
-       VALUES (42, 'Основной', 'Raiffeisen', 'Checking', 'Алекс', 'SRB', 'RSD', 123456, ?, 7, 1)`,
-    )
-      .bind(NOW)
-      .run();
-    const before = await env.DB.prepare('SELECT * FROM accounts').first();
-    await replayMigration();
-    // Миграция 0016 (account_number) применена в setup, но replayMigration
-    // пересобирает только 0004 и эту колонку не сохраняет. Сравниваем ровно
-    // те колонки, что переливает 0004, — иначе тест краснел бы на любую
-    // добавленную позже колонку счёта (см. #376).
-    const strip = (r: Record<string, unknown> | null) => { if (!r) return r; const { account_number, ...rest } = r; return rest; };
-    expect(strip(await env.DB.prepare('SELECT * FROM accounts').first())).toEqual(strip(before));
-  });
-
-  it('ЗАФИКСИРОВАННАЯ ГРАНИЦА: пересборка отвергается, если на счёт уже ссылается операция', async () => {
-    // Это не дефект, а осознанная граница миграции 0004, и тест держит её,
-    // чтобы следующий автор не выяснял всё заново. `accounts` — РОДИТЕЛЬ, а
-    // `DROP TABLE` при foreign_keys = 1 делает неявный DELETE всех строк:
-    // каждая строка, на которую ссылается операция, даёт нарушение FK.
-    // Обойти его в D1 нечем — `foreign_keys = OFF` там не действует, а
-    // `defer_foreign_keys` не спасает (разбор — в шапке миграции). Проходит
-    // только пересборка ВМЕСТЕ С ДЕТЬМИ, и она в 0004 намеренно не сделана:
-    // CRUD плановых и регулярных операций пишется в S1-3, до тех пор такой
-    // строки в базе не существует.
-    //
-    // Тест краснеет ровно тогда, когда это перестанет быть правдой, — то есть
-    // когда `accounts` тронет миграция уже после S1-3.
-    const accountId = await insertAccount();
-    await env.DB.prepare(
-      `INSERT INTO planned_items (date, title, amount_minor, currency, account_id)
-       VALUES ('2026-09-01', 'Аренда', -95000, 'RSD', ?)`,
-    )
-      .bind(accountId)
-      .run();
-    // Регулярка узкая намеренно: на общем `constraint failed` тест зеленел бы
-    // от любого постороннего нарушения, а падать должен именно внешний ключ.
-    await expect(replayMigration()).rejects.toThrow(/FOREIGN KEY/i);
-  });
+  // Public cut ships one squashed migration (0001). Historical rebuild
+  // replay for 0004 is not in this tree; the DDL snapshot above locks the
+  // table that 0001 creates directly.
 
   // Теста «ссылка на несуществующий счёт отвергается» здесь намеренно НЕТ,
   // хотя в блоке про пересборку 0003 такой есть. Там пересобиралась таблица,
@@ -1147,7 +1087,7 @@ describe('recurring_items — годовое правило и его месяц
 // Миграция, которая создаст эту таблицу напрямую, кавычек не даст — и эталон
 // придётся поправить именно здесь, не приняв это за потерю.
 const RECURRING_ITEMS_DDL = `
-  CREATE TABLE "recurring_items" (
+  CREATE TABLE recurring_items (
     id INTEGER PRIMARY KEY,
     title TEXT NOT NULL CHECK (length(trim(title)) > 0),
     amount_minor INTEGER NOT NULL CHECK (amount_minor <> 0),
@@ -1164,19 +1104,19 @@ const RECURRING_ITEMS_DDL = `
       AND next_due_date >= '0001-01-01'
     ),
     active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
-    end_date TEXT
-      CONSTRAINT recurring_items_end_date_format CHECK (
-        end_date IS NULL
-        OR (
-          date(end_date) IS NOT NULL
-          AND end_date = date(end_date)
-          AND end_date >= '0001-01-01'
-        )
-      )
-      CONSTRAINT recurring_items_end_date_after_anchor CHECK (
-        end_date IS NULL OR end_date >= next_due_date
-      ),
+    end_date TEXT,
     revision TEXT,
+    CONSTRAINT recurring_items_end_date_format CHECK (
+      end_date IS NULL
+      OR (
+        date(end_date) IS NOT NULL
+        AND end_date = date(end_date)
+        AND end_date >= '0001-01-01'
+      )
+    ),
+    CONSTRAINT recurring_items_end_date_after_anchor CHECK (
+      end_date IS NULL OR end_date >= next_due_date
+    ),
     CONSTRAINT recurring_items_rule_anchors CHECK (
       (frequency IN ('daily', 'weekly') AND day_of_month IS NULL AND month_of_year IS NULL)
       OR (frequency = 'monthly' AND day_of_month IS NOT NULL AND month_of_year IS NULL)
@@ -1205,17 +1145,6 @@ describe('recurring_items — пересборка таблицы миграци
       `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'recurring_items'`,
     ).first<{ sql: string }>();
     expect(normalizeDdl(row!.sql)).toBe(normalizeDdl(RECURRING_ITEMS_DDL));
-  });
-
-  it('перелив 0003 перечисляет одинаковые колонки INSERT и SELECT', () => {
-    // Повторно применять историческую 0003 к финальной схеме нельзя: поздняя
-    // 0017 добавляет `revision`, которой в 0003 ещё не существовало. Вместо
-    // разрушительного replay проверяем сам контракт перелива статически.
-    const rebuild = env.TEST_MIGRATIONS.find((m) => m.name.startsWith('0003'));
-    expect(rebuild, 'миграция 0003 не найдена в TEST_MIGRATIONS').toBeDefined();
-    const sql = rebuild!.queries.join(' ').replace(/\s+/g, ' ');
-    const expectedColumns = 'id, title, amount_minor, currency, account_id, category, frequency, interval_count, day_of_month, month_of_year, next_due_date, active, end_date';
-    expect(sql).toContain(`INSERT INTO recurring_items_new ( ${expectedColumns} ) SELECT ${expectedColumns} FROM recurring_items`);
   });
 
   it('сохранила внешний ключ живым, а не только записанным в DDL', async () => {
@@ -1734,7 +1663,7 @@ describe('operations и receipts', () => {
 // эталон DDL ловит колонки/CHECK/FK, повторный прогон на непустой таблице —
 // сам перелив (перестановка колонок в INSERT ... SELECT эталону не видна).
 const OPERATIONS_DDL = `
-  CREATE TABLE "operations" (
+  CREATE TABLE operations (
     id INTEGER PRIMARY KEY,
     date TEXT NOT NULL CHECK (
       date(date) IS NOT NULL AND date = date(date) AND date >= '0001-01-01'
@@ -1783,17 +1712,6 @@ describe('operations — пересборка таблицы миграцией 
       `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'operations'`,
     ).first<{ sql: string }>();
     expect(normalizeDdl(row!.sql)).toBe(normalizeDdl(OPERATIONS_DDL));
-  });
-
-  it('перелив 0011 перечисляет одинаковые колонки INSERT и SELECT', () => {
-    // 0017 добавляет composite parent index для closure. Повторный replay 0011
-    // после неё удалил бы этот поздний индекс и сделал FK некорректным, поэтому
-    // проверяем исторический контракт перелива без мутации финальной схемы.
-    const rebuild = env.TEST_MIGRATIONS.find((m) => m.name.startsWith('0011'));
-    expect(rebuild, 'миграция 0011 не найдена в TEST_MIGRATIONS').toBeDefined();
-    const sql = rebuild!.queries.join(' ').replace(/\s+/g, ' ');
-    const expectedColumns = 'id, date, account_id, kind, store, item, category, subcategory, amount_minor, receipt_id, source, planned_item_id, recurring_item_id, transfer_id';
-    expect(sql).toContain(`INSERT INTO operations_new ( ${expectedColumns} ) SELECT ${expectedColumns} FROM operations`);
   });
 
   it('сохранила определения индексов, а не только имена', async () => {
