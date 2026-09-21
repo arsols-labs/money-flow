@@ -137,6 +137,7 @@ See [SECURITY.md](./SECURITY.md). Please report vulnerabilities through GitHub S
 - [**Sponsor**](https://www.arsols.com/sponsor) — formal sponsorship
 - Feedback: [GitHub Discussions](https://github.com/arsols-labs/money-flow/discussions)
 - Demo: [demo.money-flow.arsols.com](https://demo.money-flow.arsols.com)
+- Product questions: [product contact](https://www.money-flow.arsols.com) ([www.money-flow.arsols.com](https://www.money-flow.arsols.com))
 - Commercial / custom setup: [sponsor](https://www.arsols.com/sponsor) or [GitHub Discussions](https://github.com/arsols-labs/money-flow/discussions)
 
 ## About
