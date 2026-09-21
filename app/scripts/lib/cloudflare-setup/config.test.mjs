@@ -114,7 +114,7 @@ describe('rateLimitNamespaceIds', () => {
     const a = rateLimitNamespaceIds('money-flow');
     const b = rateLimitNamespaceIds('money-flow');
     assert.deepEqual(a, b);
-    assert.equal(new Set(a).size, 4);
+    assert.equal(new Set(a).size, 5);
     assert.notDeepEqual(a, rateLimitNamespaceIds('other-app'));
     for (const id of [...a, ...rateLimitNamespaceIds('other-app')]) {
       assert.equal(RESERVED_PRODUCTION_RATE_LIMIT_IDS.includes(id), false);

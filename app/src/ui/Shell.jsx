@@ -24,6 +24,7 @@ import Analytics from './Analytics';
 import Data from './Data';
 import Pulse from './Pulse';
 import McpAccess from './McpAccess';
+import DemoBanner from './DemoBanner';
 
 export const ALL_TABS = [
   { key: 'pulse', hash: '', titleKey: 'shell.tabs.pulse', icon: Activity },
@@ -43,7 +44,7 @@ export function tabFromHash(hash) {
 /**
  * @param {{ theme: string, setTheme: (theme: string) => void, resolvedTheme?: 'light' | 'dark' }} props
  */
-export default function Shell({ theme, setTheme, resolvedTheme }) {
+export default function Shell({ theme, setTheme, resolvedTheme, demoMode = false }) {
   const { t } = useTranslation();
   const refresh = useRefresh();
   const [tab, setTab] = useState(tabFromHash);
@@ -152,6 +153,7 @@ export default function Shell({ theme, setTheme, resolvedTheme }) {
       <div className="app-main">
         <div className="container">
           <div className="appbar" ref={appbarRef}>
+            {demoMode && <DemoBanner />}
             <header className="topbar">
               <h1>{t(activeTab.titleKey)}</h1>
               <div className="topbar-actions">
@@ -246,7 +248,7 @@ export default function Shell({ theme, setTheme, resolvedTheme }) {
               onCustomizingChange={setAnalyticsCustomizing}
             />
           )}
-          {activeTab.key === 'access' && <McpAccess />}
+          {activeTab.key === 'access' && <McpAccess demoMode={demoMode} />}
         </div>
       </div>
 

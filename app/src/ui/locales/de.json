@@ -117,7 +117,9 @@
     "signOut": "Abmelden",
     "signOutAria": "Abmelden und diese Sitzung löschen",
     "setupTokenQueryRemoved": "Das Setup-Token wurde aus dem Adressfragment übernommen und unten eingesetzt.",
-    "setupTokenQueryIgnored": "Ein Setup-Token in der Query-Zeichenfolge wird ignoriert. Unten eingeben."
+    "setupTokenQueryIgnored": "Ein Setup-Token in der Query-Zeichenfolge wird ignoriert. Unten eingeben.",
+    "demoBanner": "Dies ist eine öffentliche Demo, keine Produktionsdaten. Änderungen bleiben in dieser Browsersitzung. Der Money-Flow-Quellcode steht unter PolyForm Noncommercial 1.0.0.",
+    "demoPasskeysDisabled": "Die Passkey-Registrierung ist in dieser öffentlichen Demo deaktiviert. Die Sitzungsanmeldung funktioniert weiter. Das Buch gehört nur zu dieser Browsersitzung."
   },
   "validation": {
     "enterAmount": "Betrag eingeben",
@@ -1066,6 +1068,8 @@
     "BACKUP_IMPORT_FAILED": "Sicherung konnte nicht wiederhergestellt werden",
     "RESET_CONFIRM_REQUIRED": "Zurücksetzen löscht alle Finanzdaten — nach der UI-Warnung confirm: true senden",
     "RESET_PHRASE_REQUIRED": "RESET eingeben, um das Löschen aller Finanzdaten zu bestätigen",
-    "RESET_FAILED": "Instanz konnte nicht zurückgesetzt werden"
+    "RESET_FAILED": "Instanz konnte nicht zurückgesetzt werden",
+    "DEMO_PASSKEY_DISABLED": "Die Passkey-Registrierung ist in der öffentlichen Demo deaktiviert",
+    "DEMO_LEDGER_UNAVAILABLE": "Das Demo-Buch ist nicht verfügbar"
   }
 }

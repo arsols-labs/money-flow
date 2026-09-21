@@ -6,8 +6,22 @@ import path from 'node:path';
 import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-pool-workers';
 import { defineConfig } from 'vitest/config';
 
+function sqlTextPlugin() {
+  return {
+    name: 'sql-text',
+    enforce: 'pre' as const,
+    async load(id: string) {
+      const file = id.split('?')[0] ?? id;
+      if (!file.endsWith('.sql')) return null;
+      const text = await readFile(file, 'utf8');
+      return `export default ${JSON.stringify(text)};`;
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
+    sqlTextPlugin(),
     cloudflareTest(async () => {
       const migrations = await readD1Migrations(path.join(import.meta.dirname, 'migrations'));
       // Палитра проверяется тестом по самому CSS (issue #252). Файл читается

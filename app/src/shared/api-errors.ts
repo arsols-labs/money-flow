@@ -140,6 +140,8 @@ export const API_ERROR_CODES = [
   'PASSKEY_LIMIT_REACHED',
   'PASSKEY_CHALLENGE_EXPIRED',
   'PASSKEY_NOT_REGISTERED',
+  'DEMO_PASSKEY_DISABLED',
+  'DEMO_LEDGER_UNAVAILABLE',
   'STEP_UP_REQUIRED',
 
   'NAME_REQUIRED',
@@ -338,6 +340,8 @@ export const API_ERROR_MESSAGES: Record<ApiErrorCode, string> = {
   PASSKEY_LIMIT_REACHED: 'Limit reached: maximum 10 passkeys',
   PASSKEY_CHALLENGE_EXPIRED: 'Challenge expired — try again',
   PASSKEY_NOT_REGISTERED: 'No passkey is registered — start with /setup/passkey',
+  DEMO_PASSKEY_DISABLED: 'Passkey enrollment is disabled on the public demo',
+  DEMO_LEDGER_UNAVAILABLE: 'The demo ledger is unavailable',
   STEP_UP_REQUIRED: 'Confirm with an existing passkey or SETUP_TOKEN before changing login factors',
 
   NAME_REQUIRED: 'name is required',

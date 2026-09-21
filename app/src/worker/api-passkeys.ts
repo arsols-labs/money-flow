@@ -20,6 +20,7 @@ import {
   createSessionCookie,
 } from './auth';
 import { AppError, fail, failCaught } from './api-error';
+import { isDemoMode } from './demo-flag';
 
 const passkeysApi = new Hono<{ Bindings: Env }>();
 
@@ -49,6 +50,7 @@ passkeysApi.get('/', async (c) => {
  * Генерация options для регистрации нового passkey авторизованным пользователем.
  */
 passkeysApi.post('/register-options', async (c) => {
+  if (isDemoMode(c.env)) return fail(c, 'DEMO_PASSKEY_DISABLED', 403);
   try {
     const body = await c.req.json().catch(() => ({}));
     await requireFreshAuth(c.env, c.req.header('Cookie'), body.token);
@@ -66,6 +68,7 @@ passkeysApi.post('/register-options', async (c) => {
  * Верификация и сохранение нового passkey от авторизованного пользователя.
  */
 passkeysApi.post('/register-verify', async (c) => {
+  if (isDemoMode(c.env)) return fail(c, 'DEMO_PASSKEY_DISABLED', 403);
   const body = await c.req.json().catch(() => ({}));
   if (!body.response) {
     return fail(c, 'PASSKEY_RESPONSE_REQUIRED', 400);

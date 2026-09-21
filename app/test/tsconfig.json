@@ -11,6 +11,7 @@
   "include": [
     "./**/*.ts",
     "../src/worker/**/*.ts",
+    "../src/worker/**/*.d.ts",
     "../src/shared/**/*.ts",
     "../src/ui/money.js",
     "../src/ui/language.js",

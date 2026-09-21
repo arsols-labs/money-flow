@@ -45,6 +45,10 @@ import { AppError, fail, failCaught } from './api-error';
 import { timingSafeEqualString } from './crypto-eq';
 import { clientIpFromHeaders, consumeRateLimit, RATE_LIMITS, type RateLimitBinding } from './rate-limit';
 import { consentSecurityHeaders, workerSecurityHeaders } from './security-headers';
+import { clearDemoSessionCookie } from './demo-cookie';
+import { DEMO_DISCLAIMER, isDemoMode } from './demo-flag';
+import { maybeDemoFetch } from './demo-request';
+import { DemoSession } from './demo-session';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -77,6 +81,8 @@ function rateLimitBinding(
       return env.RATE_LIMIT_AUTH_LOGIN;
     case 'mcpDispatch':
       return env.RATE_LIMIT_MCP_DISPATCH;
+    case 'demoSession':
+      return env.RATE_LIMIT_DEMO_SESSION;
     default:
       return undefined;
   }
@@ -145,9 +151,23 @@ function validSetupToken(env: Env, token: unknown): boolean {
 
 // ---------- WebAuthn ----------
 
+app.get('/api/config', (c) => {
+  if (!isDemoMode(c.env)) return c.json({ demoMode: false });
+  return c.json({ demoMode: true, disclaimer: DEMO_DISCLAIMER });
+});
+
+async function setupPasskeyDocument(c: Context<{ Bindings: Env }>) {
+  if (isDemoMode(c.env)) return fail(c, 'DEMO_PASSKEY_DISABLED', 403);
+  return c.env.ASSETS.fetch(c.req.raw);
+}
+
+app.all('/setup/passkey', setupPasskeyDocument);
+app.all('/setup/passkey/', setupPasskeyDocument);
+
 app.post('/api/auth/register/options', async (c) => {
   const limited = await rejectIfRateLimited(c, 'authSetup');
   if (limited) return limited;
+  if (isDemoMode(c.env)) return fail(c, 'DEMO_PASSKEY_DISABLED', 403);
   const body = await c.req.json().catch(() => ({}));
   if (!validSetupToken(c.env, body.token)) return fail(c, 'FORBIDDEN', 403);
   const options = await registrationOptions(c.env, resolveRpID(c));
@@ -158,6 +178,7 @@ app.post('/api/auth/register/options', async (c) => {
 app.post('/api/auth/register/verify', async (c) => {
   const limited = await rejectIfRateLimited(c, 'authSetup');
   if (limited) return limited;
+  if (isDemoMode(c.env)) return fail(c, 'DEMO_PASSKEY_DISABLED', 403);
   const body = await c.req.json().catch(() => ({}));
   if (!validSetupToken(c.env, body.token)) return fail(c, 'FORBIDDEN', 403);
   const currentOrigin = resolveOrigin(c);
@@ -201,10 +222,12 @@ app.post('/api/auth/login/verify', async (c) => {
 });
 
 app.get('/api/auth/me', async (c) => {
+  const demoMode = isDemoMode(c.env);
   const authenticated = await verifySessionCookie(c.env, c.req.header('Cookie'));
   return c.json({
     authenticated,
-    hasPasskeys: await hasCredentials(c.env),
+    hasPasskeys: demoMode ? false : await hasCredentials(c.env),
+    demoMode,
   });
 });
 
@@ -225,7 +248,11 @@ app.post('/api/auth/logout', async (c) => {
     return fail(c, 'LOGOUT_REVOKE_FAILED', 503);
   }
   const currentOrigin = resolveOrigin(c);
-  c.header('Set-Cookie', clearSessionCookie(currentOrigin.startsWith('https')));
+  const secure = currentOrigin.startsWith('https');
+  c.header('Set-Cookie', clearSessionCookie(secure));
+  if (isDemoMode(c.env)) {
+    c.header('Set-Cookie', clearDemoSessionCookie(secure), { append: true });
+  }
   return c.body(null, 204);
 });
 
@@ -680,5 +707,9 @@ app.route('/api/v2', apiV2);
 
 app.all('/api/*', (c) => fail(c, 'NOT_FOUND', 404));
 
-export { app };
+const rawFetch = app.fetch.bind(app);
+app.fetch = ((request: Request, env?: Env, ctx?: ExecutionContext) =>
+  maybeDemoFetch(request, env, ctx, rawFetch)) as typeof app.fetch;
+
+export { app, DemoSession };
 export default app;

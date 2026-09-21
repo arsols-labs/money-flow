@@ -117,7 +117,9 @@
     "signOut": "Odjava",
     "signOutAria": "Odjavi se i obriši ovu sesiju",
     "setupTokenQueryRemoved": "Setup token je preuzet iz fragmenta adrese i stavljen u polje ispod.",
-    "setupTokenQueryIgnored": "Setup token u query-ju adrese se ignoriše. Unesite ga u polje ispod."
+    "setupTokenQueryIgnored": "Setup token u query-ju adrese se ignoriše. Unesite ga u polje ispod.",
+    "demoBanner": "Ovo je javni demo, ne produkcioni podaci. Izmene ostaju u ovoj sesiji pregledača. Izvorni kod Money Flow je pod licencom PolyForm Noncommercial 1.0.0.",
+    "demoPasskeysDisabled": "Registracija Passkey-a je isključena na ovom javnom demou. Prijava sesijom i dalje radi. Knjiga pripada samo ovoj sesiji pregledača."
   },
   "validation": {
     "enterAmount": "Unesite iznos",
@@ -1066,6 +1068,8 @@
     "BACKUP_IMPORT_FAILED": "Rezervna kopija se nije vratila",
     "RESET_CONFIRM_REQUIRED": "Reset briše sve finansijske podatke — pošaljite confirm: true posle upozorenja u UI",
     "RESET_PHRASE_REQUIRED": "Ukucajte RESET da potvrdite brisanje svih finansijskih podataka",
-    "RESET_FAILED": "Instanca se nije resetovala"
+    "RESET_FAILED": "Instanca se nije resetovala",
+    "DEMO_PASSKEY_DISABLED": "Registracija Passkey-a je isključena na javnom demou",
+    "DEMO_LEDGER_UNAVAILABLE": "Demo knjiga nije dostupna"
   }
 }

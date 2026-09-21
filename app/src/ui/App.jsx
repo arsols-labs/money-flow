@@ -3,6 +3,7 @@ import { api } from './api';
 import Login from './Login';
 import PasskeySetup from './PasskeySetup';
 import Shell from './Shell';
+import DemoBanner from './DemoBanner';
 import { RefreshProvider } from './RefreshContext';
 import { resolveTheme } from './theme';
 
@@ -11,6 +12,17 @@ export default function App() {
   const [auth, setAuth] = useState({ state: 'checking', hasPasskeys: false });
   const [theme, setTheme] = useState(() => localStorage.getItem('mf_theme') || 'system');
   const [resolvedTheme, setResolvedTheme] = useState(() => resolveTheme(theme));
+  const [demoMode, setDemoMode] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.publicConfig()
+      .then((cfg) => {
+        if (!cancelled) setDemoMode(Boolean(cfg && cfg.demoMode));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('mf_theme', theme);
@@ -49,18 +61,22 @@ export default function App() {
   if (isSetupRoute) {
     return (
       <div className="app">
-        <PasskeySetup />
+        {demoMode && <DemoBanner />}
+        <PasskeySetup demoMode={demoMode} />
       </div>
     );
   }
 
   return (
     <div className="app">
+      {auth.state !== 'authed' && demoMode && <DemoBanner />}
       {auth.state === 'checking' && <div className="auth-screen" />}
-      {auth.state === 'anon' && <Login hasPasskeys={auth.hasPasskeys} onSuccess={check} />}
+      {auth.state === 'anon' && (
+        <Login hasPasskeys={auth.hasPasskeys} onSuccess={check} demoMode={demoMode} />
+      )}
       {auth.state === 'authed' && (
         <RefreshProvider>
-          <Shell theme={theme} resolvedTheme={resolvedTheme} setTheme={setTheme} />
+          <Shell theme={theme} resolvedTheme={resolvedTheme} setTheme={setTheme} demoMode={demoMode} />
         </RefreshProvider>
       )}
     </div>

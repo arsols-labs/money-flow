@@ -7,6 +7,51 @@ This directory is a Cloudflare Worker (`src/worker/`) plus a React SPA
 (`src/ui/`) backed by D1 and KV. After clone you can stand up **your own**
 instance on a Cloudflare Free account.
 
+## Public demo (`DEMO_MODE`)
+
+[https://money-flow.arsols.com](https://money-flow.arsols.com) is the **public demo**, not a
+production ledger. The demo Worker sets `DEMO_MODE` to `"1"`.
+
+- Each browser gets an `mf_demo_sid` cookie (HttpOnly; Secure on HTTPS) that
+  names a `DemoSession` Durable Object. That object holds a private SQLite
+  ledger.
+- The first touch applies `migrations/0001_initial_schema.sql` and the
+  stranger-safe `scripts/seed-demo.sql` (US / UK / DE / CA showcase) inside
+  the object. Later reads and writes for that session use only that SQLite
+  database.
+- The shared `DB` binding may stay in Wrangler for a non-demo deploy or for
+  ops. While `DEMO_MODE=1`, ledger queries do not use it.
+- Setup and session login still work. Passkey enrollment
+  (`/api/auth/register/*`, `/api/v2/passkeys/register-*`, `/setup/passkey`)
+  returns 403. Auth and MCP rate limits stay in place; new demo sessions are
+  also limited per IP.
+- Idle ledgers are deleted after 24 hours. The UI shows that this is a demo
+  and that the source is PolyForm Noncommercial.
+
+Self-hosted installs leave `DEMO_MODE` unset and keep using D1.
+
+Bind the object without a Cloudflare account id (Wrangler creates the
+namespace on deploy). Example shape, placeholders only:
+
+```jsonc
+{
+  "durable_objects": {
+    "bindings": [{ "name": "DEMO_SESSION", "class_name": "DemoSession" }]
+  },
+  "migrations": [
+    { "tag": "v1-demo-session", "new_sqlite_classes": ["DemoSession"] }
+  ],
+  "rules": [
+    { "type": "Text", "globs": ["migrations/*.sql", "scripts/*.sql"], "fallthrough": false }
+  ],
+  "vars": { "DEMO_MODE": "1", "APP_DOMAIN": "money-flow.arsols.com" }
+}
+```
+
+`npm run setup` writes the `DEMO_SESSION` binding into gitignored
+`wrangler.local.jsonc` and does **not** turn on `DEMO_MODE`. Set that var
+only on the demo Worker. Do not commit real binding ids.
+
 Self-hosting uses `npm run setup` on **your** Cloudflare account. Maintainer
 preview aliases are a separate internal path and are not required here.
 

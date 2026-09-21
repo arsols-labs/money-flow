@@ -117,7 +117,9 @@
     "signOut": "Déconnexion",
     "signOutAria": "Se déconnecter et effacer cette session",
     "setupTokenQueryRemoved": "Le jeton de configuration a été pris dans le fragment d’adresse et placé dans le champ ci-dessous.",
-    "setupTokenQueryIgnored": "Un jeton de configuration dans la requête d’adresse est ignoré. Le saisir dans le champ ci-dessous."
+    "setupTokenQueryIgnored": "Un jeton de configuration dans la requête d’adresse est ignoré. Le saisir dans le champ ci-dessous.",
+    "demoBanner": "Ceci est une démo publique, pas des données de production. Les changements restent dans cette session de navigateur. Le code source de Money Flow est sous licence PolyForm Noncommercial 1.0.0.",
+    "demoPasskeysDisabled": "L’enregistrement de Passkey est désactivé sur cette démo publique. La connexion par session fonctionne toujours. Le livre reste privé à cette session de navigateur."
   },
   "validation": {
     "enterAmount": "Saisir un montant",
@@ -1066,6 +1068,8 @@
     "BACKUP_IMPORT_FAILED": "Impossible de restaurer la sauvegarde",
     "RESET_CONFIRM_REQUIRED": "La réinitialisation efface toutes les données financières — envoyer confirm: true après l’avertissement de l’interface",
     "RESET_PHRASE_REQUIRED": "Saisir RESET pour confirmer l’effacement de toutes les données financières",
-    "RESET_FAILED": "Impossible de réinitialiser l’instance"
+    "RESET_FAILED": "Impossible de réinitialiser l’instance",
+    "DEMO_PASSKEY_DISABLED": "L’enregistrement de Passkey est désactivé sur la démo publique",
+    "DEMO_LEDGER_UNAVAILABLE": "Le livre de démo est indisponible"
   }
 }

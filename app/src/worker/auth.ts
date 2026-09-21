@@ -15,6 +15,8 @@ import type {
 import type { Env } from './types';
 import { AuthError } from './api-error';
 import { timingSafeEqualString } from './crypto-eq';
+import { readDemoSessionId } from './demo-cookie';
+import { isDemoMode } from './demo-flag';
 
 const RP_NAME = 'Money Flow v2';
 const USER_NAME = 'alex';
@@ -465,6 +467,7 @@ export async function hasCredentials(env: Env): Promise<boolean> {
 // ---------- registration (гейт: SETUP_TOKEN) ----------
 
 export async function registrationOptions(env: Env, rpID: string) {
+  if (isDemoMode(env)) throw new AuthError('DEMO_PASSKEY_DISABLED', 403);
   const creds = await getCredentials(env);
   if (creds.length >= MAX_PASSKEYS_COUNT) {
     throw new AuthError('PASSKEY_LIMIT_REACHED');
@@ -495,6 +498,7 @@ export async function registrationVerify(
   label: string,
   ceremonyId?: string,
 ): Promise<boolean> {
+  if (isDemoMode(env)) throw new AuthError('DEMO_PASSKEY_DISABLED', 403);
   const expectedChallenge = await consumeCeremonyChallenge(env, KV_CHALLENGE_REG, ceremonyId);
   if (!expectedChallenge) throw new AuthError('PASSKEY_CHALLENGE_EXPIRED');
 
@@ -810,5 +814,6 @@ export async function revokeSessionCookie(env: Env, cookieHeader: string | undef
 }
 
 export async function verifySessionCookie(env: Env, cookieHeader: string | undefined): Promise<boolean> {
+  if (isDemoMode(env) && readDemoSessionId(cookieHeader)) return true;
   return (await readSessionClaims(env, cookieHeader)) !== null;
 }
