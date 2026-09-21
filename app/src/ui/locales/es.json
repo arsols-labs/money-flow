@@ -117,9 +117,9 @@
     "signOut": "Cerrar sesión",
     "signOutAria": "Cerrar sesión y borrar los datos de esta sesión",
     "setupTokenQueryRemoved": "El token de configuración se ha tomado del fragmento de la dirección y se ha colocado en el campo inferior.",
-    "setupTokenQueryIgnored": "Se ignora un token de configuración en la consulta de la dirección. Introducirlo en el campo inferior.",
-    "demoBanner": "Esto es una demo pública, no datos de producción. Los cambios se quedan en esta sesión del navegador. El código fuente de Money Flow está bajo PolyForm Noncommercial 1.0.0.",
-    "demoPasskeysDisabled": "El registro de Passkey está desactivado en esta demo pública. El inicio de sesión sigue disponible. El libro es privado de esta sesión del navegador."
+    "setupTokenQueryIgnored": "A setup token in the address query is ignored. Enter it in the field below.",
+    "demoBanner": "This is a public demo, not production data. Changes stay in this browser session. The Money Flow source code is licensed under PolyForm Noncommercial 1.0.0.",
+    "demoPasskeysDisabled": "Passkey enrollment is disabled on this public demo. Session sign-in still works. The ledger is private to this browser session."
   },
   "validation": {
     "enterAmount": "Introducir un importe",
@@ -1068,8 +1068,8 @@
     "BACKUP_IMPORT_FAILED": "No se ha podido restaurar la copia",
     "RESET_CONFIRM_REQUIRED": "Restablecer borra todos los datos financieros — enviar confirm: true tras el aviso de la UI",
     "RESET_PHRASE_REQUIRED": "Escriba RESET para confirmar el borrado de todos los datos financieros",
-    "RESET_FAILED": "No se ha podido restablecer la instancia",
-    "DEMO_PASSKEY_DISABLED": "El registro de Passkey está desactivado en la demo pública",
-    "DEMO_LEDGER_UNAVAILABLE": "El libro de la demo no está disponible"
+    "RESET_FAILED": "Could not reset the instance",
+    "DEMO_PASSKEY_DISABLED": "Passkey enrollment is disabled on the public demo",
+    "DEMO_LEDGER_UNAVAILABLE": "The demo ledger is unavailable"
   }
 }

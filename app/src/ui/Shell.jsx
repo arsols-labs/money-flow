@@ -1,18 +1,18 @@
-// Каркас приложения после входа: шапка, тема, навигация.
+// App frame after sign-in: header, theme, navigation.
 //
-// Шапка и полоска разделов — один липкий блок `.appbar` (issue #329 и
-// требование владельца 2026-08-21): базовая валюта, «Обновить», язык, тема и выбор
-// раздела должны быть под рукой на любой глубине скролла, а не только полоска
-// табов. Раздельными sticky-элементами это не делается: у них общий верх, и
-// второй наезжал бы на первый.
+// The header and the section strip are one sticky `.appbar` block (issue #329
+// and the 2026-08-21 owner requirement): base currency, Refresh, language,
+// theme, and section choice stay reachable at any scroll depth, not only the
+// tab strip. Separate sticky elements cannot do this: they share the same top,
+// and the second would overlap the first.
 //
-// Строка-надпись «MONEY FLOW V2» из шапки убрана: она занимала целую строку
-// липкого блока, ничего не сообщая (приложение и так одно), а высота липкого
-// блока — это то, что он отъедает у контента на каждом экране.
+// The "MONEY FLOW V2" label was removed from the header. It took a full row of
+// the sticky block without adding information, and sticky height is space taken
+// from content on every screen.
 //
-// Высота блока меняется (перенос строки на узком экране), поэтому она не
-// зашита в CSS числом, а измеряется и кладётся в `--appbar-h`: липкие панели
-// фильтров внутри разделов встают ровно под шапкой по этой переменной.
+// Block height changes when the row wraps on a narrow screen, so it is not a
+// fixed CSS number. It is measured into `--appbar-h`: sticky filter panels
+// inside sections sit directly under the header using that variable.
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Activity, ChartPie, DatabaseZap, Shield, MoreHorizontal, Check, RefreshCw, SlidersHorizontal, LogOut } from 'lucide-react';
@@ -106,7 +106,7 @@ export default function Shell({ theme, setTheme, resolvedTheme, demoMode = false
 
   return (
     <div className="app-shell">
-      {/* Навигационная рельса (Navigation Rail) для Medium и Expanded (>= 600px) */}
+      {/* Navigation rail for Medium and Expanded (>= 600px) */}
       <aside className="nav-rail" aria-label={t('shell.nav.main')}>
         <a
           href="#"
@@ -252,7 +252,7 @@ export default function Shell({ theme, setTheme, resolvedTheme, demoMode = false
         </div>
       </div>
 
-      {/* Нижняя панель навигации (Bottom Navigation Bar) для Compact (< 600px) */}
+      {/* Bottom navigation bar for Compact (< 600px) */}
       <nav className="bottom-nav" aria-label={t('shell.nav.mobile')}>
         {ALL_TABS.map((navTab) => {
           const Icon = navTab.icon;

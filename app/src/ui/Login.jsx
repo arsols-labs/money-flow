@@ -10,7 +10,7 @@ export default function Login({ hasPasskeys, onSuccess, demoMode = false }) {
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-  // Форма регистрации раскрыта сразу, если passkey ещё ни одного нет.
+  // The registration form starts open when no passkey exists yet.
   const [showRegister, setShowRegister] = useState(!hasPasskeys);
 
   const login = async () => {

@@ -106,7 +106,7 @@ async function rejectIfRateLimited(
   return res;
 }
 
-// CORS middleware с валидацией origin (защита от Origin Spoofing)
+// CORS middleware with origin validation (origin-spoofing protection)
 app.use(
   '/api/*',
   cors({
@@ -191,7 +191,7 @@ app.post('/api/auth/register/verify', async (c) => {
     parseCeremonyId(c.req.header('Cookie')),
   );
   if (!verified) return fail(c, 'INVALID_CREDENTIALS', 400);
-  // Сразу логиним устройство, на котором зарегистрировали passkey.
+  // Sign in the device that just registered the passkey.
   c.header('Set-Cookie', await createSessionCookie(c.env, currentOrigin.startsWith('https')));
   return c.json({ verified: true });
 });
@@ -349,7 +349,7 @@ function normalizeWellKnownPath(pathname: string): string {
   return pathname;
 }
 
-/** Пути, которые workers-oauth-provider обрабатывает сам, не уходя в defaultHandler. */
+/** Paths that workers-oauth-provider handles itself, without defaultHandler. */
 function providerHandlesWellKnown(pathname: string): boolean {
   return (
     pathname === OAUTH_AS_METADATA_PATH ||
@@ -359,9 +359,10 @@ function providerHandlesWellKnown(pathname: string): boolean {
 }
 
 /**
- * Клиенты вроде Gemini бьют в OIDC / path-aware AS. Провайдер знает только
- * точный RFC 8414 путь — остальное через defaultHandler = app.fetch даёт
- * рекурсию и 500. Эти алиасы отдаём тем же AS JSON.
+ * Clients such as Gemini request OIDC / path-aware authorization-server
+ * metadata. The provider only knows the exact RFC 8414 path. Anything else
+ * through defaultHandler = app.fetch recurses and returns 500. These aliases
+ * return the same authorization-server JSON.
  */
 function isAuthorizationServerMetadataAlias(pathname: string): boolean {
   const path = normalizeWellKnownPath(pathname);
@@ -583,11 +584,12 @@ app.post('/api/auth/oauth/authorize', async (c) => {
     },
   });
 
-  // RFC 9207: issuer identification в успешном авторизационном ответе.
-  // Библиотека кладёт iss условно и резолвит issuer из origin самого запроса
-  // (token-эндпоинт задан как путь), поэтому при неканоническом origin iss
-  // может быть неверным или отсутствовать. Ставим iss БЕЗУСЛОВНО, побайтово
-  // совпадая с issuer из AS-метаданных (без trailing slash).
+  // RFC 9207: issuer identification on a successful authorization response.
+  // The library sets iss conditionally and resolves the issuer from the
+  // request origin (the token endpoint is configured as a path), so a
+  // non-canonical origin can make iss wrong or missing. Set iss
+  // unconditionally, byte-for-byte equal to the issuer in the
+  // authorization-server metadata (no trailing slash).
   const currentOrigin = resolveOrigin(c);
   const authorizeRedirect = new URL(redirectTo);
   authorizeRedirect.searchParams.set('iss', currentOrigin);
@@ -636,15 +638,16 @@ app.post('/api/auth/oauth/authorize', async (c) => {
     return fail(c, 'OAUTH_GRANT_RECORD_FAILED', 503);
   }
 
-  // RFC 9207: issuer identification в успешном авторизационном ответе.
-  // Кладём iss и в query-параметр (уже выше), и в HTTP header Authorization-Response-Iss
-  // (draft RFC 9207) — некоторые mcp-клиенты ожидают header, а не query.
+  // RFC 9207: issuer identification on a successful authorization response.
+  // Put iss in the query parameter (already set above) and in the
+  // Authorization-Response-Iss HTTP header (draft RFC 9207). Some MCP clients
+  // expect the header rather than the query parameter.
   const authorizeResponse = c.redirect(authorizeRedirect.toString(), 302);
   authorizeResponse.headers.set('Authorization-Response-Iss', currentOrigin);
   return authorizeResponse;
 });
 
-// До catch-all роутов: делегирование в OAuthProvider для RFC 9728, RFC 8414, token, register и mcp
+// Before the catch-all routes: delegate to OAuthProvider for RFC 9728, RFC 8414, token, register, and mcp
 function getOAuthProviderForRequest(req: Request, env?: Env) {
   const origin = resolveOrigin({ req, env });
   return createOAuthProvider(
@@ -702,7 +705,7 @@ app.all('/mcp/*', async (c) => {
   return getOAuthProviderForRequest(c.req.raw, c.env).fetch(c.req.raw, c.env, safeExecutionCtx(c) as any);
 });
 
-// ДО catch-all: иначе все /api/v2/* роуты уходили бы в общий 404 ниже.
+// Before the catch-all: otherwise every /api/v2/* route would hit the shared 404 below.
 app.route('/api/v2', apiV2);
 
 app.all('/api/*', (c) => fail(c, 'NOT_FOUND', 404));

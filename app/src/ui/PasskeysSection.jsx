@@ -1,4 +1,4 @@
-// S2-2: Управление устройствами и passkeys (issue #507)
+// S2-2: Device and passkey management (issue #507)
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';

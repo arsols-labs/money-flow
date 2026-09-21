@@ -29,9 +29,9 @@ export function consumeSetupTokenQuery() {
   return { token, discardedQueryToken };
 }
 
-// Инлайн-форма регистрации passkey: используется и на экране логина,
-// и на отдельной странице /setup/passkey. Токен — только из password-поля
-// (или одноразово перенесён из фрагмента #token=).
+// Inline passkey registration form, used on the login screen and on
+// /setup/passkey. The token comes only from the password field (or is
+// copied once from the #token= fragment).
 export function RegisterForm({ initialToken = '', onSuccess }) {
   const { t } = useTranslation();
   const [token, setToken] = useState(initialToken);
