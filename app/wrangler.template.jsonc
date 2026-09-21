@@ -27,7 +27,7 @@
     }
   ],
   // DemoSession has no account binding id. Set vars.DEMO_MODE to "1" only for a
-  // public demo Worker (money-flow.arsols.com). Self-host installs leave it unset.
+  // public demo Worker (demo.money-flow.arsols.com). Self-host installs leave it unset.
   "durable_objects": {
     "bindings": [
       { "name": "DEMO_SESSION", "class_name": "DemoSession" }

@@ -8,7 +8,7 @@ Track your money exactly how you want. Work with your assets in your favorite AI
 
 Money Flow is the structured backend and MCP surface. It does **not** embed an in-app AI. You connect **your** preferred AI chat or agent over MCP to the structured ledger; schedulers and notification channels stay on **your** agent host. Humans use the built-in PWA when they want Pulse, Analytics, Accounts, search, and filters.
 
-**Public demo:** [money-flow.arsols.com](https://money-flow.arsols.com) is a demo, not a production ledger. With `DEMO_MODE=1` each browser session gets its own ledger. Shared D1 does not receive those writes. Passkey enrollment is off. The source code is [PolyForm Noncommercial 1.0.0](./LICENSE).
+**Public demo:** [demo.money-flow.arsols.com](https://demo.money-flow.arsols.com) is a demo, not a production ledger. With `DEMO_MODE=1` each browser session gets its own ledger. Shared D1 does not receive those writes. Passkey enrollment is off. The source code is [PolyForm Noncommercial 1.0.0](./LICENSE).
 
 ## Ask once. The ledger updates
 
@@ -136,7 +136,7 @@ See [SECURITY.md](./SECURITY.md). Please report vulnerabilities through GitHub S
 - [**Donate**](https://www.arsols.com/donate) — informal thanks
 - [**Sponsor**](https://www.arsols.com/sponsor) — formal sponsorship
 - Feedback: [GitHub Discussions](https://github.com/arsols-labs/money-flow/discussions)
-- Demo: [money-flow.arsols.com](https://money-flow.arsols.com)
+- Demo: [demo.money-flow.arsols.com](https://demo.money-flow.arsols.com)
 - Commercial / custom setup: [sponsor](https://www.arsols.com/sponsor) or [GitHub Discussions](https://github.com/arsols-labs/money-flow/discussions)
 
 ## About
