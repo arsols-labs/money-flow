@@ -61,13 +61,15 @@ describe('Domains & Environment Configuration (De-personalization, #509)', () =>
           'app.example.com',
         ),
       ).toBe(false);
+      // Public cut: empty preview allowlist. A workers.dev host is trusted
+      // only when it is the request edge host (asserted below).
       expect(
         isAllowedHost(
           'staging-money-flow.workers.dev',
           'app.example.com',
           'app.example.com',
         ),
-      ).toBe(true);
+      ).toBe(false);
       expect(
         isAllowedHost(
           'preview-money-flow.workers.dev',
