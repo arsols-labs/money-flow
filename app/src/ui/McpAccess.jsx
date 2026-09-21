@@ -327,7 +327,7 @@ function CreateClientModal({ onClose, onCreated }) {
   );
 }
 
-export default function McpAccess() {
+export default function McpAccess({ demoMode = false }) {
   const { t, i18n } = useTranslation();
   const locale = intlLocale(i18n.resolvedLanguage || i18n.language);
   const refreshNonce = useRefreshNonce();
@@ -520,6 +520,7 @@ export default function McpAccess() {
             open={sectionsState.passkeysOpen}
             onToggle={() => toggleSection('passkeysOpen')}
             refreshNonce={refreshNonce}
+            demoMode={demoMode}
           />
 
           {/* Блок 2: Подключения */}

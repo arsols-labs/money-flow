@@ -35,6 +35,7 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  publicConfig: () => request('/api/config'),
   me: () => request('/api/auth/me'),
   logout: () => request('/api/auth/logout', { method: 'POST' }),
   loginOptions: () => request('/api/auth/login/options', { method: 'POST' }),

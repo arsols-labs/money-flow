@@ -266,6 +266,7 @@ export default function PasskeysSection({
   open,
   onToggle,
   refreshNonce,
+  demoMode = false,
 }) {
   const { t, i18n } = useTranslation();
   const locale = intlLocale(i18n.resolvedLanguage || i18n.language);
@@ -363,7 +364,7 @@ export default function PasskeysSection({
     }
   };
 
-  const addAction = (
+  const addAction = demoMode ? null : (
     <button
       type="button"
       className="topbar-btn topbar-btn--primary"
@@ -427,9 +428,9 @@ export default function PasskeysSection({
             <KeyRound size={32} style={{ opacity: 0.4, marginBottom: 8 }} />
             <div>{t('access.passkeys.empty')}</div>
             <div className="empty-state-sub">
-              {t('access.passkeys.emptyHint')}
+              {demoMode ? t('auth.demoPasskeysDisabled') : t('access.passkeys.emptyHint')}
             </div>
-            <button
+            {!demoMode && <button
               type="button"
               className="topbar-btn topbar-btn--primary"
               style={{ marginTop: 12 }}
@@ -437,7 +438,7 @@ export default function PasskeysSection({
             >
               <Plus size={14} />
               <span>{t('access.passkeys.addPasskey')}</span>
-            </button>
+            </button>}
           </div>
         ) : (
           <div className="passkeys-list">

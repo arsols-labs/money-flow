@@ -25,7 +25,7 @@ export const ASSETS_CONFIG = Object.freeze({
   directory: 'dist/client',
   binding: 'ASSETS',
   not_found_handling: 'single-page-application',
-  run_worker_first: ['/api/*', '/mcp', '/mcp/*', '/.well-known/*'],
+  run_worker_first: ['/api/*', '/mcp', '/mcp/*', '/.well-known/*', '/setup/passkey', '/setup/passkey/'],
 });
 
 export const RATE_LIMIT_BINDINGS = Object.freeze([
@@ -33,4 +33,5 @@ export const RATE_LIMIT_BINDINGS = Object.freeze([
   { name: 'RATE_LIMIT_AUTH_SETUP', limit: 8, period: 60 },
   { name: 'RATE_LIMIT_AUTH_LOGIN', limit: 20, period: 60 },
   { name: 'RATE_LIMIT_MCP_DISPATCH', limit: 60, period: 60 },
+  { name: 'RATE_LIMIT_DEMO_SESSION', limit: 30, period: 60 },
 ]);

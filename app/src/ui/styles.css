@@ -74,6 +74,15 @@ html[data-theme="light"] {
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
+.demo-banner {
+  background: var(--bg-card);
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 16px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .app-shell {
   display: flex;
   min-height: 100vh;

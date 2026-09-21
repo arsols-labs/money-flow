@@ -117,7 +117,9 @@
     "signOut": "Sign out",
     "signOutAria": "Sign out and clear this session",
     "setupTokenQueryRemoved": "The setup token was taken from the address fragment and placed in the field below.",
-    "setupTokenQueryIgnored": "A setup token in the address query is ignored. Enter it in the field below."
+    "setupTokenQueryIgnored": "A setup token in the address query is ignored. Enter it in the field below.",
+    "demoBanner": "This is a public demo, not production data. Changes stay in this browser session. The Money Flow source code is licensed under PolyForm Noncommercial 1.0.0.",
+    "demoPasskeysDisabled": "Passkey enrollment is disabled on this public demo. Session sign-in still works. The ledger is private to this browser session."
   },
   "validation": {
     "enterAmount": "Enter an amount",
@@ -1066,6 +1068,8 @@
     "BACKUP_IMPORT_FAILED": "Could not restore the backup",
     "RESET_CONFIRM_REQUIRED": "Reset wipes all financial data — send confirm: true after the UI warning",
     "RESET_PHRASE_REQUIRED": "Type RESET to confirm wiping all financial data",
-    "RESET_FAILED": "Could not reset the instance"
+    "RESET_FAILED": "Could not reset the instance",
+    "DEMO_PASSKEY_DISABLED": "Passkey enrollment is disabled on the public demo",
+    "DEMO_LEDGER_UNAVAILABLE": "The demo ledger is unavailable"
   }
 }

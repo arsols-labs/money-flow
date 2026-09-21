@@ -79,7 +79,7 @@ export function RegisterForm({ initialToken = '', onSuccess }) {
   );
 }
 
-export default function PasskeySetup() {
+export default function PasskeySetup({ demoMode = false }) {
   const { t } = useTranslation();
   const [fromQuery] = useState(() => {
     const { token, discardedQueryToken } = consumeSetupTokenQuery();
@@ -91,7 +91,9 @@ export default function PasskeySetup() {
     <AuthScreen>
         <div className="eyebrow">{t('auth.setupEyebrow')}</div>
         <h1>{t('auth.setupTitle')}</h1>
-        {done ? (
+        {demoMode ? (
+          <p className="auth-hint">{t('auth.demoPasskeysDisabled')}</p>
+        ) : done ? (
           <>
             <p className="auth-hint">{t('auth.setupSuccess', { label: done })}</p>
             <a className="btn-passkey" href="/">{t('auth.openDashboard')}</a>

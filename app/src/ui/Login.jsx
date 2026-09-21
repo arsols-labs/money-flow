@@ -6,7 +6,7 @@ import { api } from './api';
 import { AuthScreen } from './components';
 import { RegisterForm } from './PasskeySetup';
 
-export default function Login({ hasPasskeys, onSuccess }) {
+export default function Login({ hasPasskeys, onSuccess, demoMode = false }) {
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -43,7 +43,9 @@ export default function Login({ hasPasskeys, onSuccess }) {
           </>
         )}
 
-        {showRegister ? (
+        {demoMode ? (
+          <p className="auth-hint">{t('auth.demoPasskeysDisabled')}</p>
+        ) : showRegister ? (
           <>
             {!hasPasskeys && (
               <p className="auth-hint">

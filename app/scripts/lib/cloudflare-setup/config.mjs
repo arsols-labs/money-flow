@@ -103,6 +103,11 @@ export function buildLocalWranglerConfig(input) {
         database_id: input.d1.id,
       },
     ],
+    durable_objects: {
+      bindings: [{ name: 'DEMO_SESSION', class_name: 'DemoSession' }],
+    },
+    migrations: [{ tag: 'v1-demo-session', new_sqlite_classes: ['DemoSession'] }],
+    rules: [{ type: 'Text', globs: ['migrations/*.sql', 'scripts/*.sql'], fallthrough: false }],
     vars: {
       APP_DOMAIN: input.appDomain,
     },

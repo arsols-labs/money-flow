@@ -14,7 +14,7 @@
     "directory": "dist/client",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/mcp", "/mcp/*", "/.well-known/*"]
+    "run_worker_first": ["/api/*", "/mcp", "/mcp/*", "/.well-known/*", "/setup/passkey", "/setup/passkey/"]
   },
   "kv_namespaces": [
     { "binding": "KV", "id": "00000000000000000000000000000001" },
@@ -27,6 +27,19 @@
       "database_id": "00000000-0000-4000-8000-000000000001"
     }
   ],
+  // Session-isolated demo ledgers. No account id: wrangler creates the namespace
+  // from new_sqlite_classes. Leave DEMO_MODE unset except on the public demo Worker.
+  "durable_objects": {
+    "bindings": [
+      { "name": "DEMO_SESSION", "class_name": "DemoSession" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1-demo-session", "new_sqlite_classes": ["DemoSession"] }
+  ],
+  "rules": [
+    { "type": "Text", "globs": ["migrations/*.sql", "scripts/*.sql"], "fallthrough": false }
+  ],
   "vars": {
     "APP_DOMAIN": "localhost"
   },
@@ -34,6 +47,7 @@
     { "name": "RATE_LIMIT_OAUTH_REGISTER", "namespace_id": "100001", "simple": { "limit": 10, "period": 60 } },
     { "name": "RATE_LIMIT_AUTH_SETUP", "namespace_id": "100002", "simple": { "limit": 8, "period": 60 } },
     { "name": "RATE_LIMIT_AUTH_LOGIN", "namespace_id": "100003", "simple": { "limit": 20, "period": 60 } },
-    { "name": "RATE_LIMIT_MCP_DISPATCH", "namespace_id": "100004", "simple": { "limit": 60, "period": 60 } }
+    { "name": "RATE_LIMIT_MCP_DISPATCH", "namespace_id": "100004", "simple": { "limit": 60, "period": 60 } },
+    { "name": "RATE_LIMIT_DEMO_SESSION", "namespace_id": "100005", "simple": { "limit": 30, "period": 60 } }
   ]
 }

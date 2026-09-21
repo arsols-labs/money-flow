@@ -8,6 +8,8 @@ Track your money exactly how you want. Work with your assets in your favorite AI
 
 Money Flow is the structured backend and MCP surface. It does **not** embed an in-app AI. You connect **your** preferred AI chat or agent over MCP to the structured ledger; schedulers and notification channels stay on **your** agent host. Humans use the built-in PWA when they want Pulse, Analytics, Accounts, search, and filters.
 
+**Public demo:** [money-flow.arsols.com](https://money-flow.arsols.com) is a demo, not a production ledger. With `DEMO_MODE=1` each browser session gets its own ledger. Shared D1 does not receive those writes. Passkey enrollment is off. The source code is [PolyForm Noncommercial 1.0.0](./LICENSE).
+
 ## Ask once. The ledger updates
 
 Stop typing expenses by hand. In the AI chat you already use:

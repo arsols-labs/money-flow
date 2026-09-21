@@ -22,6 +22,8 @@ export const RATE_LIMITS = {
   authLogin: { limit: 20, windowSec: 60 },
   mcpDispatch: { limit: 60, windowSec: 60 },
   mcpAudit: { limit: 40, windowSec: 60 },
+  /** New demo ledgers per IP. Reused mf_demo_sid cookies do not count. */
+  demoSession: { limit: 30, windowSec: 60 },
 } as const;
 
 export function resetRateLimitMemoryForTests(): void {
