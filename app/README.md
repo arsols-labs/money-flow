@@ -9,7 +9,7 @@ instance on a Cloudflare Free account.
 
 ## Public demo (`DEMO_MODE`)
 
-[https://money-flow.arsols.com](https://money-flow.arsols.com) is the **public demo**, not a
+[https://demo.money-flow.arsols.com](https://demo.money-flow.arsols.com) is the **public demo**, not a
 production ledger. The demo Worker sets `DEMO_MODE` to `"1"`.
 
 - Each browser gets an `mf_demo_sid` cookie (HttpOnly; Secure on HTTPS) that
@@ -44,7 +44,7 @@ namespace on deploy). Example shape, placeholders only:
   "rules": [
     { "type": "Text", "globs": ["migrations/*.sql", "scripts/*.sql"], "fallthrough": true }
   ],
-  "vars": { "DEMO_MODE": "1", "APP_DOMAIN": "money-flow.arsols.com" }
+  "vars": { "DEMO_MODE": "1", "APP_DOMAIN": "demo.money-flow.arsols.com" }
 }
 ```
 
