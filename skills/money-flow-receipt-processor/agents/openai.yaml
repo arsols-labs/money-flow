@@ -1,0 +1,13 @@
+interface:
+  display_name: "Money Flow Receipt Processor"
+  short_description: "Book receipts with configurable notifications"
+  default_prompt: "Use $money-flow-receipt-processor to configure or confirm notification delivery, then process this receipt safely and reconcile it with Money Flow."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "money_flow"
+      description: "Authorized Money Flow MCP server"
+      transport: "streamable_http"
+      url: "https://your-money-flow.workers.dev/mcp"
+policy:
+  allow_implicit_invocation: true

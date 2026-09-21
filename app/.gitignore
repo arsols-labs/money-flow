@@ -1,0 +1,6 @@
+node_modules
+dist/
+.dev.vars
+.wrangler/
+wrangler.local.jsonc
+.setup-state.json

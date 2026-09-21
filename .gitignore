@@ -8,3 +8,7 @@ dist/
 .DS_Store
 coverage/
 *.log
+app/wrangler.local.jsonc
+app/vitest.out
+__pycache__/
+*.py[cod]

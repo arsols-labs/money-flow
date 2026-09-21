@@ -1,0 +1,2928 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+html, body, #root { margin: 0; padding: 0; min-height: 100%; }
+body { background: var(--bg, #0F1115); transition: background-color 0.2s ease, color 0.2s ease; }
+
+:root {
+  --bg: #0F1115;
+  --bg-card: #171A21;
+  --bg-hover: rgba(255, 255, 255, 0.05);
+  --border: #262B35;
+  --border-hover: #454D5D;
+  --grid: #23272F;
+  --text: #EDEFF3;
+  --text-muted: #8D93A1;
+  /* Светлее, чем просится «самому тихому» токену: им набраны настоящие тексты
+     (дата под балансом, подписи форм, подвал), и прежний #5C6270 давал на
+     карточке 2.85:1 — ниже AA даже для нетекстовых объектов. Порог держит
+     test/palette.test.ts, руками цифры не подбирать. */
+  --text-faint: #7E8495;
+  /* Цвета линий прогноза — «Итого» и палитра стран (issue #198). RUS/USA/SRB
+     сохранены со значениями v1, чтобы график не «переехал» для тех, кто уже
+     привык к оттенкам; остальные страны красятся по индексу — см. forecast.js. */
+  --overall: #9AA3B5;
+  --rus: #D98757;
+  --usa: #5B8FC7;
+  --srb: #6FBF8B;
+  --safe: #6FBF8B;
+  --warning: #E0B65F;
+  /* Прежний #D9534F давал на карточке 4.39:1 — суммы расходов в списках не
+     проходили AA (issue #252). Осветлён ровно настолько, чтобы порог держался
+     и на самом светлом фоне тёмной темы — `--bg-hover` поверх карточки. */
+  --danger: #DE6B67;
+  --primary: #EDEFF3;
+  /* Шрифты. IBM Plex: гротеск с одинаковой шириной цифр и парный ему моношрифт —
+     деньги в колонках не «пляшут» при обновлении. Запасные стоят не для красоты:
+     веб-шрифт грузится с внешнего домена и может не приехать, а системный
+     гротеск обязан дать те же метрики, иначе интерфейс прыгнет на первом кадре. */
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* Высота липкой шапки. Значение проставляет Shell.jsx по фактическому
+     размеру блока; здесь — только запасное на первый кадр, до эффекта. */
+  --appbar-h: 92px;
+}
+
+html[data-theme="light"] {
+  --bg: #F4F6F9;
+  --bg-card: #FFFFFF;
+  --bg-hover: #EAEFF5;
+  --border: #D8DCE5;
+  --border-hover: #A5ADC0;
+  --grid: #E3E7EE;
+  --text: #17191E;
+  --text-muted: #575E6E;
+  --text-faint: #525866;
+  --overall: #464D5D;
+  --primary: #17191E;
+  /* Все три темнее прежних: на светлой теме порог задаёт не карточка, а более
+     тёмный `--bg` и собственная цветная подложка кнопок «Расход»/«Доход».
+     `--warning` при 3.19:1 не проходил AA вовсе, `--safe` и `--danger` шли
+     впритык (4.53 при пороге 4.50) и падали до 4.18 уже на `--bg`. */
+  --safe: #157147;
+  --danger: #C12231;
+  --warning: #A75B05;
+}
+
+/* ---------- Классы размеров окна (Window Size Classes) и навигация ---------- */
+.app {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 0;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+}
+
+/* Навигационная рельса (Medium & Expanded >= 600px) */
+.nav-rail {
+  width: 72px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  background: var(--bg-card);
+  border-right: 1px solid var(--border);
+  padding: 14px 0;
+  box-sizing: border-box;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-rail-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  margin-bottom: 8px;
+  text-decoration: none;
+  color: var(--primary);
+  transition: background-color 0.15s ease;
+}
+.nav-rail-brand:hover {
+  background: var(--bg-hover);
+}
+
+.nav-rail-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-rail-logo-img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  display: block;
+}
+
+.nav-rail-items {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.nav-rail-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 62px;
+  padding: 8px 4px;
+  background: none;
+  border: none;
+  border-radius: 10px;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.nav-rail-item:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.nav-rail-item--active {
+  color: var(--text);
+  font-weight: 600;
+}
+.nav-rail-item--active .nav-rail-icon-wrapper {
+  background: var(--bg-hover);
+  color: var(--primary);
+  border: 1px solid var(--border);
+}
+
+.nav-rail-icon-wrapper {
+  width: 38px;
+  height: 30px;
+  border-radius: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.nav-rail-label {
+  font-size: 11px;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 20px 40px;
+  box-sizing: border-box;
+}
+
+.bottom-nav {
+  display: none;
+}
+
+/* Контейнер страницы */
+.container {
+  width: 100%;
+  max-width: 740px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+@media (min-width: 840px) {
+  .app-main {
+    padding: 0 28px 40px;
+  }
+  .container {
+    max-width: 1200px;
+  }
+}
+
+@media (min-width: 1400px) {
+  .container {
+    max-width: 1280px;
+  }
+}
+
+.appbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg);
+  padding: 12px 0 10px;
+  margin: 0;
+  border-bottom: 1px solid transparent;
+}
+
+/* Compact Window Size Class (< 600px) */
+@media (max-width: 599.98px) {
+  .app-shell {
+    flex-direction: column;
+  }
+  .nav-rail {
+    display: none;
+  }
+  .app-main {
+    padding: 0 14px calc(68px + env(safe-area-inset-bottom, 0px));
+  }
+  .container {
+    max-width: 100%;
+    gap: 12px;
+  }
+  .appbar {
+    padding: 10px 0 8px;
+  }
+  .bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    height: 56px;
+    background: var(--bg-card);
+    border-top: 1px solid var(--border);
+    align-items: center;
+    justify-content: space-around;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    backdrop-filter: blur(12px);
+    box-sizing: content-box;
+  }
+  .bottom-nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    height: 56px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 4px 0;
+    -webkit-tap-highlight-color: transparent;
+    transition: color 0.15s ease;
+  }
+  .bottom-nav-item:hover {
+    color: var(--text);
+  }
+  .bottom-nav-item--active {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .bottom-nav-item--active .bottom-nav-icon-wrapper {
+    background: var(--bg-hover);
+    color: var(--primary);
+    border: 1px solid var(--border);
+  }
+  .bottom-nav-icon-wrapper {
+    width: 48px;
+    height: 28px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  .bottom-nav-label {
+    font-size: 10px;
+    line-height: 1;
+    letter-spacing: -0.01em;
+  }
+  .topbar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .topbar-actions {
+    gap: 6px;
+  }
+}
+
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.topbar h1 { font-size: 19px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+
+.topbar-actions { display: flex; align-items: center; gap: 8px; }
+
+.topbar-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  background: var(--bg-card); border: 1px solid var(--border); color: var(--text);
+  padding: 8px 12px; border-radius: 8px; font-size: 13px; font-family: inherit; font-weight: 500;
+  cursor: pointer; height: 34px; box-sizing: border-box; transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.topbar-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+}
+.topbar-btn--icon { padding: 8px 10px; width: 34px; }
+/* Знак валюты — не иконка библиотеки, а глиф шрифта, поэтому размер задаётся
+   здесь, а не пропом `size`. Моноширинный шрифт держит ширину кнопки ровной
+   и для «$», и для составного «zł». */
+.topbar-btn--currency { font-family: var(--font-mono); padding: 8px 6px; }
+.currency-glyph { font-size: 16px; font-weight: 600; line-height: 1; }
+.currency-flag { font-size: 15px; line-height: 1; }
+.currency-code { font-family: var(--font-mono); letter-spacing: 0.03em; }
+
+/* Выпадающие меню (тема) */
+.dropdown-container { position: relative; display: inline-block; }
+.dropdown-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 100; min-width: 140px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 4px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); display: flex; flex-direction: column; gap: 2px;
+  animation: dropdownFadeIn 0.12s ease-out;
+}
+@keyframes dropdownFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.dropdown-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
+  padding: 8px 10px; background: none; border: none; border-radius: 6px; color: var(--text);
+  font-size: 13px; font-family: inherit; cursor: pointer; text-align: left; box-sizing: border-box;
+}
+.dropdown-item-main { display: flex; align-items: center; gap: 8px; }
+.dropdown-item:hover { background: var(--bg); }
+.dropdown-item--active { background: var(--bg); font-weight: 600; color: var(--primary); }
+
+/* ---------- разделы (табы) ---------- */
+
+/* Полоска разделов живёт внутри липкой .appbar (см. выше) — своего sticky у
+   неё больше нет: два липких элемента с общим `top` наезжали бы друг на друга. */
+.tabs {
+  display: flex; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 3px; gap: 3px;
+}
+.tab {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px;
+  background: none; border: none; color: var(--text-muted); font-family: inherit;
+  font-size: 13px; font-weight: 500; padding: 8px 10px; border-radius: 8px; cursor: pointer;
+  min-width: 0;
+}
+.tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab--active { background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 7px 9px; }
+
+/* Меню «Ещё» (Данные / Доступ, issue #329) занимает ровно одну ячейку рядом
+   с Пульсом и Аналитикой — flex: 1, как остальные табы, а не auto-ширина по
+   контенту, иначе полоска перестаёт быть равномерной. */
+.tab-more { flex: 1; display: flex; }
+.tab-more .tab { width: 100%; }
+.dropdown-menu--tabs { left: 0; right: auto; min-width: 160px; }
+
+.empty-panel {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 32px 20px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; color: var(--text-muted);
+}
+.empty-panel h2 { margin: 4px 0 0; font-size: 16px; color: var(--text); }
+.empty-panel p { margin: 0 0 10px; font-size: 13px; }
+
+/* ---------- auth / setup ---------- */
+
+.auth-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+.auth-lang {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 20;
+}
+.auth-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px;
+  padding: 32px 28px; width: 100%; max-width: 340px; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 14px; text-align: center; align-items: center;
+}
+.auth-card h1 { font-size: 20px; font-weight: 600; margin: 0; }
+/* Надпись-«бровь» над заголовком auth-экранов (Login.jsx, PasskeySetup.jsx).
+   Использует токен шрифта, а не литерал, чтобы переехать вместе с темой. */
+.eyebrow { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted); }
+.auth-hint { font-size: 13px; color: var(--text-muted); margin: 0; line-height: 1.5; }
+.auth-error { font-size: 12px; color: var(--danger); word-break: break-word; }
+.btn-passkey {
+  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
+  background: var(--text); color: var(--bg); border: none; padding: 12px 16px; border-radius: 10px;
+  font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer; text-decoration: none; box-sizing: border-box;
+}
+.btn-passkey:disabled { opacity: 0.6; cursor: default; }
+.auth-input {
+  width: 100%; box-sizing: border-box; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  padding: 10px 12px; border-radius: 8px; font-size: 14px; font-family: inherit; text-align: center;
+}
+
+.link-btn {
+  background: none; border: none; color: var(--text-muted); font-size: 12px; font-family: inherit;
+  cursor: pointer; text-decoration: underline; text-underline-offset: 3px; padding: 0;
+}
+.link-btn:hover { color: var(--text); }
+
+/* ---------- общие кнопки ---------- */
+
+.btn-primary, .btn-secondary, .btn-danger {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border-radius: 8px; padding: 8px 12px; font-size: 13px; font-weight: 500; font-family: inherit;
+  cursor: pointer; box-sizing: border-box; transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+.btn-primary { background: var(--text); color: var(--bg); border: none; }
+.btn-primary:hover:not(:disabled) { opacity: 0.85; }
+.btn-secondary { background: var(--bg-card); color: var(--text); border: 1px solid var(--border); }
+.btn-secondary:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--border-hover); }
+.btn-danger { background: none; color: var(--danger); border: 1px solid var(--border); }
+.btn-danger:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--danger); }
+.btn-primary:disabled, .btn-secondary:disabled, .btn-danger:disabled { opacity: 0.6; cursor: default; }
+
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; color: var(--text-faint); padding: 6px; border-radius: 6px; cursor: pointer;
+}
+.icon-btn:hover { background: var(--bg-hover); color: var(--danger); }
+.icon-btn--danger { color: var(--danger); }
+
+.data-row-quick {
+  display: flex; gap: 2px; margin-top: 4px; justify-content: flex-end;
+}
+
+/* ---------- экран «Данные» ---------- */
+
+/* Вертикальный ритм экрана: один и тот же зазор между блоками во всех
+   разделах. Отступы у отдельных карточек не проставляются — иначе ритм
+   разъезжается ровно там, где кто-то забыл про margin (спека ui-patterns.md). */
+.screen { display: flex; flex-direction: column; gap: 14px; }
+.data-screen { display: flex; flex-direction: column; gap: 14px; }
+.data-loading, .data-error-panel {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 24px;
+  text-align: center; color: var(--text-muted); font-size: 13px;
+}
+.data-error-panel { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+
+.data-section {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 14px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+/* Шапка секции «Данных» — тот же паттерн, что .card-head (см. ниже): заголовок
+   слева, управление справа. Класс отдельный по историческим причинам, но
+   правила общие, чтобы разделы не разъезжались. */
+.data-section-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; }
+.data-section-header h2 { margin: 0; font-size: 15px; font-weight: 600; }
+
+/* Заголовок сворачиваемого блока (issue #260). Кнопка внутри h2 обнуляется до
+   вида обычного заголовка: ни рамки, ни фона, размер и насыщенность шрифта —
+   от самого h2 (`font: inherit`), весь сигнал состояния несёт шеврон.
+
+   Наведение гасит цвет, а не подсвечивает, — в отличие от `.data-archive-toggle`
+   ниже, который идёт от `--text-muted` к `--text`. Заголовок и так набран
+   основным цветом, и ярче `--text` в палитре нет ничего: подсветить его нечем.
+
+   `outline` не обнуляется намеренно: браузерная обводка фокуса здесь —
+   единственный признак того, где клавиатура; своей у проекта нет. */
+.data-section-toggle {
+  display: flex; align-items: center; gap: 6px;
+  margin: 0; padding: 0; border: 0; background: none;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.data-section-toggle:hover { color: var(--text-muted); }
+
+/* Тело блока остаётся в DOM и прячется атрибутом. `display: none` из [hidden]
+   в UA-стилях слабее любого нашего `display`, поэтому скрытие прописано явно —
+   иначе флекс-контейнер ниже пересилил бы hidden и свёрнутый блок остался бы
+   на экране. */
+.data-section-body { display: flex; flex-direction: column; gap: 10px; }
+.data-section-body[hidden] { display: none; }
+.data-hint { margin: -4px 0 0; font-size: 12px; color: var(--text-faint); }
+/* Тот же приём, что у .data-warning ниже: цвет несут рамка и подложка, а текст
+   обычный. После правки палитры (#252) цветной текст здесь прошёл бы AA, но
+   приём оставлен — 12px сообщением в насыщенном цвете читается хуже, чем тот же
+   текст обычным цветом в цветной рамке.
+
+   Подложка — сам токен, разведённый до 10%: держать рядом отдельный литерал
+   rgba() значит завести вторую копию цвета, которая молча разойдётся с темой
+   (так и было — литерал остался от старого `--danger` и в светлой теме давал
+   красноватую плашку под тёмно-красной рамкой). */
+.data-error {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid var(--danger); color: var(--text);
+  border-radius: 8px; padding: 8px 10px; font-size: 12px;
+}
+
+/* Валюта в ходу без курса. Тон предупреждающий, а не ошибочный (.data-error):
+   это поправимое состояние данных, а не сбой запроса.
+
+   Цветом предупреждения окрашены только рамка и значок, а текст обычный.
+   Изначально так сделали потому, что `--warning` в светлой теме не проходил AA
+   ни на подложке, ни на самой карточке (2.96:1 и 3.19:1). Палитра починена
+   (#252), но приём сохранён — по тем же соображениям, что у .data-error выше. */
+.data-warning {
+  display: flex; align-items: flex-start; gap: 8px;
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  border: 1px solid var(--warning); color: var(--text);
+  border-radius: 8px; padding: 8px 10px; font-size: 12px;
+}
+.data-warning-icon { flex-shrink: 0; margin-top: 1px; color: var(--warning); }
+.data-warning-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.data-warning-body p { margin: 0; }
+.data-warning-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+/* :hover объявлен явно — иначе это правило перебило бы общий `.link-btn:hover`
+   (та же специфичность, но оно ниже по файлу), и кнопки не реагировали бы. */
+.data-warning-actions .link-btn { color: var(--text-muted); }
+.data-warning-actions .link-btn:hover { color: var(--text); }
+
+.data-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 20px 10px;
+  color: var(--text-muted); font-size: 13px; text-align: center;
+}
+
+.data-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.data-list > .data-row + .data-row { border-top: 1px solid var(--border); }
+.data-list--archived {}
+
+/* ---------- Данные: поиск/фильтр (#377) ---------- */
+
+/* Липкая панель как в «Аналитике»: не уезжает при скролле длинного раздела.
+   top — по фактической высоте липкой шапки (`--appbar-h`, её измеряет
+   Shell.jsx): подобранное «с запасом» число расходилось с реальной высотой и
+   оставляло щель либо давало наезд. z-index ниже шапки, но выше карточек —
+   контент не просвечивает. */
+.data-filter-bar {
+  position: sticky; top: var(--appbar-h); z-index: 10;
+  padding: 10px; gap: 10px; margin-bottom: 4px;
+}
+.data-block-chips {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  border-top: 1px solid var(--grid); padding-top: 10px;
+}
+.data-filter-note { font-size: 12px; color: var(--text-faint); padding: 8px 2px; }
+
+.ops-toolbar { display: flex; align-items: center; gap: 12px; margin: 8px 0; font-size: 13px; color: var(--text-muted); }
+.ops-limit { display: flex; align-items: center; gap: 6px; }
+.ops-limit select { padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+.ops-count { margin-left: auto; }
+
+.data-row { display: flex; flex-direction: column; padding: 10px 0; }
+
+/* Приглушение архивных строк через переназначение токенов (issue #269).
+   Использовать `opacity` нельзя: `--text-faint` уже находится на границе AA 4.5:1,
+   и под прозрачностью любой текст падает ниже нормы. Переназначение токенов
+   гарантирует сохранение контраста (все они >= 4.5:1). */
+.data-row--archived {
+  --text: var(--text-muted);
+  --text-muted: var(--text-faint);
+  --danger: var(--text-muted);
+  --warning: var(--text-muted);
+  --safe: var(--text-muted);
+  --overall: var(--text-muted);
+}
+
+/* Верхняя строка счёта: слева название+мета столбиком, справа баланс+дата. */
+.data-row-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; cursor: pointer; }
+.data-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.data-row-title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; color: var(--text); }
+.data-row-title svg { color: var(--text-faint); flex-shrink: 0; }
+.data-row-meta { font-size: 12px; color: var(--text-muted); }
+
+.receipt-url-link {
+  color: var(--text-muted);
+  font-size: inherit;
+  font-family: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.receipt-url-link:hover { color: var(--text); }
+
+.data-row-value { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
+/* inline-flex — чтобы значок «пора сверить» стоял в одну строку с датой. */
+.data-row-sub { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-faint); }
+.data-due--overdue { color: var(--danger); font-weight: 500; }
+.data-due--today { color: var(--warning); font-weight: 500; }
+.data-due--tomorrow { color: var(--warning); }
+.data-due--soon { color: var(--text); }
+.data-due--future { color: var(--text-faint); }
+
+
+/* «Сумма та же» — подтверждение баланса без правки суммы (#223). Мельче
+   обычного link-btn и без постоянного подчёркивания: кнопка стоит у каждого
+   счёта и не должна спорить за внимание с самим балансом над ней. Цвет при
+   этом НЕ приглушается до `--text-faint`, каким набрана соседняя дата: дата —
+   статичный текст, кнопка же обязана быть заметной. `--text-muted` из
+   `.link-btn` даёт 6.50 (светлая) и 5.65 (тёмная). Изначально причина была
+   ещё и в контрасте — `--text-faint` в тёмной теме давал 2.85:1, — но с #252
+   он проходит AA сам, и остаётся только иерархия. */
+.data-confirm-balance {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; text-decoration: none; margin-top: 2px;
+}
+.data-confirm-balance:hover { color: var(--text); text-decoration: underline; }
+
+/* Курс валюты — один блок (без отдельного data-row-top), название+мета и кнопка удаления в ряд. */
+.data-row--rate { flex-direction: row; align-items: flex-start; justify-content: space-between; }
+.data-row--rate .data-row-main { flex-direction: column; gap: 2px; }
+.data-rate-expr { display: inline-flex; align-items: baseline; gap: 4px; }
+
+.data-row--stale .data-stale-icon { color: var(--warning); }
+/* Подсвечивается ровно та строка, где живёт дата, — иначе предупреждение
+   указывает не на то. У курса это мета (`обновлён … · курс устарел`), у счёта —
+   `data-row-sub` справа под балансом, а мета слева перечисляет банк, тип,
+   владельца и страну, с которыми ничего не случилось. Без сужения до
+   `data-row--rate` весь левый столбец счёта уходил в цвет предупреждения и
+   читался как «что-то не так со счётом» (замечено живым прогоном, #223). */
+.data-row--rate.data-row--stale .data-row-meta { color: var(--warning); }
+.data-row--stale .data-row-sub { color: var(--warning); }
+
+/* Строка курса базовой валюты (#228) — та же подсветка, что у устаревшего
+   курса: значок и мета в цвете предупреждения. Отдельный модификатор, а не
+   переиспользование `data-row--stale`, потому что причина другая (валюта не
+   должна иметь курс вовсе, а не «курс давно не обновлялся»). */
+.data-row--rate-invalid .data-stale-icon { color: var(--warning); }
+.data-row--rate-invalid .data-row-meta { color: var(--warning); }
+.data-rate-expr .data-rate-value { font-size: 13px; font-weight: 600; padding: 0 4px; }
+
+.data-row-expand {
+  margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.data-row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.data-row--transfer .data-row-top { cursor: pointer; }
+.data-amount--transfer { color: var(--text); }
+.transfer-detail-card {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+}
+
+.data-archive { display: flex; flex-direction: column; gap: 6px; }
+.data-archive-toggle {
+  display: flex; align-items: center; gap: 6px; background: none; border: none; color: var(--text-muted);
+  font-size: 12px; font-family: inherit; cursor: pointer; padding: 4px 0; align-self: flex-start;
+}
+.data-archive-toggle:hover { color: var(--text); }
+
+/* ---------- инлайн-правка (баланс, курс) ---------- */
+
+.inline-editable {
+  background: none; border: 1px solid transparent; border-radius: 6px; padding: 2px 6px;
+  font-family: var(--font-mono); font-size: 14px; font-weight: 600; color: var(--text);
+  cursor: pointer; text-align: right;
+}
+.inline-editable:hover { border-color: var(--border-hover); background: var(--bg-hover); }
+.data-rate-expr .inline-editable { font-size: 13px; font-weight: 600; text-align: left; padding: 0 4px; }
+
+.inline-editable-edit { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.inline-editable-input {
+  width: 110px; box-sizing: border-box; background: var(--bg); border: 1px solid var(--border-hover);
+  color: var(--text); border-radius: 6px; padding: 3px 6px; font-family: var(--font-mono);
+  font-size: 14px; font-weight: 600; text-align: right;
+}
+.inline-editable-error { font-size: 11px; color: var(--danger); text-align: right; max-width: 140px; }
+
+/* ---------- формы (создание/правка счёта, курса) ---------- */
+
+.data-form {
+  display: flex; flex-direction: column; gap: 8px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px;
+}
+.data-form--inline { flex-direction: column; }
+.data-form-field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--text-muted); }
+.data-form-field input, .data-form-field select {
+  box-sizing: border-box; background: var(--bg-card); border: 1px solid var(--border); color: var(--text);
+  padding: 8px 10px; border-radius: 8px; font-size: 13px; font-family: inherit;
+}
+.data-form-field input:focus, .data-form-field select:focus { outline: none; border-color: var(--border-hover); }
+.data-form-error { font-size: 12px; color: var(--danger); }
+/* Предупреждение под полем — оранжевое: «валюта изменена, проверьте сумму». */
+.data-form-hint { font-size: 11px; color: var(--warning); }
+/* Пояснение под полем — обычный приглушённый текст. Отдельный класс нужен
+   именно потому, что цвет здесь несёт смысл: покрасить пояснение «пусто — день
+   берётся из даты» в цвет предупреждения значит обесценить сами предупреждения,
+   которые в этих же формах стоят рядом. */
+.data-form-note { font-size: 11px; color: var(--text-faint); }
+.data-form-actions { display: flex; gap: 8px; align-items: center; margin-top: 2px; }
+
+/* ---------- редактор алиасов счёта (issue #339) ---------- */
+/* Вложен в форму правки счёта; визуально отделён верхней границей, чтобы не
+   сливался с полями счёта. Цвета те же, что у формы — это часть той же карточки. */
+.alias-editor {
+  border-top: 1px solid var(--border); padding-top: 10px; margin-top: 2px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.alias-editor-title { font-size: 12px; font-weight: 600; color: var(--text); }
+.alias-empty { font-size: 12px; color: var(--text-faint); margin: 0; }
+.alias-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.alias-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+}
+.alias-text { font-size: 13px; color: var(--text); font-family: var(--font-mono); }
+.alias-remove { color: var(--text-muted); }
+.alias-remove:hover:not(:disabled) { color: var(--danger); }
+.alias-add { display: flex; gap: 8px; align-items: center; }
+.alias-add input {
+  flex: 1; box-sizing: border-box; background: var(--bg-card); border: 1px solid var(--border); color: var(--text);
+  padding: 8px 10px; border-radius: 8px; font-size: 13px; font-family: inherit;
+}
+.alias-add input:focus { outline: none; border-color: var(--border-hover); }
+
+/* ---------- плановые/регулярные: переключатель Расход/Доход ---------- */
+
+.data-kind-toggle { display: flex; gap: 6px; }
+.data-kind-btn {
+  flex: 1; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-muted);
+  padding: 8px 10px; border-radius: 8px; font-size: 13px; font-family: inherit; font-weight: 500; cursor: pointer;
+}
+.data-kind-btn:hover:not(:disabled) { border-color: var(--border-hover); }
+.data-kind-btn:disabled { opacity: 0.6; cursor: default; }
+/* Подложка — сам токен в 10/12%, а не литерал rgba: это единственное место, где
+   цветной токен несёт ТЕКСТ поверх собственной подложки, и порог 4.5 считается
+   именно от неё. Подложка лежит поверх `--bg` (фон .data-form), не карточки. */
+.data-kind-btn--active.data-kind-btn--expense {
+  border-color: var(--danger); color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+.data-kind-btn--active.data-kind-btn--income {
+  border-color: var(--safe); color: var(--safe);
+  background: color-mix(in srgb, var(--safe) 12%, transparent);
+}
+.data-kind-btn--active.data-kind-btn--transfer {
+  border-color: var(--overall); color: var(--overall);
+  background: color-mix(in srgb, var(--overall) 12%, transparent);
+}
+
+/* Сумма плановой/регулярной операции — цвет несёт сама сумма (в отличие от
+   счетов, где сумма не бывает знаковой), не только минус: расход и доход
+   должны различаться и на беглый взгляд, а не только по прочтению числа. */
+.data-amount { font-family: var(--font-mono); font-size: 14px; font-weight: 600; }
+.data-amount--expense { color: var(--danger); }
+.data-amount--income { color: var(--safe); }
+
+/* Дата в заголовке строки плановой операции — не отдельная колонка, просто
+   моноширинный акцент перед названием. */
+.data-row-date { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); flex-shrink: 0; }
+
+/* Чекбокс «выполнено» — внутри кликабельной строки, поэтому его клик и так
+   останавливается в JS (stopPropagation); здесь только отступ от текста. */
+.data-row-check { margin: 0 2px 0 0; cursor: pointer; flex-shrink: 0; }
+
+/* ---------- «Пульс»: метрики, прогноз, платежи, счета (issue #198) ----------
+   Порт app/src/ui/styles.css — та же вёрстка на токенах темы v2. */
+
+/* Сетка карточек — ровно два столбца на всём, что шире 560px, и один ниже.
+   Не `auto-fit`: раскладка обязана быть предсказуемой, потому что «дырки» в
+   ней закрывает CardGrid (components.jsx) — он растягивает карточку, которая
+   иначе осталась бы одна в последней строке. При плавающем числе столбцов тот
+   же расчёт пришлось бы делать по фактической ширине, то есть в JS следить за
+   резайзом ради косметики. */
+.headline-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: stretch; }
+.card-cell { display: flex; }
+.card-cell > * { flex: 1; min-width: 0; }
+.card-cell--wide { grid-column: 1 / -1; }
+
+.metric-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+.metric-card--big { grid-column: 1 / -1; }
+/* Подпись и её управляющий элемент — одна строка (требование владельца
+   2026-08-21). Подпись прижата влево, контрол вправо, между ними растяжка:
+   так шапки соседних карточек выравниваются по обоим краям независимо от
+   длины подписи. Минимальная высота — чтобы карточка без контрола не была
+   ниже соседней с контролом и строка не «прыгала». */
+.metric-card-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  min-height: 30px; margin-bottom: 2px;
+}
+.metric-label {
+  font-size: 12px; color: var(--text-muted); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0;
+}
+.metric-value {
+  font-family: var(--font-mono); font-size: 22px; font-weight: 600;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em; line-height: 1.15;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.metric-card--big .metric-value { font-size: 30px; }
+.metric-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.metric-sub-inline { font-size: 11px; font-weight: 400; color: var(--text-faint); margin-left: 4px; }
+.filter-reset-icon-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+.filter-reset-icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: var(--border-hover);
+}
+.tone-primary { color: var(--primary); }
+.tone-safe { color: var(--safe); }
+.tone-warning { color: var(--warning); }
+.tone-danger { color: var(--danger); }
+.tone-neutral { color: var(--text); }
+
+.card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+/* Шапка карточки: заголовок слева, управление справа, всё в одной строке.
+   Единая для всех разделов — «Пульс», «Аналитика», «Данные» (спека
+   docs/design/ui-components.md). */
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 30px; }
+.card-head-actions {
+  display: flex; align-items: center; gap: 8px;
+  flex: 0 1 auto; min-width: 0; max-width: 72%;
+}
+.card-head-title-wrap,
+.card-head > div:first-child:not(.card-head-actions) {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.card-title { font-size: 15px; font-weight: 600; margin: 0; display: inline; }
+.section-subtitle { display: inline; font-size: 12px; color: var(--text-muted); font-weight: 400; }
+
+/* .collapsible-heading — h2 снаружи button; сброс браузерного margin/font.
+   Паттерн WAI-ARIA Accordion: h2 оборачивает button, не наоборот. */
+.collapsible-heading { margin: 0; font-size: inherit; font-weight: inherit; flex: 1; min-width: 0; display: flex; }
+.collapsible-head {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; background: none;
+  border: none; color: var(--text); cursor: pointer; padding: 0; font-family: inherit; text-align: left;
+}
+.collapsible-head-text { min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.chev { transition: transform 0.15s ease; color: var(--text-muted); flex-shrink: 0; }
+.chev--open { transform: rotate(180deg); }
+.collapsible-body { margin-top: 14px; }
+
+.period-select {
+  background: var(--bg); border: 1px solid var(--border); color: var(--text); font-family: var(--font-mono);
+  font-size: 12px; padding: 6px 10px; border-radius: 8px; cursor: pointer; appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238D93A1'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; padding-right: 24px;
+}
+.forecast-note { font-size: 11px; color: var(--text-faint); margin-top: 10px; }
+.pulse-list-toolbar {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 10px 16px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.pulse-list-control { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.pulse-list-control--limit { margin-left: auto; }
+.pulse-list-control-label { color: var(--text-faint); font-size: 11px; }
+.pulse-list-more { margin-top: 9px; }
+
+/* Обёртка графика: высота задана здесь, а не инлайном в JSX, — ResponsiveContainer
+   требует высоту от родителя, а размеры мы держим в одном месте. */
+.chart-box { width: 100%; height: 260px; margin-top: 12px; }
+.chart-box--short { height: 200px; }
+
+.chart-tooltip { background: var(--bg-card); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); }
+.tooltip-date { font-family: var(--font-mono); color: var(--text-muted); margin-bottom: 6px; }
+.tooltip-row { display: flex; align-items: center; gap: 6px; padding: 1px 0; }
+.tooltip-label { color: var(--text-muted); min-width: 40px; }
+.tooltip-value { font-family: var(--font-mono); margin-left: auto; font-weight: 500; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+.chart-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--text-muted); }
+.chart-legend span { display: flex; align-items: center; gap: 5px; }
+.chart-legend .dot { width: 7px; height: 7px; }
+
+.upcoming-list { display: flex; flex-direction: column; }
+.upcoming-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 8px; border-inline-start: 3px solid var(--payment-date-color); border-bottom: 1px solid var(--grid); font-size: 13px; }
+.upcoming-row--overdue { background: color-mix(in srgb, var(--danger) 2%, transparent); }
+.upcoming-row:last-child { border-bottom: none; }
+.upcoming-date { font-family: var(--font-mono); color: var(--text-muted); font-size: 12px; }
+.upcoming-desc { color: var(--text); overflow-wrap: anywhere; }
+.upcoming-account { font-size: 11px; color: var(--text-faint); margin-top: 1px; }
+.upcoming-amount { color: var(--payment-color); font-family: var(--font-mono); font-weight: 500; text-align: right; display: flex; flex-direction: column; }
+.upcoming-eq { font-size: 10px; color: var(--text-faint); font-weight: 400; }
+.is-income { color: var(--safe); }
+.is-expense { color: var(--text); }
+
+.group-toggle { display: flex; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 2px; }
+.group-toggle button { background: none; border: none; color: var(--text-muted); font-size: 12px; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-family: inherit; min-height: 34px; }
+.group-toggle button.active { background: var(--bg-card); color: var(--text); }
+
+/* Единый кнопочный выбор «Пульса». Наружная обёртка принимает переполнение,
+   внутренняя segmented-группа остаётся цельной и не переносит варианты. */
+.pulse-segmented-scroller {
+  min-width: 0; max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain;
+  scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.pulse-segmented-scroller::-webkit-scrollbar { display: none; }
+.pulse-segmented { width: max-content; min-width: max-content; flex-wrap: nowrap; }
+.pulse-segmented button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  white-space: nowrap; flex: 0 0 auto;
+}
+.pulse-segmented button:focus-visible { outline: 2px solid var(--primary); outline-offset: -1px; }
+.pulse-segmented button:disabled { cursor: default; color: var(--text-faint); }
+.pulse-segmented-count { color: var(--text-faint); font-family: var(--font-mono); font-size: 10px; }
+.pulse-segmented button.active .pulse-segmented-count { color: inherit; }
+.card-head > .pulse-segmented-scroller { margin-left: auto; max-width: 72%; flex: 0 1 auto; }
+.card-head-actions > .pulse-segmented-scroller { margin-left: auto; max-width: 100%; }
+.metric-card-head > .pulse-segmented-scroller { flex: 0 1 auto; min-width: 0; max-width: 100%; margin-left: auto; }
+
+.accounts-groups { display: flex; flex-direction: column; gap: 14px; }
+.account-group-header { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
+.account-group-total { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text); }
+.account-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* Одинокая карточка в последней строке растягивается на обе колонки — та же
+   борьба с «дыркой», что и в CardGrid, но здесь карточки однородны, и правило
+   выражается чистым CSS без счёта в JS. */
+.account-cards > .account-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.account-card {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.account-name { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-native { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 14px; font-weight: 600; }
+.account-usd { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+/* Счёт без курса до базовой валюты (balance_base_minor === null) — рамка
+   предупреждения вместо приглушения по доле: молчаливый ноль в эквиваленте
+   читался бы как «баланс нулевой», а не «курс не задан». В итог группы такой
+   счёт не входит — см. AccountsGrid в Pulse.jsx. */
+.account-card--no-rate { border-color: var(--warning); }
+.account-no-rate { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--warning); margin-top: 2px; }
+
+/* Подвал с курсами (issue #421). Свёрнут в одну строку знаков и чисел; полный
+   вид с кодами и датами открывается кликом — см. FxFooter в components.jsx. */
+.footer { display: flex; flex-direction: column; gap: 6px; align-items: center; padding: 4px 0 0; font-size: 11px; color: var(--text-faint); }
+.fx-summary {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center;
+  background: none; border: none; padding: 8px 10px; min-height: 34px; border-radius: 8px; cursor: pointer;
+  color: var(--text-faint); font-family: var(--font-mono); font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.fx-summary:hover { color: var(--text-muted); background: var(--bg-hover); }
+.fx-chip { white-space: nowrap; }
+.fx-stale-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warning); flex-shrink: 0; }
+.fx-details {
+  display: flex; flex-direction: column; gap: 4px; width: 100%; max-width: 360px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px;
+}
+.fx-detail-row { display: flex; justify-content: space-between; gap: 12px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.fx-detail-pair { color: var(--text-muted); }
+.fx-detail-age { color: var(--text-faint); white-space: nowrap; }
+.fx-detail-age.is-stale { color: var(--warning); }
+.fx-chip--more { color: var(--text-faint); }
+
+.empty-state { color: var(--text-muted); font-size: 13px; padding: 10px 0; }
+
+/* ---------- Адаптивный дашборд «Пульса», «Аналитики» и «Данных» ---------- */
+.pulse-dashboard,
+.analytics-dashboard,
+.data-dashboard {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pulse-block,
+.analytics-block,
+.data-block {
+  min-width: 0;
+  width: 100%;
+}
+.pulse-main-col,
+.pulse-side-col,
+.analytics-main-col,
+.analytics-side-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.pulse-footer-col,
+.analytics-footer-col {
+  width: 100%;
+}
+
+@container (min-width: 800px) {
+  .pulse-dashboard,
+  .analytics-dashboard {
+    display: grid;
+    grid-template-columns: 1.15fr 1fr;
+    grid-auto-flow: row dense;
+    gap: 16px;
+    align-items: start;
+  }
+  .pulse-dashboard--only-left,
+  .pulse-dashboard--only-right,
+  .analytics-dashboard--only-left,
+  .analytics-dashboard--only-right {
+    grid-template-columns: 1fr;
+  }
+  .pulse-main-col,
+  .pulse-block--col-left,
+  .analytics-main-col,
+  .analytics-block--col-left {
+    grid-column: 1;
+  }
+  .pulse-side-col,
+  .pulse-block--col-right,
+  .analytics-side-col,
+  .analytics-block--col-right {
+    grid-column: 2;
+  }
+  .pulse-block--col-full,
+  .analytics-block--col-full {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+  }
+  .pulse-block--col-full .chart-box,
+  .analytics-block--col-full .chart-box {
+    height: 300px;
+  }
+  .pulse-dashboard--only-right .pulse-side-col,
+  .pulse-dashboard--only-right .pulse-block--col-right,
+  .analytics-dashboard--only-right .analytics-side-col,
+  .analytics-dashboard--only-right .analytics-block--col-right {
+    grid-column: 1;
+  }
+  .pulse-footer-col,
+  .analytics-footer-col {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+  }
+  .forecast-warnings--full .forecast-warnings-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 10px;
+  }
+}
+
+@media (min-width: 840px) {
+  .pulse-dashboard,
+  .analytics-dashboard {
+    display: grid;
+    grid-template-columns: 1.15fr 1fr;
+    grid-auto-flow: row dense;
+    gap: 16px;
+    align-items: start;
+  }
+  .pulse-dashboard--only-left,
+  .pulse-dashboard--only-right,
+  .analytics-dashboard--only-left,
+  .analytics-dashboard--only-right {
+    grid-template-columns: 1fr;
+  }
+  .pulse-main-col,
+  .pulse-block--col-left,
+  .analytics-main-col,
+  .analytics-block--col-left {
+    grid-column: 1;
+  }
+  .pulse-side-col,
+  .pulse-block--col-right,
+  .analytics-side-col,
+  .analytics-block--col-right {
+    grid-column: 2;
+  }
+  .pulse-block--col-full,
+  .analytics-block--col-full {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+  }
+  .pulse-block--col-full .chart-box,
+  .analytics-block--col-full .chart-box {
+    height: 300px;
+  }
+  .pulse-dashboard--only-right .pulse-side-col,
+  .pulse-dashboard--only-right .pulse-block--col-right,
+  .analytics-dashboard--only-right .analytics-side-col,
+  .analytics-dashboard--only-right .analytics-block--col-right {
+    grid-column: 1;
+  }
+  .pulse-footer-col,
+  .analytics-footer-col {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+  }
+  .forecast-warnings--full .forecast-warnings-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 10px;
+  }
+}
+
+/* ---------- Модальное окно настройки дашборда ---------- */
+.dashboard-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--backdrop, rgba(0, 0, 0, 0.45));
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.dashboard-modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  width: 100%;
+  max-width: 580px;
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modalFadeIn 0.15s ease-out;
+}
+
+@keyframes modalFadeIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.dashboard-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dashboard-modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+
+.dashboard-modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: var(--radius-sm, 6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background-color 0.15s;
+}
+.dashboard-modal-close:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.dashboard-modal-desc {
+  padding: 12px 20px 0;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.dashboard-modal-body {
+  padding: 12px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.dashboard-blocks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dashboard-block-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 8px);
+  transition: opacity 0.15s, background-color 0.15s, border-color 0.15s;
+}
+
+.dashboard-block-row:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+}
+
+.dashboard-block-row--dragging {
+  opacity: 0.4;
+  border-style: dashed;
+}
+
+.dashboard-block-row--hidden {
+  opacity: 0.55;
+  background: var(--bg);
+}
+
+.dashboard-block-drag {
+  cursor: grab;
+  color: var(--text-muted);
+  padding: 4px 2px;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+}
+.dashboard-block-drag:active {
+  cursor: grabbing;
+}
+
+.dashboard-block-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.dashboard-block-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dashboard-block-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.dashboard-block-badge {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--border);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.dashboard-block-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  line-height: 1.3;
+}
+
+.dashboard-block-column-picker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.dashboard-column-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.dashboard-column-chips {
+  display: inline-flex;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.dashboard-col-chip {
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.dashboard-col-chip:hover {
+  color: var(--text);
+}
+
+.dashboard-col-chip--active {
+  background: var(--bg-card);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.dashboard-block-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dashboard-order-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dashboard-icon-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px;
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s, opacity 0.15s;
+}
+
+.dashboard-icon-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.dashboard-icon-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.dashboard-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.dashboard-toggle-btn--visible {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.dashboard-toggle-btn--hidden {
+  background: transparent;
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.dashboard-toggle-btn:hover {
+  background: var(--bg-hover);
+}
+
+.dashboard-toggle-text {
+  font-size: 12px;
+}
+
+.dashboard-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.dashboard-reset-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.dashboard-done-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.pulse-customize-footer,
+.analytics-customize-footer,
+.data-customize-footer {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0;
+  width: 100%;
+}
+
+.backup-section {
+  margin-top: 8px;
+}
+
+.backup-scope-note {
+  margin: 6px 0 10px;
+}
+
+.backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 0 4px;
+}
+
+.backup-actions .btn-primary,
+.backup-actions .btn-danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.backup-status {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--safe);
+}
+
+.pulse-customize-link,
+.analytics-customize-link,
+.data-customize-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-decoration: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 6px;
+  transition: color 0.15s, background-color 0.15s;
+}
+.pulse-customize-link:hover,
+.analytics-customize-link:hover,
+.data-customize-link:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.pulse-empty-dashboard,
+.analytics-empty-dashboard,
+.data-empty-dashboard {
+  padding: 48px 24px;
+  text-align: center;
+  background: var(--bg-card);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg, 12px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+}
+
+.pulse-empty-dashboard p,
+.analytics-empty-dashboard p,
+.data-empty-dashboard p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.pulse-empty-dashboard-actions,
+.analytics-empty-dashboard-actions,
+.data-empty-dashboard-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ---------- Адаптивный List-Detail для Операций ---------- */
+.ops-adaptive-container {
+  container-type: inline-size;
+}
+.ops-adaptive-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ops-master-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.ops-detail-pane {
+  display: none;
+}
+.ops-new-inline {
+  display: block;
+}
+
+.data-row--selected {
+  background: var(--bg-hover);
+  border-left: 3px solid var(--safe);
+}
+
+.ops-detail-card {
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ops-detail-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  text-align: center;
+  gap: 10px;
+}
+
+@container (min-width: 800px) {
+  .ops-adaptive-layout {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  .ops-detail-pane {
+    display: block;
+    position: sticky;
+    top: calc(var(--appbar-h, 52px) + 14px);
+    max-height: calc(100vh - var(--appbar-h, 52px) - 30px);
+    overflow-y: auto;
+  }
+  .ops-inline-expand {
+    display: none !important;
+  }
+  .ops-new-inline {
+    display: none !important;
+  }
+}
+
+@media (min-width: 840px) {
+  .ops-adaptive-layout {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  .ops-detail-pane {
+    display: block;
+    position: sticky;
+    top: calc(var(--appbar-h, 52px) + 14px);
+    max-height: calc(100vh - var(--appbar-h, 52px) - 30px);
+    overflow-y: auto;
+  }
+  .ops-inline-expand {
+    display: none !important;
+  }
+  .ops-new-inline {
+    display: none !important;
+  }
+}
+
+/* Compact Window Size Class (< 600px) */
+@media (max-width: 599.98px) {
+  .container { gap: 12px; }
+  .data-row-top { flex-wrap: wrap; }
+  .inline-editable-input { width: 90px; }
+  .account-cards { grid-template-columns: 1fr; }
+  /* Сетка метрик на мобильном сохраняет 2 колонки для парных показателей
+     («Капитал» и «Поток»), а мобильно-широкие карточки (.card-cell--mobile-wide:
+     «Потрачено», «Минимум») и одинокие карточки (.card-cell--wide) занимают
+     всю ширину строки. Меню выбора периода в «Потрачено» оптимизировано по
+     зазорам и паддингам, полностью умещаясь без горизонтального скроллинга. */
+  .headline-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .card-cell--wide { grid-column: 1 / -1; }
+  .card-cell--mobile-wide { grid-column: 1 / -1; }
+  .metric-card { padding: 9px 11px; gap: 2px; }
+  .metric-card-head { min-height: 20px; gap: 4px; }
+  .metric-card-head > .pulse-segmented-scroller { flex: 0 0 auto; max-width: none; margin-left: auto; }
+  .pulse-segmented button { padding: 3px 7px; font-size: 11px; min-height: 26px; }
+  .metric-value { font-size: 18px; }
+  .card-cell--mobile-wide .metric-value { font-size: 20px; }
+  .metric-card--big .metric-value { font-size: 24px; }
+  .metric-sub { font-size: 11px; margin-top: 1px; }
+}
+
+/* Предупреждения прогноза: уровень написан словами, а денежная шкала остаётся
+   вторым, визуальным сигналом о глубине риска. */
+.forecast-warnings h2 { margin: 0; font-size: 15px; }
+.warning-filters { width: 100%; margin-top: 12px; }
+.forecast-warnings-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+/* Левая полоса и подложка строки красятся денежной шкалой из JS (WarningRow):
+   насколько остро — настолько красно. Здесь задаётся только место под полосу,
+   чтобы строки не «прыгали» по горизонтали, когда цвет меняется. */
+.forecast-warning-row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px; align-items: start; padding: 9px 10px; font-size: 13px;
+  border-left: 2px solid transparent; border-radius: 0 6px 6px 0;
+}
+.forecast-warning-icon { margin-top: 2px; flex-shrink: 0; color: var(--warning); }
+.forecast-warning-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.forecast-warning-heading { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.forecast-warning-label { font-weight: 600; }
+.forecast-warning-severity {
+  padding: 1px 5px; border: 1px solid var(--border); border-radius: 5px;
+  color: var(--text-muted); background: var(--bg); font-size: 10px; font-weight: 600;
+}
+.forecast-warning-severity--critical { border-color: var(--danger); color: var(--text); }
+.forecast-warning-severity--important { border-color: var(--warning); color: var(--text); }
+.forecast-warning-text { color: var(--text-muted); line-height: 1.4; }
+.forecast-warnings-actions {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--grid);
+}
+
+/* ---------- Аналитика: фильтры и поиск (S1-5b) ---------- */
+
+/* top — по фактической высоте липкой шапки (`--appbar-h`, её измеряет
+   Shell.jsx): панель фильтров встаёт ровно под шапкой на любой ширине, а не
+   по подобранному «с запасом» числу. */
+.filter-bar {
+  position: sticky; top: var(--appbar-h); z-index: 10;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px;
+  padding: 10px; display: flex; flex-direction: column; gap: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+.filter-row { display: flex; gap: 8px; }
+.search-box {
+  flex: 1; display: flex; align-items: center; gap: 8px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 9px; padding: 0 10px; color: var(--text-muted);
+}
+.search-box input {
+  flex: 1; background: none; border: none; outline: none; color: var(--text);
+  font-family: inherit; font-size: 14px; padding: 9px 0; min-width: 0;
+}
+.search-box input::placeholder { color: var(--text-faint); }
+.search-clear {
+  background: none; border: none; color: var(--text-muted); cursor: pointer;
+  display: flex; padding: 4px; margin-right: -4px;
+}
+.filter-btn {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  width: 40px; background: var(--bg); border: 1px solid var(--border); border-radius: 9px;
+  color: var(--text-muted); cursor: pointer;
+}
+.filter-btn--active { color: var(--text); border-color: var(--text-faint); }
+.filter-badge {
+  position: absolute; top: -5px; right: -5px; background: var(--primary); color: #fff;
+  font-size: 10px; font-weight: 600; min-width: 15px; height: 15px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center; padding: 0 3px;
+  font-family: var(--font-mono);
+}
+.period-chips { display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.period-chips::-webkit-scrollbar { display: none; }
+.chip {
+  background: var(--bg); border: 1px solid var(--border); color: var(--text-muted);
+  font-family: inherit; font-size: 12px; padding: 5px 11px; border-radius: 999px;
+  cursor: pointer; white-space: nowrap; flex-shrink: 0; min-height: 34px;
+  display: inline-flex; align-items: center; gap: 5px;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.chip--active { background: var(--text); color: var(--bg); border-color: var(--text); font-weight: 600; }
+/* Счётчик — моношрифт и приглушённый токен (не opacity: прозрачность роняет
+   контраст ниже AA, см. запрет в test/palette.test.ts). */
+.chip-count { color: var(--text-faint); font-family: var(--font-mono); font-size: 10px; }
+.chip--active .chip-count { color: inherit; }
+.filter-panel { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--grid); padding-top: 10px; }
+.filter-group-label { font-size: 11px; color: var(--text-faint); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; }
+.chip-wrap { display: flex; gap: 6px; flex-wrap: wrap; }
+.filter-reset { align-self: flex-start; }
+
+.filter-clear { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+.filter-clear:hover { border-color: var(--danger); }
+
+/* ---------- Аналитика: разрезы и бар-строки (S1-5c) ---------- */
+
+.category-bars { display: flex; flex-direction: column; gap: 10px; }
+.category-row { display: grid; grid-template-columns: 120px 1fr auto; gap: 10px; align-items: center; font-size: 12px; }
+.category-label { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.category-track { height: 6px; background: var(--grid); border-radius: 4px; overflow: hidden; }
+.category-fill { height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.2s ease; }
+.category-value { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; font-family: var(--font-mono); text-align: right; }
+.bar-sub { color: var(--text-faint); font-size: 10px; white-space: nowrap; }
+
+.bar-btn {
+  width: 100%; background: none; border: none; padding: 4px 6px; margin: -2px -6px;
+  font-family: inherit; font-size: 12px; cursor: pointer; color: inherit; border-radius: 7px;
+  text-align: left;
+}
+/* Подсветки строк — на токенах темы, а не на литеральных rgba: литерал светлел
+   в тёмной теме и темнел в светлой, то есть работал ровно наоборот. */
+.bar-btn:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
+.bar-btn--active { background: color-mix(in srgb, var(--text) 7%, transparent); outline: 1px solid var(--border); }
+
+.limit-chips {
+  display: flex; gap: 4px; align-items: center; font-size: 11px; color: var(--text-faint);
+  margin-bottom: 12px; flex-wrap: wrap;
+}
+
+.limit-chip {
+  background: var(--bg); border: 1px solid var(--border); color: var(--text-muted);
+  font-family: inherit; font-size: 11px; padding: 2px 8px; border-radius: 6px;
+  cursor: pointer; min-height: 34px; display: inline-flex; align-items: center;
+}
+.limit-chip--active {
+  background: var(--text); color: var(--bg); border-color: var(--text); font-weight: 600;
+}
+
+/* ---------- Аналитика: чеки (S1-5c) ---------- */
+
+.receipt-list { display: flex; flex-direction: column; gap: 8px; }
+.receipt { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.receipt-head {
+  width: 100%; display: grid; grid-template-columns: 56px 1fr auto 18px; gap: 10px; align-items: center;
+  background: none; border: none; color: var(--text); font-family: inherit; text-align: left;
+  padding: 10px 12px; cursor: pointer;
+}
+.receipt-head:hover { background: rgba(255, 255, 255, 0.02); }
+.receipt-date { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; }
+.receipt-time { font-size: 10px; color: var(--text-faint); }
+.receipt-merchant { font-size: 13px; display: flex; flex-direction: column; min-width: 0; }
+.receipt-meta { font-size: 11px; color: var(--text-faint); }
+.receipt-total { font-family: var(--font-mono); font-size: 13px; font-weight: 600; text-align: right; display: flex; flex-direction: column; }
+.receipt-usd { font-size: 10px; color: var(--text-faint); font-weight: 400; }
+.receipt-lines { border-top: 1px solid var(--grid); padding: 6px 12px 10px; background: rgba(0, 0, 0, 0.1); }
+.receipt-line { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--grid); font-size: 12px; }
+.receipt-line:last-child { border-bottom: none; }
+.receipt-line-name { display: flex; flex-direction: column; min-width: 0; }
+.receipt-line-sub { color: var(--text-faint); font-size: 10px; }
+.receipt-line-name .receipt-url-link { font-size: 11px; margin-top: 2px; }
+.receipt-line-total { font-family: var(--font-mono); white-space: nowrap; display: flex; flex-direction: column; align-items: flex-end; }
+.receipt-line-usd { font-size: 10px; color: var(--text-faint); }
+
+/* ---------- Регулярные операции и планы (issue #290) ---------- */
+
+.stat-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.stat-block { background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 10px 14px; }
+.stat-label { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+.stat-value { font-family: var(--font-mono); font-size: 16px; font-weight: 600; color: var(--text); }
+
+.income-expense { display: flex; flex-direction: column; gap: 10px; }
+.ie-row { display: grid; grid-template-columns: 80px 1fr auto; gap: 10px; align-items: center; font-size: 12px; }
+.ie-label { color: var(--text-muted); }
+.ie-track { height: 8px; background: var(--grid); border-radius: 4px; overflow: hidden; }
+.ie-fill { height: 100%; border-radius: 4px; }
+.ie-fill--income { background: var(--safe); }
+.ie-fill--expense { background: var(--danger); }
+.ie-value { font-family: var(--font-mono); font-weight: 600; }
+
+.recurring-controls {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  flex-wrap: wrap; margin-bottom: 8px;
+}
+
+.recurring-filter-wrap {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+}
+
+.recurring-select {
+  background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  font-family: inherit; font-size: 12px; padding: 5px 10px; border-radius: 8px;
+  outline: none; cursor: pointer;
+}
+.recurring-select:focus { border-color: var(--text-faint); }
+
+.recurring-reset-btn {
+  display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px;
+  font-size: 11px; color: var(--text-muted); cursor: pointer;
+}
+.recurring-reset-btn:hover { color: var(--text); }
+
+.recurring-categories-list {
+  display: flex; flex-direction: column; gap: 8px;
+}
+
+.recurring-card {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+  overflow: hidden; transition: border-color 0.15s ease;
+}
+.recurring-card--open { border-color: var(--border-focus, var(--border)); }
+
+.recurring-card-head {
+  width: 100%; display: grid; grid-template-columns: 1fr auto 18px; gap: 10px; align-items: center;
+  background: none; border: none; color: var(--text); font-family: inherit; text-align: left;
+  padding: 10px 12px; cursor: pointer;
+}
+.recurring-card-head:hover { background: rgba(255, 255, 255, 0.02); }
+
+.recurring-head-info {
+  display: flex; align-items: baseline; gap: 8px; min-width: 0; flex-wrap: wrap;
+}
+.recurring-cat-name { font-size: 13px; font-weight: 600; }
+.recurring-cat-badges { font-size: 11px; color: var(--text-faint); font-family: var(--font-mono); }
+
+.recurring-head-amounts {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+  font-family: var(--font-mono); font-size: 12px;
+}
+.recurring-plan-amount { font-weight: 600; color: var(--text); }
+.recurring-actual-amount { font-size: 11px; color: var(--text-muted); }
+
+.recurring-card-body {
+  border-top: 1px solid var(--grid); padding: 8px 12px 12px; background: rgba(0, 0, 0, 0.08);
+  display: flex; flex-direction: column; gap: 10px;
+}
+
+.recurring-subblock {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.recurring-subblock-title {
+  font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em;
+}
+
+.recurring-sublist {
+  display: flex; flex-direction: column; gap: 4px;
+}
+
+.recurring-subitem {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 5px 0; border-bottom: 1px solid var(--grid); font-size: 12px;
+}
+.recurring-subitem:last-child { border-bottom: none; }
+
+.recurring-subitem-main {
+  display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap;
+}
+.recurring-item-title { font-size: 12px; color: var(--text); }
+.recurring-item-badge {
+  font-size: 10px; padding: 1px 5px; border-radius: 4px; background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+}
+.recurring-item-date { font-size: 11px; color: var(--text-faint); font-family: var(--font-mono); }
+.recurring-item-subcat {
+  font-size: 10px; padding: 1px 5px; border-radius: 4px; background: rgba(217, 135, 87, 0.12);
+  color: var(--primary);
+}
+
+.recurring-subitem-val {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 1px;
+  font-family: var(--font-mono); font-size: 12px; white-space: nowrap;
+}
+.recurring-item-orig { font-weight: 500; color: var(--text); }
+.recurring-item-eq { font-size: 10px; color: var(--text-faint); }
+
+/* ---------- Passkeys Management (issue #507) ---------- */
+
+.passkeys-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.passkey-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: opacity 0.15s ease;
+}
+
+.passkey-card--disabled {
+  opacity: 0.65;
+}
+
+.passkey-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.passkey-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.passkey-icon-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.passkey-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.passkey-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.passkey-status-badge--active {
+  background: var(--bg-hover);
+  color: var(--safe);
+  border: 1px solid var(--border);
+}
+
+.passkey-status-badge--disabled {
+  background: var(--bg-hover);
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+}
+
+.passkey-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.passkey-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.passkey-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.passkey-toggle-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.passkey-toggle-btn--enable {
+  color: var(--safe);
+}
+
+.passkey-toggle-btn--enable:hover:not(:disabled) {
+  color: var(--safe);
+  border-color: var(--safe);
+}
+
+.passkey-delete-btn {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.passkey-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 4px 12px;
+  font-size: 11px;
+}
+
+.passkey-meta-grid .meta-label {
+  color: var(--text-faint);
+  margin-right: 4px;
+}
+
+.passkey-meta-grid .meta-value {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* ---------- MCP Access & Audit (S2-2, issue #262) ---------- */
+
+.mcp-clients-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mcp-client-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mcp-client-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mcp-client-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mcp-client-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.mcp-host-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-hover);
+  color: var(--safe);
+  border: 1px solid var(--border);
+  font-weight: 500;
+}
+
+.mcp-client-meta-url {
+  font-size: 11px;
+}
+
+.external-meta-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-faint);
+  text-decoration: none;
+}
+.external-meta-link:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.mcp-tokens-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.mcp-token-row {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.mcp-token-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.mcp-token-scopes {
+  display: flex;
+  gap: 6px;
+}
+
+.scope-pill {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.scope-pill--write {
+  background: var(--bg-hover);
+  color: var(--danger);
+  border: 1px solid var(--border);
+}
+
+.scope-pill--read {
+  background: var(--bg-hover);
+  color: var(--usa);
+  border: 1px solid var(--border);
+}
+
+.mcp-token-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 4px 12px;
+  font-size: 11px;
+}
+
+.mcp-token-meta-grid .meta-label {
+  color: var(--text-faint);
+  margin-right: 4px;
+}
+
+.mcp-token-meta-grid .meta-value {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.btn-danger-outline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--danger);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-danger-outline:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--danger);
+}
+.btn-danger-outline:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-revoke-single {
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+.btn-revoke-single:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.btn-revoke-single:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.section-head-simple {
+  margin-bottom: 12px;
+}
+
+.mcp-audit-table-wrapper {
+  overflow-x: auto;
+  margin: 0 -12px -12px -12px;
+}
+
+.mcp-audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.mcp-audit-table th {
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 11px;
+  color: var(--text-faint);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.mcp-audit-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--grid);
+  vertical-align: middle;
+}
+
+.mcp-audit-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Модальное окно создания OAuth-клиента */
+.mcp-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.mcp-modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 520px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: slideUp 0.15s ease-out;
+}
+
+.mcp-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mcp-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.mcp-modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+.mcp-modal-close:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.mcp-modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.mcp-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+
+.mcp-credential-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mcp-credential-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.mcp-credential-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.mcp-credential-value {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+  word-break: break-all;
+  user-select: all;
+}
+
+.btn-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+.btn-copy:hover {
+  background: var(--border);
+}
+.btn-copy--success {
+  background: rgba(52, 199, 89, 0.15);
+  border-color: rgba(52, 199, 89, 0.35);
+  color: var(--safe);
+}
+
+.topbar-btn--primary {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+}
+.topbar-btn--primary:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+.audit-time-cell {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.audit-client-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.audit-client-name {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.audit-client-host {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.audit-tool-cell code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.status-pill--success {
+  background: var(--bg-hover);
+  color: var(--safe);
+  border: 1px solid var(--border);
+}
+
+.status-pill--error {
+  background: var(--bg-hover);
+  color: var(--danger);
+  border: 1px solid var(--border);
+}
+
+.status-pill--pending {
+  background: var(--bg-hover);
+  color: var(--warning);
+  border: 1px solid var(--border);
+}
+
+/* Статус вызова MCP в первой колонке */
+.audit-th-status {
+  width: 36px;
+  min-width: 36px;
+  max-width: 36px;
+  padding: 8px 6px;
+  text-align: center;
+}
+
+.audit-status-cell {
+  width: 36px;
+  min-width: 36px;
+  max-width: 36px;
+  padding: 8px 6px;
+  text-align: center;
+}
+
+.status-cell-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.status-icon-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.status-icon-btn:hover,
+.status-icon-btn:focus-visible {
+  background: var(--bg-hover);
+  outline: none;
+}
+
+.status-icon--success {
+  color: var(--safe);
+}
+
+.status-icon--error {
+  color: var(--danger);
+}
+
+.status-icon--pending {
+  color: var(--warning);
+}
+
+.status-popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 120;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--text);
+  animation: fadeIn 0.12s ease-out;
+  pointer-events: none;
+}
+
+/* Сортируемые заголовки таблицы */
+.sortable-th {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s ease;
+}
+
+.sortable-th:hover {
+  color: var(--text);
+}
+
+.th-sort-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.th-sort-icon {
+  opacity: 0.4;
+  transition: opacity 0.15s ease;
+}
+
+.sortable-th:hover .th-sort-icon,
+.th-sort-icon--active {
+  opacity: 1;
+  color: var(--primary);
+}
+
+/* Панель инструментов журнала аудита */
+.mcp-audit-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.mcp-audit-toolbar-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mcp-audit-search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 240px;
+  max-width: 380px;
+}
+
+.mcp-audit-search-input {
+  width: 100%;
+  padding: 6px 28px 6px 30px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  transition: border-color 0.15s ease;
+}
+
+.mcp-audit-search-input:focus {
+  outline: none;
+  border-color: var(--border-hover);
+}
+
+.mcp-audit-search-icon {
+  position: absolute;
+  left: 9px;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.mcp-audit-search-clear {
+  position: absolute;
+  right: 6px;
+  background: none;
+  border: none;
+  padding: 4px;
+  color: var(--text-faint);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.mcp-audit-search-clear:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.mcp-audit-selects-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mcp-filter-select {
+  padding: 4px 8px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  max-width: 180px;
+}
+
+.btn-reset-filters {
+  background: transparent;
+  border: 1px dashed var(--border);
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.btn-reset-filters:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+/* Единая горизонтальная скроллируемая строка статус-чипов со статистикой */
+.mcp-status-filter-scroll {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  white-space: nowrap;
+  padding: 2px 0;
+  max-width: 100%;
+}
+
+.mcp-status-filter-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.mcp-status-chip {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.mcp-status-chip:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+  color: var(--text);
+}
+
+.mcp-status-chip--active {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+  font-weight: 600;
+}
+
+.mcp-status-chip--active .mcp-status-chip-count {
+  color: inherit;
+}
+
+.mcp-status-chip--active .mcp-status-chip-icon {
+  color: inherit;
+}
+
+.mcp-status-chip-label {
+  font-weight: 500;
+}
+
+.mcp-status-chip-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.mcp-status-chip-icon {
+  flex-shrink: 0;
+}
+
+.mcp-status-chip-icon--success {
+  color: var(--safe);
+}
+
+.mcp-status-chip-icon--error {
+  color: var(--danger);
+}
+
+.mcp-status-chip-icon--pending {
+  color: var(--warning);
+}
+
+/* Колонка Результат вызова MCP */
+.audit-result-cell {
+  color: var(--text-muted);
+  min-width: 180px;
+  max-width: 360px;
+}
+
+.audit-result-cell--empty {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.audit-result-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.audit-result-text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}
+
+.audit-result-text--expanded {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: none;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--bg);
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.audit-result-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-result-toggle {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.btn-result-toggle:hover {
+  color: var(--text);
+}
+
+.btn-copy-result {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-copy-result:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+.btn-copy-result--copied {
+  background: rgba(52, 199, 89, 0.15);
+  border-color: rgba(52, 199, 89, 0.35);
+  color: var(--safe);
+}
+
+/* Пагинация журнала */
+.mcp-audit-pagination {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.mcp-audit-pagination-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.mcp-audit-limit-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mcp-audit-limit-selector select {
+  padding: 3px 6px;
+  font-size: 11px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.btn-show-more-audit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 16px;
+  border-radius: 6px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-show-more-audit:hover {
+  background: var(--border);
+}
+
+/* Теги типов инструментов */
+.audit-tool-tag {
+  display: inline-flex;
+  align-items: center;
+}
+
+.audit-tool-tag code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.audit-tool-tag--write code {
+  border-color: rgba(255, 59, 48, 0.25);
+  color: var(--text);
+}
+
+
+
+.skeleton-wrap { display: flex; flex-direction: column; gap: 12px; }
+.skeleton-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.skeleton-line { background: linear-gradient(90deg, var(--bg-card) 0%, var(--border) 50%, var(--bg-card) 100%); background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: 12px; }
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+@media (max-width: 480px) {
+  .topbar-row--main { flex-wrap: wrap; gap: 8px; }
+  .topbar-actions { gap: 6px; }
+  .topbar-btn-text { display: none; }
+  .topbar-btn { padding: 8px 10px; }
+}

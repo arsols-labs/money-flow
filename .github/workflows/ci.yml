@@ -1,0 +1,47 @@
+# Draft for future arsols-labs/money-flow .github/workflows/ci.yml
+# No Workers Builds secrets. No CLOUDFLARE_API_TOKEN required.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+defaults:
+  run:
+    working-directory: app
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Public fingerprint assert
+        working-directory: .
+        run: node scripts/assert-public-fingerprints.mjs
+
+      - name: Typecheck
+        run: npm run check
+
+      - name: Test (vitest + setup unit)
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Setup dry-run (no Cloudflare secrets)
+        run: npm run setup -- --yes --dry-run
+        env:
+          # Dry-run must not require a token; leave unset on purpose.
+          CI: 'true'
