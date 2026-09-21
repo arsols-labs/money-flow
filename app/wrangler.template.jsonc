@@ -37,7 +37,7 @@
     { "tag": "v1-demo-session", "new_sqlite_classes": ["DemoSession"] }
   ],
   "rules": [
-    { "type": "Text", "globs": ["migrations/*.sql", "scripts/*.sql"], "fallthrough": false }
+    { "type": "Text", "globs": ["migrations/*.sql", "scripts/*.sql"], "fallthrough": true }
   ],
   "vars": {
     "APP_DOMAIN": "<your-workers-dev-or-custom-hostname>"

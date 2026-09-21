@@ -42,7 +42,7 @@ namespace on deploy). Example shape, placeholders only:
     { "tag": "v1-demo-session", "new_sqlite_classes": ["DemoSession"] }
   ],
   "rules": [
-    { "type": "Text", "globs": ["migrations/*.sql", "scripts/*.sql"], "fallthrough": false }
+    { "type": "Text", "globs": ["migrations/*.sql", "scripts/*.sql"], "fallthrough": true }
   ],
   "vars": { "DEMO_MODE": "1", "APP_DOMAIN": "money-flow.arsols.com" }
 }
