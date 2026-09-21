@@ -107,7 +107,7 @@ export function buildLocalWranglerConfig(input) {
       bindings: [{ name: 'DEMO_SESSION', class_name: 'DemoSession' }],
     },
     migrations: [{ tag: 'v1-demo-session', new_sqlite_classes: ['DemoSession'] }],
-    rules: [{ type: 'Text', globs: ['migrations/*.sql', 'scripts/*.sql'], fallthrough: false }],
+    rules: [{ type: 'Text', globs: ['migrations/*.sql', 'scripts/*.sql'], fallthrough: true }],
     vars: {
       APP_DOMAIN: input.appDomain,
     },
