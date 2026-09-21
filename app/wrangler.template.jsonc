@@ -1,0 +1,38 @@
+{
+  // Documentation-only shape for a self-hosted Money Flow v2 Worker.
+  // `npm run setup` writes wrangler.local.jsonc with the same shape; it does not read this file.
+  // Do not copy binding ids from a committed production wrangler.jsonc into a fork.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "money-flow",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-08-08",
+  "compatibility_flags": ["global_fetch_strictly_public"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": "dist/client",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/mcp", "/mcp/*", "/.well-known/*"]
+  },
+  "kv_namespaces": [
+    { "binding": "KV", "id": "<your-kv-namespace-id>" },
+    { "binding": "OAUTH_KV", "id": "<your-kv-namespace-id>" }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "money-flow-db",
+      "database_id": "<your-d1-database-id>"
+    }
+  ],
+  "vars": {
+    "APP_DOMAIN": "<your-workers-dev-or-custom-hostname>"
+  },
+  "ratelimits": [
+    { "name": "RATE_LIMIT_OAUTH_REGISTER", "namespace_id": "100001", "simple": { "limit": 10, "period": 60 } },
+    { "name": "RATE_LIMIT_AUTH_SETUP", "namespace_id": "100002", "simple": { "limit": 8, "period": 60 } },
+    { "name": "RATE_LIMIT_AUTH_LOGIN", "namespace_id": "100003", "simple": { "limit": 20, "period": 60 } },
+    { "name": "RATE_LIMIT_MCP_DISPATCH", "namespace_id": "100004", "simple": { "limit": 60, "period": 60 } }
+  ]
+}

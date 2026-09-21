@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-Please report security issues privately through GitHub Security Advisories for this repository. If private reporting is not available, contact the maintainers through the repository owner before opening a public issue.
+Please report security issues privately through [GitHub Security Advisories](https://github.com/arsols-labs/money-flow/security/advisories/new) for this repository. If private reporting is not available, contact the maintainers through the repository owner before opening a public issue.
 
 Include:
 

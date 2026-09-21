@@ -1,0 +1,21 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers/types"],
+    // UI написан на JS/JSX и в tsc не входит; money.js, language.js и theme.js —
+    // исключения: их импортируют тесты, и без allowJs импорт не разрешается.
+    "allowJs": true,
+    "jsx": "react-jsx",
+    "resolveJsonModule": true
+  },
+  "include": [
+    "./**/*.ts",
+    "../src/worker/**/*.ts",
+    "../src/shared/**/*.ts",
+    "../src/ui/money.js",
+    "../src/ui/language.js",
+    "../src/ui/theme.js",
+    "../src/ui/i18n.js",
+    "../src/ui/locales/*.json"
+  ]
+}

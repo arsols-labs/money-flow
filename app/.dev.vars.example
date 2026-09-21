@@ -1,0 +1,28 @@
+# Money Flow — local secrets example
+#
+# 1. Local development:
+#    cp app/.dev.vars.example app/.dev.vars
+#    Fill in real values. Never commit .dev.vars.
+#
+# 2. Cloudflare Workers (production / staging):
+#    Set secrets with `wrangler secret put <NAME>` or the Cloudflare Dashboard.
+#    APP_DOMAIN can live in wrangler.local.jsonc vars (written by `npm run setup`).
+#
+# 3. Never commit real secrets to git.
+
+# Optional. App hostname without protocol or path.
+# If unset, the Worker derives the host from the incoming request.
+# Local: localhost:8787
+# Self-host: your workers.dev or custom hostname
+APP_DOMAIN=localhost:8787
+
+# Optional. Display name for the first WebAuthn passkey (default: owner)
+AUTH_USER_NAME=owner
+
+# Required. One-time setup token for the first passkey at /setup/passkey.
+# Generate with: openssl rand -hex 32
+SETUP_TOKEN=replace-with-secure-random-setup-token-min-32-chars
+
+# Required. Session / OAuth CSRF signing secret.
+# Generate with: openssl rand -hex 32
+SESSION_SECRET=replace-with-secure-random-session-secret-min-32-chars
