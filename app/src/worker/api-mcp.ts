@@ -1,4 +1,4 @@
-// S2-2: API для экрана «Доступ» и журнала аудита MCP (issue #262)
+// S2-2: API for the Access screen and the MCP audit log (issue #262)
 
 import { Hono } from 'hono';
 import type { Env } from './types';
@@ -49,7 +49,7 @@ interface McpAuditLogRow {
 }
 
 /**
- * Возвращает список машинных клиентов и их активных токенов.
+ * Returns the list of machine clients and their active tokens.
  */
 mcpApi.get('/access', async (c) => {
   const [clientsRes, tokensRes, auditRes] = await Promise.all([
@@ -123,7 +123,7 @@ mcpApi.get('/access', async (c) => {
 });
 
 /**
- * Создаёт нового машинного OAuth-клиента (выпуск Client ID и Client Secret).
+ * Creates a new machine OAuth client (issues a Client ID and a Client Secret).
  */
 mcpApi.post('/access/clients', async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { name?: string; redirect_uris?: string[] };
@@ -176,7 +176,7 @@ mcpApi.post('/access/clients', async (c) => {
 });
 
 /**
- * Отзывает конкретный токен по ID.
+ * Revokes a specific token by ID.
  */
 mcpApi.delete('/access/tokens/:tokenId', async (c) => {
   const tokenId = c.req.param('tokenId');
@@ -206,7 +206,7 @@ mcpApi.delete('/access/tokens/:tokenId', async (c) => {
 });
 
 /**
- * Отзывает все активные токены машинного клиента.
+ * Revokes all active tokens of a machine client.
  */
 mcpApi.delete('/access/clients/:clientId', async (c) => {
   const clientId = c.req.param('clientId');
@@ -227,7 +227,7 @@ mcpApi.delete('/access/clients/:clientId', async (c) => {
 });
 
 /**
- * Возвращает последние 100 записей журнала вызовов инструментов MCP.
+ * Returns the latest 100 entries of the MCP tool-call audit log.
  */
 mcpApi.get('/audit', async (c) => {
   const { results } = await c.env.DB.prepare(
@@ -261,7 +261,7 @@ mcpApi.get('/audit', async (c) => {
 });
 
 /**
- * Помощник для записи в журнал аудита MCP.
+ * Helper for writing to the MCP audit log.
  */
 const AUDIT_RETENTION_DAYS = 14;
 const AUDIT_TELEMETRY_WINDOW_LIMIT = 40;

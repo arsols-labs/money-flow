@@ -1,5 +1,5 @@
-// Экран «Данные»: счета с правкой баланса в одно касание и курсы валют рядом.
-// Баланс — редактируемое поле (не сумма транзакций), см. docs/2026-08-09-v2-simple-spec.md.
+// The "Data" screen: accounts with one-tap balance editing and currency rates beside them.
+// The balance is an editable field (not a sum of transactions); see docs/2026-08-09-v2-simple-spec.md.
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -36,24 +36,24 @@ import OperationsSection from './OperationsSection';
 import FiscalReceiptsSection from './FiscalReceiptsSection';
 import { useRefreshNonce } from './RefreshContext';
 
-// Порог сверки баланса — по образцу курсов, но вдвое короче, и это не вкусовое
-// число. Курс между вводами меняется на проценты и правится редко; баланс
-// двигают зарплата, аренда и продукты, то есть за две недели он расходится с
-// банком практически наверняка, а прогноз (S1-4) стартует именно от него.
-// Константа, а не настройка в settings: отдельную ручку заводить только по
-// явному желанию владельца (issue #223).
+// The balance-reconciliation threshold follows the rates example, but is half as long, and that is not a matter of taste.
+// A rate moves by percents between entries and is edited rarely; a balance
+// is moved by salary, rent, and groceries, so in two weeks it has diverged from
+// the bank almost for certain, and the forecast (S1-4) starts from it.
+// A constant, not a settings control: add a separate knob only on
+// an explicit request (issue #223).
 const STALE_BALANCE_DAYS = 14;
 
 function accountMeta(acc) {
   return [acc.bank, acc.type, acc.account_number, acc.owner, acc.country].filter(Boolean).join(' · ');
 }
 
-// existingAccounts — список для предупреждения о похожем счёте; нужен только
-// форме создания, у формы правки его нет (и предупреждения там тоже нет).
+// existingAccounts is the list for the similar-account warning; only the
+// create form needs it, the edit form does not have it (and has no warning either).
 //
-// Алиасы (issue #339) привязываются к уже существующему счёту, поэтому
-// редактор показывается только в форме правки (initial задан). Сами вызовы API
-// берутся из импортированного `api` — отдельный проп не нужен.
+// Aliases (issue #339) are attached to an account that already exists, so
+// the editor is shown only on the edit form (initial is set). The API calls
+// themselves come from the imported `api` — a separate prop is not needed.
 function AccountForm({ initial, onSubmit, onCancel, submitLabel, existingAccounts = [] }) {
   const { t } = useTranslation();
   const [form, setForm] = useState(() => ({
@@ -69,24 +69,24 @@ function AccountForm({ initial, onSubmit, onCancel, submitLabel, existingAccount
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
-  // Редактор алиасов живёт внутри формы правки и держит локальную копию списка
-  // счёта — чтобы удаление/добавление не перечитывали весь экран «Данные»,
-  // а обновляли только себя. Форма монтируется заново при разворачивании
-  // строки, поэтому локальное состояние инициализируется актуальным initial.
+  // The alias editor lives inside the edit form and keeps a local copy of the account's
+  // list — so a deletion/addition does not re-read the whole "Data" screen,
+  // and updates only itself. The form mounts again when the
+  // row expands, so local state is initialized from the current initial.
   const aliasEditor = useAliasEditor(initial?.id, initial?.aliases ?? []);
 
-  // Баланс в форме берётся из initial один раз, при монтировании, а форма
-  // живёт всё время, пока строка развёрнута. За это время баланс можно
-  // поправить инлайном в шапке той же строки — и тогда форма держала бы
-  // устаревшее число, а сохранение со сменой валюты откатило бы свежую
-  // правку, пометив её как только что подтверждённую. Поэтому поле
-  // подтягивается заново, когда с сервера пришёл другой баланс; всё
-  // остальное, что пользователь успел набрать, при этом не трогается.
+  // The balance in the form is taken from initial once, at mount, and the form
+  // lives the whole time the row is expanded. During that time the balance can be
+  // corrected inline in the header of the same row — and then the form would hold
+  // a stale number, and a save that changes currency would roll back the fresh
+  // edit, marking it as just confirmed. So the field
+  // is pulled again when a different balance arrives from the server; everything
+  // else the user has typed is left alone.
   const syncedBalanceRef = useRef(initial?.balance_minor);
-  // Набранное руками не перетирается никогда: явный ввод — сигнал намерения
-  // сильнее, чем подставленное значение. Иначе правка баланса инлайном
-  // затирала бы уже введённую сумму в новой валюте, да ещё форматируя её по
-  // старой: набранные $34.00 превращались бы в 5100 (¥) и уходили как $5100.
+  // What was typed by hand is never overwritten: an explicit entry is a signal of intent
+  // stronger than a filled-in value. Otherwise an inline balance edit
+  // would wipe an amount already entered in the new currency, and also format it by the
+  // old one: a typed $34.00 would become 5100 (¥) and go out as $5100.
   const balanceTouchedRef = useRef(false);
   useEffect(() => {
     if (!initial || syncedBalanceRef.current === initial.balance_minor) return;
@@ -95,19 +95,19 @@ function AccountForm({ initial, onSubmit, onCancel, submitLabel, existingAccount
     setForm((f) => ({ ...f, balance: minorToInputString(initial.balance_minor, initial.currency) }));
   }, [initial]);
 
-  // Валюта вернулась к исходной — поле баланса спряталось, и его содержимое
-  // больше ничего не значит. Сбрасываем отметку «трогали», чтобы при
-  // следующей смене валюты подставилось актуальное серверное число, а не
-  // остатки прошлой попытки.
+  // The currency returned to the original — the balance field hid, and its contents
+  // no longer mean anything. Clear the "touched" mark so that on the
+  // next currency change the current server number is filled in, not
+  // leftovers of the previous attempt.
   const currencyMatchesInitial = Boolean(initial) && form.currency.trim().toUpperCase() === initial.currency;
   useEffect(() => {
     if (currencyMatchesInitial) balanceTouchedRef.current = false;
   }, [currencyMatchesInitial]);
 
-  // Имя по умолчанию — «Вид · Валюта · Страна», как только тройка заполнена
-  // (issue #235). Только при создании: у существующего счёта имя уже есть, и
-  // подстановка поверх него затирала бы данные, а не подсказывала. Поэтому у
-  // формы правки отметка «трогали» стоит с самого начала.
+  // The default name is "Type · Currency · Country", as soon as the triple is filled in
+  // (issue #235). Only on create: an existing account already has a name, and
+  // substituting over it would wipe data rather than suggest. So on
+  // the edit form the "touched" mark is set from the start.
   const nameTouchedRef = useRef(Boolean(initial));
   useEffect(() => {
     const suggested = suggestedNameUpdate(form, { touched: nameTouchedRef.current });
@@ -120,15 +120,15 @@ function AccountForm({ initial, onSubmit, onCancel, submitLabel, existingAccount
     setForm((f) => ({ ...f, [key]: e.target.value }));
   };
 
-  // Похожий счёт — предупреждение, а не запрет: правило прямо называет два
-  // счёта с одной тройкой (владелец, валюта, страна) законными — «кошелёк» и
-  // «дома в сейфе» одного человека. Поэтому кнопка «Создать» остаётся
-  // активной, а предупреждение просто стоит перед ней. Имя в сравнении не
-  // участвует: одинаковые имена допустимы по тому же правилу.
+  // A similar account is a warning, not a ban: the rule explicitly calls two
+  // accounts with one triple (owner, currency, country) legitimate — a "wallet" and
+  // "cash at home in the safe" of one person. So the "Create" button stays
+  // active, and the warning simply stands in front of it. The name is not part of
+  // the comparison: identical names are allowed by the same rule.
   const similarAccount = initial ? null : findSimilarAccount(existingAccounts, form);
 
-  // Смена валюты у существующего счёта открывает поле баланса: сумма должна
-  // быть названа в новой валюте явно (см. комментарий в submit).
+  // Changing the currency of an existing account opens the balance field: the amount must
+  // be stated in the new currency explicitly (see the comment in submit).
   const currencyChanged = Boolean(initial) && form.currency.trim().toUpperCase() !== initial.currency;
 
   const submit = async (e) => {
@@ -144,27 +144,27 @@ function AccountForm({ initial, onSubmit, onCancel, submitLabel, existingAccount
     }
     if (!name) { setError(t('data.accounts.nameRequired')); return; }
     if (!currency) { setError(t('data.accounts.currencyRequired')); return; }
-    // Владелец обязателен — сервер его пустым не примет
+    // The owner is required — the server will not accept it empty
     if (!owner) { setError(t('data.accounts.ownerRequired')); return; }
 
     const payload = { name, currency, owner, country };
-    // Необязательные поля: в режиме правки шлются явно (даже пустыми — это
-    // очистка), при создании пустые просто не отправляем.
+    // Optional fields: in edit mode they are sent explicitly (even empty — that is
+    // a clear); on create, empty ones are simply not sent.
     for (const key of ['bank', 'type', 'account_number']) {
       const v = form[key].trim();
       if (initial || v) payload[key] = v;
     }
 
-    // Баланс уходит в payload при создании счёта и при смене валюты. Второе —
-    // не удобство, а требование сервера: balance_minor хранится в минорных
-    // единицах своей валюты, и у USD с JPY они разной разрядности, так что
-    // сумму нужно назвать заново, а не унаследовать молча.
+    // The balance goes into the payload when an account is created and when the currency changes. The second case
+    // is not a convenience, it is a server requirement: balance_minor is stored in the minor
+    // units of its currency, and USD and JPY have different scales, so
+    // the amount must be stated again, not inherited silently.
     if (!initial || currency !== initial.currency) {
       try {
-        // Пустое поле считается нулём только при создании счёта. При смене
-        // валюты это подтверждение суммы, и пустота там означает «не ввёл», а
-        // не «ноль»: подставленный ноль обнулил бы баланс молча и с отметкой
-        // «обновлён только что».
+        // An empty field counts as zero only when creating an account. When the
+        // currency changes this is a confirmation of the amount, and emptiness there means "not entered",
+        // not "zero": a filled-in zero would zero the balance silently and with the mark
+        // "updated just now".
         payload.balance_minor = parseAmountToMinor(initial ? form.balance : form.balance || '0', currency);
       } catch (err) {
         setError(err.message);
@@ -233,9 +233,9 @@ function AccountForm({ initial, onSubmit, onCancel, submitLabel, existingAccount
           </div>
         </div>
       )}
-      {/* Редактор алиасов — только в форме правки существующего счёта
-          (initial задан): алиасы привязываются к уже созданному счёту. У формы
-          создания initial нет, и пустой блок там бессмысленен. */}
+      {/* The alias editor is only on the edit form of an existing account
+          (initial is set): aliases attach to an account that has already been created. The create
+          form has no initial, and an empty block there is pointless. */}
       {initial && aliasEditor}
       {error && <div className="data-form-error">{error}</div>}
       <div className="data-form-actions">
@@ -248,17 +248,17 @@ function AccountForm({ initial, onSubmit, onCancel, submitLabel, existingAccount
   );
 }
 
-// Редактор алиасов счёта (issue #339): привязка виртуальных карт к реальному
-// счёту. Живёт внутри формы правки существующего счёта (`initial` задан) —
-// алиасы имеют смысл только у уже созданного счёта.
+// Account alias editor (issue #339): binding virtual cards to a real
+// account. Lives inside the edit form of an existing account (`initial` is set) —
+// aliases only make sense on an account that has already been created.
 //
-// Держит ЛОКАЛЬНУЮ копию списка алиасов счёта и правит её сам, без
-// перечитывания всего экрана «Данные»: добавление/удаление алиаса к счёту не
-// меняет ни его баланс, ни набор счетов, поэтому гонять GET /accounts за этим
-// нет смысла. Свежий список подхватывается, лишь когда форма монтируется
-// заново (разворачивание строки) — аргумент `initialAliases`.
+// It keeps a LOCAL copy of the account's alias list and edits it itself, without
+// re-reading the whole "Data" screen: adding/removing an alias on an account does not
+// change its balance or the set of accounts, so there is no point in firing GET /accounts for that.
+// A fresh list is picked up only when the form mounts
+// again (the row expands) — the `initialAliases` argument.
 //
-// Возвращает готовый блок JSX, чтобы AccountForm не тащил его состояние.
+// Returns a finished JSX block so AccountForm does not have to carry its state.
 function useAliasEditor(accountId, initialAliases) {
   const { t } = useTranslation();
   const [aliases, setAliases] = useState(() => (initialAliases || []).slice());
@@ -266,10 +266,10 @@ function useAliasEditor(accountId, initialAliases) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
 
-  // Алиасы могут поменяться снаружи (перечитывание счетов после правки
-  // баланса и т.п.) — но форма живёт внутри развёрнутой строки и обычно
-  // перемонтируется при таких действиях. Подхватываем свежий список, только
-  // когда он реально изменился по ссылке, чтобы не тереть ручной ввод.
+  // Aliases can change from outside (accounts re-read after a balance
+  // edit, and so on) — but the form lives inside an expanded row and is usually
+  // remounted on such actions. Pick up a fresh list only
+  // when it has actually changed by reference, so manual input is not wiped.
   const incoming = initialAliases || [];
   useEffect(() => {
     setAliases((cur) => (cur === incoming ? cur : incoming.slice()));
@@ -358,9 +358,9 @@ function AccountRow({
   const stale = daysSince(account.balance_updated_at) > STALE_BALANCE_DAYS;
 
   const onRowKeyDown = (e) => {
-    // Только когда фокус на самой строке. Иначе `preventDefault` гасил бы
-    // активацию вложенной кнопки баланса: с клавиатуры Enter на ней не
-    // открывал правку, а разворачивал строку — баланс правился только мышью.
+    // Only when focus is on the row itself. Otherwise `preventDefault` would swallow
+    // activation of the nested balance button: Enter on it from the keyboard would not
+    // open the edit, it would expand the row — the balance could be edited only with the mouse.
     if (e.target !== e.currentTarget) return;
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); }
   };
@@ -398,21 +398,21 @@ function AccountRow({
             {stale && <AlertTriangle size={11} className="data-stale-icon" />}
             {t('data.accounts.updated', { date: formatRelativeDate(account.balance_updated_at) })}{stale ? t('data.accounts.reconcileSoon') : ''}
           </div>
-          {/* Подтверждение в одно касание: «сверился с банком, сумма та же».
-              Без него переставить отметку свежести можно было бы только изменив
-              сумму, то есть соврав себе (issue #223). Кнопка стоит у каждого
-              счёта, а не только у устаревшего: сверка — обычное действие
-              владельца, и прятать её до порога значило бы наказывать за
-              аккуратность. stopPropagation — потому что вся шапка строки
-              кликабельна и без него подтверждение заодно разворачивало бы
-              форму правки.
+          {/* One-tap confirmation: "checked with the bank, the amount is the same".
+              Without it the freshness mark could be moved only by changing
+              the amount, that is by lying to oneself (issue #223). The button stands on every
+              account, not only a stale one: reconciliation is an ordinary action,
+              and hiding it until the threshold would punish
+              care. stopPropagation — because the whole row header
+              is clickable and without it confirmation would also expand
+              the edit form.
 
-              aria-label НАЧИНАЕТСЯ с видимой надписи, а не заменяет её:
-              голосовое управление сопоставляет команду «нажми Сумма та же» с
-              доступным именем, и имя без этой подстроки делает кнопку
-              недостижимой голосом (WCAG 2.5.3 Label in Name). Дальше —
-              уточнение, какой именно счёт: кнопок с одной надписью на экране
-              столько же, сколько счетов. */}
+              The aria-label STARTS with the visible label, it does not replace it:
+              voice control matches the command "click Same amount" to the
+              accessible name, and a name without that substring makes the button
+              unreachable by voice (WCAG 2.5.3 Label in Name). After that —
+              which account it is: there are as many buttons with one label on the screen
+              as there are accounts. */}
           <button
             type="button"
             className="link-btn data-confirm-balance"
@@ -444,8 +444,8 @@ function AccountRow({
   );
 }
 
-// initialCode — префилл из предупреждения «валюта без курса»: владелец попал
-// сюда по кнопке рядом с конкретным кодом, перепечатывать его вручную незачем.
+// initialCode is a prefill from the "currency with no rate" warning: the owner arrived
+// here via the button next to a specific code, and there is no point in retyping it by hand.
 function RateForm({ baseCurrency, initialCode = '', onSubmit, onCancel }) {
   const { t } = useTranslation();
   const [code, setCode] = useState(initialCode);
@@ -462,8 +462,8 @@ function RateForm({ baseCurrency, initialCode = '', onSubmit, onCancel }) {
       setError(t('data.rates.codeFormat'));
       return;
     }
-    // Клиентская проверка не заменяет серверную (#228, PUT её всё равно
-    // отклонит) — она просто экономит круговой запрос на очевидной ошибке.
+    // The client check does not replace the server check (#228, the PUT will reject it
+    // anyway) — it just saves a round trip on an obvious error.
     if (baseCurrency && codeNorm === baseCurrency) {
       setError(t('data.rates.baseSelf', { code: codeNorm }));
       return;
@@ -495,7 +495,7 @@ function RateForm({ baseCurrency, initialCode = '', onSubmit, onCancel }) {
       </label>
       <label className="data-form-field">
         <span>{baseCurrency ? t('data.rates.fieldRateToBase', { base: baseCurrency }) : t('data.rates.fieldRateToBaseFallback')}</span>
-        {/* Код уже подставлен — курсор сразу в поле, которое осталось заполнить. */}
+        {/* The code is already filled in — the cursor goes straight to the field that is left to fill. */}
         <input value={rate} onChange={(e) => setRate(e.target.value)} disabled={busy} placeholder={t('data.rates.placeholderRate')} inputMode="decimal" autoFocus={Boolean(initialCode)} />
       </label>
       {error && <div className="data-form-error">{error}</div>}
@@ -509,10 +509,10 @@ function RateForm({ baseCurrency, initialCode = '', onSubmit, onCancel }) {
 
 function RateRow({ rate, baseCurrency, onSave, onDelete }) {
   const { t } = useTranslation();
-  // Строка курса USD — ошибка ввода (USD теперь абсолютный якорь): пересчёт
-  // её не использует, править бессмысленно, а сохранение всё равно упрётся в 400.
-  // Единственное осмысленное действие — удалить, поэтому значение здесь обычный
-  // текст, а не InlineEditable.
+  // A USD rate row is an input error (USD is now the absolute anchor): conversion
+  // does not use it, editing it is pointless, and a save will hit 400 anyway.
+  // The only meaningful action is to delete it, so the value here is plain
+  // text, not InlineEditable.
   const isAnchorCurrency = rate.code === 'USD';
   const stale = !isAnchorCurrency && daysSince(rate.updated_at) > STALE_RATE_DAYS;
   const flagged = stale || isAnchorCurrency;
@@ -526,8 +526,8 @@ function RateRow({ rate, baseCurrency, onSave, onDelete }) {
             {t('data.rates.expression', { code: rate.code })}
             {' '}
             {isAnchorCurrency ? (
-              // Код валюты не прячем: «1 USD = 2 USD» показывает бессмыслицу
-              // целиком и объясняет строку само, а «= 2» читалось бы обрезком.
+              // The currency code is not hidden: "1 USD = 2 USD" shows the nonsense
+              // in full and explains the row by itself, while "= 2" would read as a fragment.
               <span className="data-rate-value">{rate.rate} USD</span>
             ) : (
               <InlineEditable
@@ -978,17 +978,17 @@ export default function Data({
   const [loadError, setLoadError] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [rates, setRates] = useState([]);
-  // Валюты в ходу, для которых курса нет (issue #193). Считает их сервер: он
-  // один видит все таблицы со ссылками на валюту, а не только счета.
+  // Currencies in use that have no rate (issue #193). The server counts them: it
+  // alone sees every table that references a currency, not only accounts.
   const [missingRates, setMissingRates] = useState([]);
-  // null — базовая валюта не настроена (`settings.base_currency` не задан или
-  // непригоден). Дефолт 'USD' здесь был бы враньём: экран показывал бы
-  // «USD» даже когда сервер сам не знает, какая валюта базовая (#228).
+  // null — the base currency is not configured (`settings.base_currency` is unset or
+  // unusable). A default of 'USD' here would be a lie: the screen would show
+  // "USD" even when the server itself does not know which currency is base (#228).
   const [baseCurrency, setBaseCurrency] = useState(null);
 
-  // Порог предупреждения о низком балансе (issue #198) — читается вместе с
-  // остальными данными экрана. null означает «ещё не загружен» (отличаем от
-  // законных 0, которые парсер валидного ввода тоже может вернуть).
+  // The low-balance warning threshold (issue #198) is read together with
+  // the rest of the screen's data. null means "not loaded yet" (distinct from
+  // a legitimate 0, which the parser of valid input can also return).
   const [thresholdMinor, setThresholdMinor] = useState(null);
 
   const [expandedAccountId, setExpandedAccountId] = useState(null);
@@ -1016,7 +1016,7 @@ export default function Data({
   const visibleAccounts = accounts.filter(matchesAccount);
   const visibleRates = rates.filter(matchesRate);
 
-  // Дип-линки на блоки экрана при смене хэша на лету (issue #278).
+  // Deep links to screen blocks when the hash changes live (issue #278).
   useEffect(() => {
     const handleHash = () => {
       const section = sectionFromHash(window.location.hash);
@@ -1029,25 +1029,25 @@ export default function Data({
     return () => window.removeEventListener('hashchange', handleHash);
   }, [handleUpdateFilter]);
   const [showNewAccount, setShowNewAccount] = useState(false);
-  // null — форма курса скрыта; строка — открыта с этим кодом в поле (пустая
-  // строка = обычная кнопка «Курс», код = переход из предупреждения).
+  // null — the rate form is hidden; a string means it is open with that code in the field (an empty
+  // string = the ordinary "Rate" button, a code = a jump from the warning).
   const [newRateCode, setNewRateCode] = useState(null);
-  // Номер открытия формы. Сравнивать по коду мало: две подряд открытые пустые
-  // формы неразличимы, и ответ по первой погасил бы вторую вместе с набранным.
+  // The form's open count. Comparing by code is not enough: two empty forms opened in a row
+  // are indistinguishable, and a response for the first would close the second together with what was typed.
   const rateFormSeq = useRef(0);
   const [actionError, setActionError] = useState(null);
   const [rateError, setRateError] = useState(null);
 
-  // Ответ /fx-rates разбирается в одном месте: три поля из него всегда
-  // ставятся вместе, и разъехаться (курсы новые, `missing` старый) не должны.
+  // The /fx-rates response is parsed in one place: its three fields are always
+  // set together, and they must not drift apart (new rates, an old `missing`).
   const applyRates = useCallback((res) => {
     setRates(res.rates);
     setMissingRates(res.missing || []);
     setBaseCurrency(res.base_currency ?? null);
-    // Данные перечитаны — прежняя жалоба на них больше не заслуживает доверия.
-    // Без этого 409 «валюта занята» продолжал бы висеть после того, как
-    // владелец сделал ровно то, что баннер просил: убрал счёт в этой валюте.
-    // Действие, которое ошибку породило, само её и не снимает — оно упало.
+    // The data has been re-read — the previous complaint about it no longer deserves trust.
+    // Without this a 409 "currency in use" would keep hanging after
+    // exactly what the banner asked for was done: the account in that currency was removed.
+    // The action that produced the error does not clear it itself — that action failed.
     setRateError(null);
   }, []);
 
@@ -1055,22 +1055,22 @@ export default function Data({
     setStatus('loading');
     setLoadError(null);
     try {
-      // Базовая валюта берётся из /fx-rates, а не из /settings: `missing`
-      // считается сервером против неё же, и второй источник того же факта
-      // разошёлся бы с первым — сервер значение нормализует, /settings отдаёт
-      // как есть. Заодно на один запрос меньше: ничего другого из настроек
-      // этому экрану пока не нужно.
+      // The base currency comes from /fx-rates, not from /settings: `missing`
+      // is computed by the server against that same value, and a second source of the same fact
+      // would diverge from the first — the server normalizes the value, /settings returns
+      // it as stored. One fewer request as well: this screen does not need anything else from settings
+      // yet.
       const [accRes, rateRes, settingsRes] = await Promise.all([
         api.listAccounts(), api.listFxRates(), api.getSettings(),
       ]);
       setAccounts(accRes.accounts);
       applyRates(rateRes);
-      // Ключа может не быть вовсе (свежая база) — тогда порог не задан, 0.
-      // Непригодное значение сводится туда же, а не показывается как NaN:
-      // settings — key/value без типов в схеме, и PUT валидирует только то, что
-      // прошло через него; строка, положенная правкой БД мимо API, доедет сюда
-      // как есть (сервер для самого прогноза делает ровно то же — см.
-      // normalizeThresholdMinor в worker/forecast/load.ts).
+      // The key may be missing entirely (a fresh database) — then the threshold is unset, 0.
+      // An unusable value is reduced to the same thing, not shown as NaN:
+      // settings are key/value with no types in the schema, and PUT validates only what
+      // passed through it; a string written by a database edit that bypassed the API arrives here
+      // as-is (the server does exactly the same for the forecast itself — see
+      // normalizeThresholdMinor in worker/forecast/load.ts).
       const rawThreshold = Number(settingsRes.settings.low_balance_threshold_minor);
       setThresholdMinor(Number.isSafeInteger(rawThreshold) && rawThreshold >= 0 ? rawThreshold : 0);
       setStatus('ready');
@@ -1086,13 +1086,13 @@ export default function Data({
     applyRates(await api.listFxRates());
   }, [applyRates]);
 
-  // Вариант refreshRates, который никогда не бросает. Создание/удаление
-  // плановой или регулярной операции меняет набор валют «в ходу», от которого
-  // зависит предупреждение «валюта без курса» (missingRates) — секции зовут
-  // это после таких действий, чтобы предупреждение не отставало. Тот же
-  // приём, что уже есть в refreshAccountsAndRates ниже: отказ обновления
-  // курсов не имеет права выглядеть как отказ основного действия, которое уже
-  // прошло на сервере.
+  // A variant of refreshRates that never throws. Creating/deleting
+  // a planned or recurring operation changes the set of currencies "in use", which
+  // the "currency with no rate" warning (missingRates) depends on — sections call
+  // this after such actions so the warning does not lag. The same
+  // approach already used in refreshAccountsAndRates below: a failure to refresh
+  // rates must not look like a failure of the main action, which has already
+  // succeeded on the server.
   const refreshRatesQuiet = useCallback(async () => {
     await refreshRates().catch(() => {});
   }, [refreshRates]);
@@ -1100,19 +1100,19 @@ export default function Data({
   const refreshAccounts = useCallback(async () => {
     const res = await api.listAccounts();
     setAccounts(res.accounts);
-    setActionError(null); // то же, что в applyRates, но для действий со счетами
+    setActionError(null); // the same as in applyRates, but for account actions
   }, []);
 
-  // Набор валют «в ходу» меняют только создание, правка и удаление счёта —
-  // от них зависит `missing`, поэтому курсы перечитываются заодно. Правка
-  // баланса и архивация сюда не относятся: сумма валюту не меняет, а архивные
-  // счета сервер считает наравне с активными.
+  // Only creating, editing, and deleting an account change the set of currencies "in use" —
+  // `missing` depends on them, so rates are re-read as well. A balance
+  // edit and archiving do not belong here: an amount does not change the currency, and archived
+  // accounts are counted by the server on a par with active ones.
   //
-  // Отказ по курсам глушится намеренно. Действие пользователя относилось к
-  // счёту и уже прошло — если дать этой ошибке всплыть, форма скажет, что
-  // создание не удалось, и повторное нажатие заведёт дубль (UNIQUE по имени в
-  // схеме нет). Цена глушения — предупреждение о валютах без курса останется
-  // прежним до следующего обновления, а это подсказка, а не гарантия.
+  // A rates failure is swallowed on purpose. The user's action was about
+  // an account and has already succeeded — if this error were allowed to surface, the form would say
+  // creation failed, and pressing again would create a duplicate (there is no UNIQUE on name in
+  // the schema). The cost of swallowing it is that the warning about currencies with no rate stays
+  // as it was until the next refresh, and that warning is a hint, not a guarantee.
   const refreshAccountsAndRates = useCallback(async () => {
     const quiet = refreshRates().catch(() => {});
     await refreshAccounts();
@@ -1120,17 +1120,17 @@ export default function Data({
   }, [refreshAccounts, refreshRates]);
 
   const openRateForm = useCallback((code) => {
-    // Счётчик двигается только когда форма реально пересоздаётся: её сброс
-    // держит key={newRateCode}, и при том же коде перемонтирования не будет.
-    // Безусловный инкремент означал бы «открыли заново» там, где ничего не
-    // открывали, — и повторный клик по той же кнопке во время отправки
-    // оставлял бы форму висеть после успешного сохранения.
+    // The counter moves only when the form is actually recreated: its reset
+    // is held by key={newRateCode}, and the same code will not remount it.
+    // An unconditional increment would mean "opened again" where nothing was
+    // opened — and a second click on the same button during submit
+    // would leave the form hanging after a successful save.
     if (newRateCode !== code) rateFormSeq.current += 1;
     setNewRateCode(code);
   }, [newRateCode]);
 
-  // Действия без собственного места под ошибку в форме (архив/удаление)
-  // показывают её здесь, а не только в консоли.
+  // Actions with no place of their own for an error in the form (archive/delete)
+  // show it here, not only in the console.
   const runAction = useCallback(async (fn) => {
     setActionError(null);
     try {
@@ -1140,9 +1140,9 @@ export default function Data({
     }
   }, [t]);
 
-  // Ошибки действий с курсами живут в своей секции, а не в общем баннере
-  // наверху экрана: при десятке счетов тот баннер оказывается за пределами
-  // экрана, и отказ удаления занятого курса (409) прошёл бы незамеченным.
+  // Errors from rate actions live in their own section, not in the shared banner
+  // at the top of the screen: with a dozen accounts that banner is off
+  // screen, and a refusal to delete a rate that is in use (409) would go unnoticed.
   const runRateAction = useCallback(async (fn) => {
     setRateError(null);
     try {
@@ -1152,13 +1152,13 @@ export default function Data({
     }
   }, [t]);
 
-  // Правки счёта выстраиваются в цепочку, а не летят параллельно. Инлайн-
-  // редактор баланса в шапке строки и форма правки под ней открыты
-  // одновременно, и клик по «Сохранить» сначала снимает фокус с инлайн-поля
-  // (то есть коммитит его), а следом отправляет форму. Два PATCH к одной
-  // строке применились бы в непредсказуемом порядке, и на счёте могла
-  // остаться новая валюта со старой суммой. В очереди последним ложится то,
-  // что владелец подтвердил последним.
+  // Account edits are lined up in a chain, not sent in parallel. The inline
+  // balance editor in the row header and the edit form under it are open
+  // at the same time, and a click on "Save" first removes focus from the inline field
+  // (that is, commits it) and then submits the form. Two PATCHes to one
+  // row would apply in an unpredictable order, and the account could be left
+  // with the new currency and the old amount. In the queue, what lands last is what
+  // was confirmed last.
   const chainRef = useRef(Promise.resolve());
   const serialize = useCallback((fn) => {
     const next = chainRef.current.then(fn, fn);
@@ -1171,10 +1171,10 @@ export default function Data({
     await refreshAccounts();
   });
 
-  // Подтверждение идёт в ту же очередь, что и правка баланса: оба действия
-  // пишут balance_updated_at, и разъехавшийся порядок оставил бы отметку от
-  // более раннего из них. Ошибка показывается баннером — своего места под неё
-  // у кнопки нет, как и у архивации с удалением.
+  // Confirmation goes into the same queue as a balance edit: both actions
+  // write balance_updated_at, and an order that drifted apart would leave the mark from
+  // the earlier of the two. The error is shown in a banner — the button has no place of its own for it,
+  // just like archive and delete.
   const handleConfirmBalance = (account) => runAction(() => serialize(async () => {
     await api.confirmAccountBalance(account.id);
     await refreshAccounts();
@@ -1206,9 +1206,9 @@ export default function Data({
     }));
   };
 
-  // Тот же чейнинг записей, что у баланса счёта: правка порога — отдельный
-  // ключ settings, гонки с другими записями ему не грозят, но общая очередь
-  // дешевле, чем заводить вторую ради одного поля.
+  // The same write chaining as for an account balance: editing the threshold is a separate
+  // settings key, races with other writes do not threaten it, but a shared queue
+  // is cheaper than starting a second one for one field.
   const handleSaveThreshold = (minor) => serialize(async () => {
     if (minor < 0) throw new Error(t('data.forecast.thresholdNegative'));
     await api.putSetting('low_balance_threshold_minor', minor);
@@ -1224,9 +1224,9 @@ export default function Data({
     const seq = rateFormSeq.current;
     await api.putFxRate(code, rateStr);
     await refreshRates();
-    // Закрываем именно ту форму, из которой пришла отправка. Пока PUT был в
-    // полёте, владелец мог открыть другую — в ней уже свой код и набранный
-    // курс, и гасить её нельзя.
+    // Close exactly the form the submit came from. While the PUT was in
+    // flight, another form may have been opened — it already has its own code and a typed
+    // rate, and it must not be dismissed.
     if (rateFormSeq.current === seq) setNewRateCode(null);
   };
 

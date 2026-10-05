@@ -2,18 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { buildCurrencyOptions } from '../src/ui/components';
 
 describe('buildCurrencyOptions (issue #403)', () => {
-  it('собирает уникальные валюты счетов и сортирует их', () => {
+  it('collects unique account currencies and sorts them', () => {
     const accounts = [
       { currency: 'USD' },
-      { currency: 'eur' }, // регистр не нормализуется здесь — просто дедуп по строке
+      { currency: 'eur' }, // case is not normalized here — just a dedup by string
       { currency: 'RSD' },
-      { currency: 'USD' }, // дубль
+      { currency: 'USD' }, // duplicate
       { currency: 'eur' },
     ];
     expect(buildCurrencyOptions(accounts, null)).toEqual(['RSD', 'USD', 'eur']);
   });
 
-  it('отбрасывает пустые/отсутствующие валюты счетов', () => {
+  it('drops empty/missing account currencies', () => {
     const accounts = [
       { currency: 'USD' },
       { currency: '' },
@@ -23,23 +23,23 @@ describe('buildCurrencyOptions (issue #403)', () => {
     expect(buildCurrencyOptions(accounts, null)).toEqual(['USD']);
   });
 
-  it('добавляет текущую базовую валюту, даже если её нет среди счетов', () => {
+  it('adds the current base currency even if it is not among the accounts', () => {
     const accounts = [{ currency: 'RSD' }, { currency: 'EUR' }];
-    // Текущая база пришла из settings, но не фигурирует на счетах (например,
-    // валюта была сменена, а счета ещё в старой). Она должна остаться в списке.
+    // The current base came from settings but does not appear on any account (for example,
+    // the currency was changed and the accounts are still in the old one). It must stay in the list.
     expect(buildCurrencyOptions(accounts, 'USD')).toEqual(['EUR', 'RSD', 'USD']);
   });
 
-  it('не дублирует текущую базу, если она уже есть среди счетов', () => {
+  it('does not duplicate the current base if it is already among the accounts', () => {
     const accounts = [{ currency: 'USD' }, { currency: 'EUR' }];
     expect(buildCurrencyOptions(accounts, 'USD')).toEqual(['EUR', 'USD']);
   });
 
-  it('без текущей базы и со счетами без валют возвращает пустой список', () => {
+  it('returns an empty list with no current base and accounts that have no currencies', () => {
     expect(buildCurrencyOptions([{}, { currency: '' }], null)).toEqual([]);
   });
 
-  it('обрабатывает null/undefined вместо списка счетов', () => {
+  it('handles null/undefined instead of an account list', () => {
     expect(buildCurrencyOptions(null, 'USD')).toEqual(['USD']);
     expect(buildCurrencyOptions(undefined, null)).toEqual([]);
   });

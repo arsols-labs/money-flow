@@ -1,8 +1,8 @@
-// Секция «Плановые» на экране «Данные» (S1-3, issue #197): разовые операции
-// с известной датой. Стиль и приёмы — как у секции счетов в Data.jsx: форма
-// со своими busy/error, действия без формы (отметка «выполнено», удаление)
-// идут через runAction с общим баннером ошибки, все правки одной строки
-// выстроены в цепочку через serialize.
+// "Planned" section on the "Data" screen (S1-3, issue #197): one-off operations
+// with a known date. Style and approach match the accounts section in Data.jsx: a form
+// with its own busy/error, actions without a form (the "done" mark, deletion)
+// go through runAction with a shared error banner, and every edit of one row
+// is chained through serialize.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
@@ -41,9 +41,9 @@ export function PlannedItemForm({ initial = null, accounts, onSubmit, onCancel, 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
   const selectedAccount = findAccount(accounts, form.account_id);
-  // Валюта операции: у существующей строки — её собственная (счёт можно
-  // сменить, сервер валюту операции при этом молча не пересчитывает), у новой
-  // — валюта выбранного счёта, потому что currency в payload не шлём вовсе.
+  // Operation currency: an existing row keeps its own (the account can be
+  // changed, and the server does not silently recompute the operation currency), a new one
+  // uses the selected account's currency, because currency is not sent in the payload at all.
   const operationCurrency = isEdit ? initial.currency : (selectedAccount?.currency ?? '');
   const currencyMismatch = isEdit && selectedAccount && selectedAccount.currency !== initial.currency;
 
@@ -58,9 +58,9 @@ export function PlannedItemForm({ initial = null, accounts, onSubmit, onCancel, 
 
     let minor;
     try {
-      // Модуль берём всегда: сумма в поле вводится положительной, знак даёт
-      // переключатель «Расход/Доход» — если владелец всё же набрал минус, он
-      // не должен превратить доход в расход втихую или наоборот.
+      // The absolute value is always taken: the amount in the field is entered positive, and the sign comes from
+      // the "Expense/Income" switch — if a minus is typed anyway, it
+      // must not quietly turn income into an expense or the reverse.
       minor = Math.abs(parseAmountToMinor(form.amount, operationCurrency));
     } catch (err) {
       setError(err.message);
@@ -74,8 +74,8 @@ export function PlannedItemForm({ initial = null, accounts, onSubmit, onCancel, 
       amount_minor: form.kind === 'expense' ? -minor : minor,
       account_id: Number(form.account_id),
     };
-    // Категория необязательна: при правке шлётся явно (даже пустой — это
-    // очистка), при создании — только если заполнена.
+    // Category is optional: on edit it is sent explicitly (even empty — that is
+    // a clear), on create only if it is filled in.
     const category = form.category.trim();
     if (isEdit || category) payload.category = category;
 
@@ -184,9 +184,9 @@ function PlannedRow({ item, accounts, expanded, onToggle, onToggleDone, onUpdate
   const isExpense = item.amount_minor < 0;
 
   const onRowKeyDown = (e) => {
-    // Только когда фокус на самой строке — иначе Enter/пробел на вложенном
-    // чекбоксе или кнопке разворачивал бы строку вместо своего действия
-    // (тот же баг, что уже ловили на строке счёта в Data.jsx).
+    // Only when focus is on the row itself — otherwise Enter/Space on a nested
+    // checkbox or button would expand the row instead of doing its own action
+    // (the same bug already caught on the account row in Data.jsx).
     if (e.target !== e.currentTarget) return;
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); }
   };
@@ -281,10 +281,10 @@ export default function PlannedSection({
 
   useLoadWhenExpanded(expanded, load, refreshNonce);
 
-  // Удаление или правка операции в блоке «Операции» может сбросить done у
-  // плановой (#282). Хук useLoadWhenExpanded грузит список один раз при
-  // разворачивании; ревизия операций обновляет уже загруженный список тихо,
-  // без сброса статуса в loading (тот же приём, что в OperationsSection).
+  // Deleting or editing an operation in the "Operations" block can clear done on
+  // a planned item (#282). The useLoadWhenExpanded hook loads the list once on
+  // expand; an operations revision updates the already loaded list quietly,
+  // without resetting status to loading (the same approach as in OperationsSection).
   const loadedRef = useRef(false);
   useEffect(() => {
     if (status === 'ready' || status === 'error') loadedRef.current = true;
@@ -295,7 +295,7 @@ export default function PlannedSection({
     api.listPlannedItems().then((res) => {
       if (!cancelled) setItems(res.planned_items);
     }).catch(() => {
-      // Игнорируем ошибку фонового обновления, чтобы не портить уже показанный список.
+      // Ignore a background-refresh error so the list already shown is not spoiled.
     });
     return () => { cancelled = true; };
   }, [operationsRevision]);
@@ -306,10 +306,10 @@ export default function PlannedSection({
     setActionError(null);
   }, []);
 
-  // Правки одной строки (чекбокс, форма правки, удаление) выстраиваются в
-  // цепочку — тот же приём, что chainRef/serialize в Data.jsx, и по той же
-  // причине: параллельные PATCH к одной строке применились бы в
-  // непредсказуемом порядке.
+  // Edits of one row (checkbox, edit form, deletion) are lined up in
+  // a chain — the same approach as chainRef/serialize in Data.jsx, and for the same
+  // reason: parallel PATCHes to one row would apply in
+  // an unpredictable order.
   const chainRef = useRef(Promise.resolve());
   const serialize = useCallback((fn) => {
     const next = chainRef.current.then(fn, fn);
@@ -421,8 +421,8 @@ export default function PlannedSection({
 
           {pending.length === 0 && !showNew && (
             <div className="data-empty">
-              {/* «Пока нет» врало бы, когда выполненные операции есть и видны
-                  тут же строкой ниже — состояние другое, и подпись другая. */}
+              {/* "Nothing yet" would be a lie when completed operations exist and are visible
+                  on the line just below — the state is different, and so is the label. */}
               <p>{done.length > 0 ? t('data.planned.emptyPending') : t('data.planned.empty')}</p>
               {!noAccounts && (
                 <button type="button" className="btn-primary" onClick={() => setShowNew(true)}>

@@ -1,4 +1,4 @@
-// Тесты адаптивной навигации и раскладок по классам размеров окна (Compact, Medium, Expanded) — Issue #479.
+// Tests for adaptive navigation and layouts by window size class (Compact, Medium, Expanded) — Issue #479.
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { env } from 'cloudflare:test';
@@ -9,18 +9,18 @@ import Pulse, { PulseDashboard } from '../src/ui/Pulse.jsx';
 import OperationsSection from '../src/ui/OperationsSection.jsx';
 import { RefreshProvider } from '../src/ui/RefreshContext.jsx';
 
-describe('Адаптивная навигация Shell', () => {
-  it('содержит 4 основных раздела в ALL_TABS', () => {
+describe('Shell adaptive navigation', () => {
+  it('contains 4 main sections in ALL_TABS', () => {
     const keys = ALL_TABS.map((t) => t.key);
     expect(keys).toEqual(['pulse', 'analytics', 'data', 'access']);
   });
 
-  it('рендерит навигационную рельсу (.nav-rail) и нижнюю панель (.bottom-nav) с доступностью', () => {
+  it('renders the navigation rail (.nav-rail) and the bottom bar (.bottom-nav) with accessibility', () => {
     const html = renderToStaticMarkup(
       React.createElement(RefreshProvider, null, React.createElement(Shell, { theme: 'dark', setTheme: () => {} })),
     );
 
-    // Навигационная рельса (Medium & Expanded)
+    // Navigation rail (Medium & Expanded)
     expect(html).toContain('class="nav-rail"');
     expect(html).toContain(`aria-label="${i18n.t('shell.nav.main')}"`);
     expect(html).toContain('class="nav-rail-brand"');
@@ -29,18 +29,18 @@ describe('Адаптивная навигация Shell', () => {
     expect(html).not.toContain('nav-rail-logo-glyph');
     expect(html).toContain('class="nav-rail-item nav-rail-item--active"');
 
-    // Нижняя панель (Compact)
+    // Bottom bar (Compact)
     expect(html).toContain('class="bottom-nav"');
     expect(html).toContain(`aria-label="${i18n.t('shell.nav.mobile')}"`);
     expect(html).toContain('class="bottom-nav-item bottom-nav-item--active"');
 
-    // Наличие всех 4 направлений в обоих компонентах
+    // All 4 destinations present in both components
     for (const tab of ALL_TABS) {
       expect(html).toContain(i18n.t(tab.titleKey));
     }
   });
 
-  it('подставляет бренд-иконку nav-rail по разрешённой теме, не глиф валюты', () => {
+  it('puts the nav-rail brand icon for the resolved theme, not a currency glyph', () => {
     const light = renderToStaticMarkup(
       React.createElement(
         RefreshProvider,
@@ -64,8 +64,8 @@ describe('Адаптивная навигация Shell', () => {
   });
 });
 
-describe('Адаптивный дашборд Pulse', () => {
-  it('рендерит контейнер pulse-dashboard в состоянии загрузки', () => {
+describe('Pulse adaptive dashboard', () => {
+  it('renders the pulse-dashboard container in the loading state', () => {
     const html = renderToStaticMarkup(
       React.createElement(RefreshProvider, null, React.createElement(Pulse)),
     );
@@ -74,7 +74,7 @@ describe('Адаптивный дашборд Pulse', () => {
     expect(html).toContain('class="pulse-main-col"');
   });
 
-  it('рендерит полную модульную структуру pulse-dashboard с тремя колонками', () => {
+  it('renders the full modular pulse-dashboard structure with three columns', () => {
     const mockForecast = {
       base_currency: 'EUR',
       net_worth_minor: 100000,
@@ -107,8 +107,8 @@ describe('Адаптивный дашборд Pulse', () => {
   });
 });
 
-describe('Адаптивный List-Detail OperationsSection', () => {
-  it('рендерит контейнер адаптивной раскладки операций', () => {
+describe('Adaptive list-detail OperationsSection', () => {
+  it('renders the adaptive operations layout container', () => {
     const html = renderToStaticMarkup(
       React.createElement(RefreshProvider, null, React.createElement(OperationsSection as never, {
         accounts: [{ id: 1, name: 'Main', currency: 'EUR' }],
@@ -123,21 +123,21 @@ describe('Адаптивный List-Detail OperationsSection', () => {
   });
 });
 
-describe('CSS-основы брейкпоинтов и контейнерных запросов', () => {
-  it('styles.css определяет канонические классы размеров окна и Container Queries', () => {
+describe('CSS foundations for breakpoints and container queries', () => {
+  it('styles.css defines the canonical window size classes and container queries', () => {
     const css = env.PALETTE_CSS;
 
-    // Compact брейкпоинт (< 600px)
+    // Compact breakpoint (< 600px)
     expect(css).toContain('@media (max-width: 599.98px)');
 
-    // Expanded брейкпоинт (>= 840px)
+    // Expanded breakpoint (>= 840px)
     expect(css).toContain('@media (min-width: 840px)');
 
     // Container queries
     expect(css).toContain('container-type: inline-size');
     expect(css).toContain('@container (min-width: 800px)');
 
-    // Навигационные элементы
+    // Navigation elements
     expect(css).toContain('.nav-rail');
     expect(css).toContain('.nav-rail-logo');
     expect(css).toContain('.nav-rail-logo-img');

@@ -1,7 +1,7 @@
-// Инфраструктура i18n для UI v2 (issues #511, #512, #513, #586).
+// i18n infrastructure for UI v2 (issues #511, #512, #513, #586).
 //
-// Словари экранов — locales/{en,ru,de,fr,es,pt,sr}.json. Импортируется из
-// main.jsx до первого рендера, чтобы useTranslation видел готовый инстанс.
+// Screen dictionaries are locales/{en,ru,de,fr,es,pt,sr}.json. Imported from
+// main.jsx before the first render so useTranslation sees a ready instance.
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import {
@@ -33,8 +33,8 @@ void i18n.use(initReactI18next).init({
   fallbackLng: 'en',
   supportedLngs: [...SUPPORTED_LANGUAGES],
   interpolation: { escapeValue: false },
-  // Детект браузера только когда mf_lang пуст. Ручной выбор пишет storage
-  // из LanguageDropdown, не из languageChanged — иначе дефолт стал бы «выбором».
+  // Detect the browser only when mf_lang is empty. A manual choice writes storage
+  // from LanguageDropdown, not from languageChanged — otherwise the default would become a "choice".
   initImmediate: true,
 });
 

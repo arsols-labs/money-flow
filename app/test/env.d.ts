@@ -1,7 +1,7 @@
-// Тип `env` в тестах — это `Cloudflare.Env`; workers-types объявляет его
-// пустым и рассчитывает, что проект дообъявит свои bindings. Здесь — то, что
-// поднимает vitest.config.ts: реальный binding DB из wrangler.jsonc плюс
-// тестовый TEST_MIGRATIONS.
+// The `env` type in tests is `Cloudflare.Env`; workers-types declares it
+// empty and expects the project to declare its own bindings. Here is what
+// vitest.config.ts sets up: the real DB binding from wrangler.jsonc plus
+// the test TEST_MIGRATIONS.
 import type { D1Migration } from 'cloudflare:test';
 
 declare global {
@@ -11,11 +11,11 @@ declare global {
       KV: KVNamespace;
       OAUTH_KV: KVNamespace;
       TEST_MIGRATIONS: D1Migration[];
-      // Нужен createSessionCookie/verifySessionCookie в test/api-v2.test.ts (S1-2).
+      // Needed by createSessionCookie/verifySessionCookie in test/api-v2.test.ts (S1-2).
       SESSION_SECRET: string;
-      // Фиктивный SETUP_TOKEN для тестов регистрации WebAuthn.
+      // Dummy SETUP_TOKEN for WebAuthn registration tests.
       SETUP_TOKEN: string;
-      // Содержимое src/ui/styles.css — его разбирает test/palette.test.ts.
+      // Contents of src/ui/styles.css — parsed by test/palette.test.ts.
       PALETTE_CSS: string;
     }
   }

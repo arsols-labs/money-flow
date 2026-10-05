@@ -1,25 +1,25 @@
-// Состояние «свёрнут / развёрнут» блоков экрана «Данные» (issue #260).
+// Collapsed / expanded state of blocks on the "Data" screen (issue #260).
 //
-// Хранится в localStorage, а не в settings D1: запись на каждый клик по
-// заголовку и расширение SETTINGS_WRITABLE_KEYS дороже пользы (решение
-// владельца 2026-08-12). Названная цена — состояние своё на каждом устройстве:
-// развернул на телефоне, на ноутбуке осталось свёрнуто.
+// Stored in localStorage, not in D1 settings: a write on every header click
+// and extending SETTINGS_WRITABLE_KEYS costs more than it is worth (decision
+// of 2026-08-12). The stated price is per-device state:
+// expanded on the phone, still collapsed on the laptop.
 //
-// Порядок блоков здесь НЕ дублируется — он задан порядком JSX в Data.jsx и
-// живёт там же, где рендер. Список ключей нужен только для того, чтобы
-// отсеять мусор из хранилища и не тащить в состояние экрана то, чего в коде
-// уже нет.
+// Block order is NOT duplicated here — it is set by JSX order in Data.jsx and
+// lives next to the render. The key list exists only to
+// drop junk from storage and keep out of screen state anything the code
+// no longer has.
 
 export const DATA_SECTION_KEYS = ['operations', 'receipts', 'planned', 'recurring', 'rates', 'accounts'];
 
 export const DATA_SECTIONS_STORAGE_KEY = 'money-flow-v2.data-sections.expanded';
 
 /**
- * Разбор сохранённого значения. Всё, что не похоже на массив известных
- * ключей, даёт пустой набор: испорченная запись обязана вернуть экран к
- * дефолту (всё свёрнуто), а не уронить его. Ключи возвращаются в порядке
- * DATA_SECTION_KEYS — так сериализация стабильна и не зависит от того, в каком
- * порядке владелец разворачивал блоки.
+ * Parses a saved value. Anything that does not look like an array of known
+ * keys yields an empty set: a corrupt record must return the screen to the
+ * default (everything collapsed), not crash it. Keys come back in
+ * DATA_SECTION_KEYS order — so serialization is stable and does not depend on the
+ * order in which blocks were expanded.
  */
 export function parseExpanded(raw) {
   if (typeof raw !== 'string' || raw === '') return [];
@@ -30,8 +30,8 @@ export function parseExpanded(raw) {
     return [];
   }
   if (!Array.isArray(parsed)) return [];
-  // Ключ, которого больше нет в коде (блок переименовали или убрали), молча
-  // отбрасывается — иначе он висел бы в хранилище вечно.
+  // A key that is no longer in the code (a block was renamed or removed) is silently
+  // dropped — otherwise it would sit in storage forever.
   return DATA_SECTION_KEYS.filter((key) => parsed.includes(key));
 }
 
@@ -40,9 +40,9 @@ export function serializeExpanded(keys) {
 }
 
 /**
- * Хранилища может не быть вовсе, а в приватном режиме Safari обращение к
- * самому свойству `localStorage` бросает SecurityError — не возвращает null.
- * Поэтому в try завёрнуто чтение свойства, а не только вызов метода.
+ * Storage may be missing entirely, and in Safari private mode reading the
+ * `localStorage` property itself throws SecurityError — it does not return null.
+ * So the try wraps the property read, not only the method call.
  */
 export function safeStorage() {
   try {
@@ -66,9 +66,9 @@ export function writeExpanded(keys, storage = safeStorage()) {
   try {
     storage.setItem(DATA_SECTIONS_STORAGE_KEY, serializeExpanded(keys));
   } catch {
-    // Запись бросает и при запрете хранилища, и при исчерпанной квоте.
-    // Состояние блоков — удобство, а не данные владельца: молча работаем
-    // дальше без сохранения, экран от этого не ломается.
+    // The write throws both when storage is blocked and when the quota is exhausted.
+    // Block state is a convenience, not owner data: we continue silently
+    // without saving, and the screen does not break because of it.
   }
 }
 
@@ -77,9 +77,9 @@ export function toggleExpanded(keys, key) {
 }
 
 /**
- * Определение ключа секции из дип-линка (issue #278).
- * Например, '#/data/rates' -> 'rates', '#/data/accounts' -> 'accounts'.
- * Неизвестные или некорректные хэши дают null.
+ * Resolves a section key from a deep link (issue #278).
+ * For example, '#/data/rates' -> 'rates', '#/data/accounts' -> 'accounts'.
+ * Unknown or malformed hashes yield null.
  */
 export function sectionFromHash(hash) {
   if (typeof hash !== 'string' || !hash) return null;

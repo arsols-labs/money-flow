@@ -1,6 +1,6 @@
 /**
- * Нормализует штамп из D1 (`datetime('now')` без пояса) в ISO-8601 UTC с `Z`.
- * Хранение не меняем: смесь форматов ломает лексический ORDER BY.
+ * Normalizes a stamp from D1 (`datetime('now')` without a timezone) into ISO-8601 UTC with `Z`.
+ * Storage is unchanged: a mix of formats breaks lexical ORDER BY.
  */
 export function toIsoUtc(value: string | null | undefined): string | null {
   if (value == null) return null;

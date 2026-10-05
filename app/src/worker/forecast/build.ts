@@ -1,8 +1,8 @@
-// Чистое ядро прогноза (issue #198, S1-4) — без единого обращения к D1. Вся
-// I/O живёт в load.ts; buildForecast принимает уже загруженные данные и
-// возвращает посуточные ряды и предупреждения. Разделение принципиально: ядро
-// тестируется без базы (test/forecast-build.test.ts), API (api.ts) лишь
-// склеивает load.ts → buildForecast → JSON.
+// Pure forecast core (issue #198, S1-4) — not a single call to D1. All I/O
+// lives in load.ts; buildForecast takes already loaded data and returns daily
+// series and warnings. The split is deliberate: the core is tested without a
+// database (test/forecast-build.test.ts), and the API (api.ts) only glues
+// load.ts → buildForecast → JSON.
 import { addDays } from './dates';
 import { makeConverter } from './convert';
 import type { ForecastAccount, ForecastFlow } from './load';
@@ -15,27 +15,28 @@ export interface BuildForecastInput {
   asOfDate: string;
   horizonDays: number; // 1..366
   lowBalanceThresholdMinor: bigint;
-  cashFlowDays: number; // окно метрики Cash Flow
+  cashFlowDays: number; // Cash Flow metric window
 }
 
 export interface ForecastWarning {
   dimension: 'account' | 'country' | 'currency' | 'overall';
-  dimensionKey: string; // id счёта строкой / код страны / код валюты / 'overall'
-  currencyCode: string; // валюта, в которой посчитан ряд
+  dimensionKey: string; // account id as a string / country code / currency code / 'overall'
+  currencyCode: string; // currency the series is computed in
   thresholdMinor: string;
   earliestBelowThresholdDate: string | null;
   earliestNonPositiveDate: string | null;
   minimumProjectedMinor: string;
   minimumProjectedDate: string;
   /**
-   * Значение измерения на asOfDate — то, от чего строится ряд.
+   * Value of the dimension on asOfDate — what the series is built from.
    *
-   * Здесь стоит именно сумма, а не ярлык состояния («уже ниже» / «приближается»),
-   * и это не мелочь: один ярлык склеивал два РАЗНЫХ состояния — «уже ниже
-   * порога» и «уже в минусе», — а экран из него не мог их различить и говорил
-   * «уже в минусе» про счёт с положительным балансом, просто небогатый. Из
-   * пары (startMinor, thresholdMinor) оба состояния выводятся точно, и ROADMAP
-   * «Фаза 3» требует именно их различать.
+   * What belongs here is the amount, not a state label ("already below" /
+   * "approaching"), and that is not a detail: one label glued together two
+   * DIFFERENT states — "already below the threshold" and "already negative" —
+   * and the screen could not tell them apart and said "already negative" about
+   * an account with a positive balance that was simply not large. From the pair
+   * (startMinor, thresholdMinor) both states are derived exactly, and ROADMAP
+   * "Phase 3" requires distinguishing them.
    */
   startMinor: string;
 }
@@ -44,11 +45,11 @@ export interface BuildForecastResult {
   asOfDate: string;
   horizonDays: number;
   baseCurrency: string;
-  netWorthMinor: bigint; // сумма балансов на сегодня, в базовой валюте
+  netWorthMinor: bigint; // sum of balances today, in the base currency
   cashFlowMinor: bigint; // overall[cashFlowDays-1] - netWorth
   cashFlowDays: number;
-  countries: string[]; // отсортированы
-  owners: string[]; // отсортированы; пусто, если ни одну группу владельца не пересчитать
+  countries: string[]; // sorted
+  owners: string[]; // sorted; empty if no owner group could be converted
   series: Array<{
     date: string;
     overallMinor: bigint;
@@ -56,10 +57,10 @@ export interface BuildForecastResult {
     byAccount: Map<number, bigint>;
     byOwner: Map<string, bigint>;
   }>;
-  lowest: { date: string; amountMinor: bigint } | null; // минимум overall по горизонту
+  lowest: { date: string; amountMinor: bigint } | null; // overall minimum over the horizon
   accounts: Array<{ account: ForecastAccount; balanceBaseMinor: bigint | null }>;
   warnings: ForecastWarning[];
-  missingRates: string[]; // валюты в ходу без курса, отсортированы
+  missingRates: string[]; // currencies in use without a rate, sorted
 }
 
 export function buildForecast(input: BuildForecastInput): BuildForecastResult {
@@ -74,26 +75,27 @@ export function buildForecast(input: BuildForecastInput): BuildForecastResult {
   }
   const cashFlowIndex = Math.min(cashFlowDays, horizonDays) - 1;
 
-  // ---------- курсы и конверсия ----------
+  // ---------- rates and conversion ----------
 
-  // Список валют без курса собирается побочным эффектом конверсии — то есть
-  // ровно тогда, когда курс кому-то реально понадобился, а не для каждой
-  // валюты, встреченной в данных (см. докблок makeConverter).
+  // The list of currencies without a rate is collected as a side effect of
+  // conversion — that is, exactly when a rate was actually needed by someone,
+  // not for every currency encountered in the data (see the makeConverter docblock).
   const missingRatesSet = new Set<string>();
   const convert = makeConverter(ratesE9, baseCurrency, (code) => missingRatesSet.add(code));
 
-  // ---------- потоки → валюта счёта, посуточные ряды по счетам ----------
+  // ---------- flows → account currency, daily series by account ----------
 
   const accountById = new Map(accounts.map((a) => [a.id, a]));
-  // Кумулятивные дельты по (account, date) — в НАТИВНОЙ валюте счёта. Поток,
-  // чью валюту не удалось перевести в валюту счёта (нет курса хотя бы одной
-  // из сторон), пропускается: его валюта уже осела в missingRatesSet через
-  // convert() выше, и это единственный сигнал о пропуске — молчаливым он не
-  // остаётся на уровне ответа (UI показывает missing_rates предупреждением).
+  // Cumulative deltas by (account, date) — in the account's NATIVE currency. A
+  // flow whose currency could not be converted into the account currency (no
+  // rate for at least one side) is skipped: its currency already landed in
+  // missingRatesSet via convert() above, and that is the only signal of the
+  // skip — it does not stay silent at the response level (the UI shows
+  // missing_rates as a warning).
   const deltasByAccountDate = new Map<number, Map<string, bigint>>();
   for (const f of flows) {
     const account = accountById.get(f.account_id);
-    if (!account) continue; // load.ts уже фильтрует по eligibleAccountIds, но защититься дёшево
+    if (!account) continue; // load.ts already filters by eligibleAccountIds, but a guard is cheap
     const converted = convert(BigInt(f.amount_minor), f.currency, account.currency);
     if (converted === null) continue;
     let byDate = deltasByAccountDate.get(f.account_id);
@@ -101,8 +103,8 @@ export function buildForecast(input: BuildForecastInput): BuildForecastResult {
     byDate.set(f.date, (byDate.get(f.date) ?? 0n) + converted);
   }
 
-  // Посуточные закрывающие балансы по счетам, дни 1..horizonDays от asOfDate.
-  // День 0 (сам asOfDate) в ряд не входит — он же стартовый баланс.
+  // Daily closing balances by account, days 1..horizonDays from asOfDate.
+  // Day 0 (asOfDate itself) is not in the series — it is the starting balance.
   const perAccountDaily = new Map<number, bigint[]>();
   for (const a of accounts) {
     const deltas = deltasByAccountDate.get(a.id);
@@ -116,18 +118,18 @@ export function buildForecast(input: BuildForecastInput): BuildForecastResult {
     perAccountDaily.set(a.id, daily);
   }
 
-  // ---------- балансы счетов в базовой валюте (для accounts-секции ответа) ----------
+  // ---------- account balances in the base currency (for the accounts section of the response) ----------
 
   const accountsOut = accounts.map((a) => ({
     account: a,
     balanceBaseMinor: convert(BigInt(a.balance_minor), a.currency, baseCurrency),
   }));
 
-  // ---------- групповые измерения: currency, country, overall ----------
+  // ---------- group dimensions: currency, country, overall ----------
   //
-  // Один общий проход для всех трёх групповых измерений (архивный `forecast.ts`
-  // делал ровно так же — массив `groups` с `keyOf`), а не три копии одного и
-  // того же цикла.
+  // One shared pass for all three group dimensions (the archived `forecast.ts`
+  // did exactly the same — a `groups` array with `keyOf`), not three copies of
+  // one and the same loop.
   const groups: Array<{ dimension: 'currency' | 'country' | 'overall' | 'owner'; keyOf: (a: ForecastAccount) => string }> = [
     { dimension: 'currency', keyOf: (a) => a.currency },
     { dimension: 'country', keyOf: (a) => a.country },
@@ -141,17 +143,18 @@ export function buildForecast(input: BuildForecastInput): BuildForecastResult {
     startBalance: bigint;
     daily: bigint[];
     /**
-     * Все ли счета группы удалось пересчитать в базовую валюту. `false`
-     * означает, что ряд — сумма ПОДМНОЖЕСТВА счетов, то есть занижен на
-     * неизвестную величину. Такой ряд ещё можно нарисовать (график с
-     * предупреждением о валютах без курса лучше пустого экрана), но
-     * УТВЕРЖДАТЬ по нему что-либо нельзя — см. фильтр предупреждений ниже.
+     * Whether every account in the group could be converted into the base
+     * currency. `false` means the series is the sum of a SUBSET of accounts,
+     * that is, understated by an unknown amount. Such a series can still be
+     * drawn (a chart with a warning about currencies without a rate is better
+     * than an empty screen), but nothing may be ASSERTED from it — see the
+     * warning filter below.
      */
     complete: boolean;
     /**
-     * Валютная группа дополнительно хранит собственный нативный ряд. Для
-     * country/overall он не определён: внутри такой группы валют несколько и
-     * единственной честной единицей остаётся baseCurrency.
+     * A currency group additionally stores its own native series. For
+     * country/overall it is undefined: such a group contains several currencies
+     * and the only honest unit left is baseCurrency.
      */
     nativeCurrency: string | null;
     nativeStartBalance: bigint | null;
@@ -161,16 +164,18 @@ export function buildForecast(input: BuildForecastInput): BuildForecastResult {
   const groupResults: GroupResult[] = [];
   let overallStart = 0n;
   let overallDaily: bigint[] = new Array(horizonDays).fill(0n);
-  // Изначально false: группа overall может не появиться вовсе (счетов нет или
-  // ни одну их валюту не пересчитать), и тогда нулевой ряд выше — заглушка, а
-  // не результат. Ставится в true только вместе с реальной полной группой.
+  // Initially false: the overall group may not appear at all (there are no
+  // accounts, or none of their currencies can be converted), and then the zero
+  // series above is a placeholder, not a result. Set to true only together
+  // with a real complete group.
   let overallComplete = false;
   const countrySeries = new Map<string, bigint[]>();
   const ownerSeries = new Map<string, bigint[]>();
   const accountSeries = new Map<number, bigint[]>();
   for (const a of accounts) {
-    // Ряд счёта на графике — в базовой валюте. Нет курса — нет линии: нулевой
-    // ряд утверждал бы, что на счёте ничего нет, хотя сумма просто неизвестна.
+    // An account series on the chart is in the base currency. No rate — no line:
+    // a zero series would claim there is nothing on the account, while the
+    // amount is simply unknown.
     if (convert(0n, a.currency, baseCurrency) === null) continue;
     const nativeDaily = perAccountDaily.get(a.id)!;
     accountSeries.set(
@@ -189,10 +194,11 @@ export function buildForecast(input: BuildForecastInput): BuildForecastResult {
     }
     for (const key of [...byKey.keys()].sort()) {
       const members = byKey.get(key)!;
-      // Валюта → позиция в накопителе. Дневной цикл складывает в массив
-      // фиксированной длины вместо новой Map на каждый из H дней: порядок
-      // слагаемых — порядок первого появления валюты в members, то есть
-      // результат конверсии детерминирован, а аллокаций на горизонт — ноль.
+      // Currency → slot in the accumulator. The daily loop adds into a
+      // fixed-length array instead of a new Map on each of the H days: the
+      // order of summands is the order of first appearance of the currency in
+      // members, so the conversion result is deterministic, and allocations
+      // over the horizon are zero.
       const currencies: string[] = [];
       const currencyIndex = new Map<string, number>();
       const memberSlots: Array<{ daily: bigint[]; slot: number; balanceMinor: bigint }> = [];
@@ -205,11 +211,12 @@ export function buildForecast(input: BuildForecastInput): BuildForecastResult {
         }
         memberSlots.push({ daily: perAccountDaily.get(a.id)!, slot, balanceMinor: BigInt(a.balance_minor) });
       }
-      // ROUND_HALF_EVEN не дистрибутивна: агрегируем нативные суммы по валюте
-      // и конвертируем каждую валютную группу ровно один раз, а не по счёту.
-      // Валюта, которую не пересчитать (convert вернул null), в сумму не
-      // добавляется вовсе — счёт в такой валюте выпадает из группового ряда
-      // целиком, иначе итог тихо занижен бы под видом «нормального» числа.
+      // ROUND_HALF_EVEN is not distributive: aggregate native amounts by currency
+      // and convert each currency group exactly once, not per account. A
+      // currency that cannot be converted (convert returned null) is not added
+      // to the sum at all — an account in that currency drops out of the group
+      // series entirely, otherwise the total would be quietly understated under
+      // the guise of a "normal" number.
       const convertGroupTotal = (nativeByCurrency: bigint[]): bigint => {
         let sum = 0n;
         for (let c = 0; c < currencies.length; c++) {
@@ -219,20 +226,20 @@ export function buildForecast(input: BuildForecastInput): BuildForecastResult {
         return sum;
       };
 
-      // Полнота группы — свойство состава валют, а не конкретного дня: курс
-      // либо есть, либо нет, и от суммы он не зависит. Поэтому считается один
-      // раз, до дневного цикла.
+      // Completeness of a group is a property of its currency set, not of a
+      // particular day: a rate either exists or it does not, and it does not
+      // depend on the amount. So it is computed once, before the daily loop.
       const convertible = currencies.filter((code) => convert(0n, code, baseCurrency) !== null);
       const complete = convertible.length === currencies.length;
 
-      // Группа, где не пересчитывается НИ ОДНА валюта, не выпускается вовсе.
-      // Правило одно на все группы: показываем то, что вычислимо. Частично
-      // пересчитанная группа вычислима — это заниженная, но настоящая сумма
-      // (утверждать по ней ничего нельзя, см. фильтр предупреждений ниже).
-      // А сумма группы, где не пересчитывается ничего, — не «ноль», а
-      // неизвестность, и нарисовать её нулём значило бы сказать «денег в этой
-      // стране нет», хотя они там есть. Такие счета видны в списке счетов с
-      // пометкой «нет курса», а причина — в missingRates.
+      // A group where NOT A SINGLE currency can be converted is not emitted at
+      // all. One rule for every group: show what is computable. A partially
+      // converted group is computable — it is an understated but real sum
+      // (nothing may be asserted from it; see the warning filter below). The
+      // sum of a group where nothing can be converted is not "zero" but
+      // unknown, and drawing it as zero would say "there is no money in this
+      // country" when the money is there. Those accounts are visible in the
+      // account list with a "no rate" mark, and the reason is in missingRates.
       if (convertible.length === 0) continue;
 
       const native = new Array<bigint>(currencies.length).fill(0n);
@@ -274,11 +281,12 @@ export function buildForecast(input: BuildForecastInput): BuildForecastResult {
     }
   }
 
-  // ---------- итоговые ряды и метрики ----------
+  // ---------- final series and metrics ----------
 
-  // Страны — только те, чей ряд удалось посчитать (см. пропуск группы выше).
-  // Страна, где все счета в валютах без курса, на график не попадает вовсе:
-  // линия по нулю утверждала бы, что денег там нет.
+  // Countries — only those whose series could be computed (see the group skip
+  // above). A country where every account is in a currency without a rate does
+  // not appear on the chart at all: a line at zero would claim there is no
+  // money there.
   const countries = [...countrySeries.keys()].sort();
   const owners = [...ownerSeries.keys()].sort();
   const accountIds = [...accountSeries.keys()].sort((a, b) => a - b);
@@ -291,14 +299,15 @@ export function buildForecast(input: BuildForecastInput): BuildForecastResult {
   }));
 
   const netWorthMinor = overallStart;
-  // cashFlowIndex всегда внутри [0, horizonDays-1] (Math.min(cashFlowDays,
-  // horizonDays) - 1, а horizonDays >= 1), поэтому индекс всегда определён.
+  // cashFlowIndex is always inside [0, horizonDays-1] (Math.min(cashFlowDays,
+  // horizonDays) - 1, and horizonDays >= 1), so the index is always defined.
   const cashFlowMinor = overallDaily[cashFlowIndex]! - netWorthMinor;
 
-  // Минимум ищется только по ПОЛНОМУ ряду. Неполный занижен на неизвестную
-  // величину, и «минимум впереди» по нему — не осторожная оценка, а неверное
-  // число: карточка на «Пульсе» просто не показывается, а владелец видит
-  // предупреждение о валютах без курса и заводит недостающий курс.
+  // The minimum is sought only on a COMPLETE series. An incomplete one is
+  // understated by an unknown amount, and a "minimum ahead" from it is not a
+  // cautious estimate but a wrong number: the card on Pulse is simply not
+  // shown, and the owner sees the warning about currencies without a rate and
+  // enters the missing rate.
   let lowest: BuildForecastResult['lowest'] = null;
   if (accounts.length > 0 && overallComplete) {
     let minIdx = 0;
@@ -312,7 +321,7 @@ export function buildForecast(input: BuildForecastInput): BuildForecastResult {
     lowest = { date: addDays(asOfDate, minIdx + 1), amountMinor: min };
   }
 
-  // ---------- предупреждения ----------
+  // ---------- warnings ----------
 
   function scanSeries(
     dimension: ForecastWarning['dimension'],
@@ -322,12 +331,13 @@ export function buildForecast(input: BuildForecastInput): BuildForecastResult {
     startBalance: bigint,
     daily: bigint[],
   ): ForecastWarning | null {
-    // Измерение, где нет ни денег, ни движения, молчит: ровный ноль весь
-    // горизонт — это «пусто», а не «низкий баланс». Без этого пустой счёт
-    // предупреждал вечно, просто потому что 0 меньше порога, и на проде такие
-    // строки составляли четверть списка (решение владельца 2026-08-12,
-    // issue #256). Как только по измерению появляется баланс или хоть одна
-    // операция, ряд перестаёт быть нулевым и правило работает как обычно.
+    // A dimension with neither money nor movement stays silent: a flat zero
+    // across the whole horizon is "empty", not "low balance". Without this an
+    // empty account would warn forever, simply because 0 is below the
+    // threshold, and in production such rows made up a quarter of the list
+    // (owner decision 2026-08-12, issue #256). As soon as a balance or even
+    // one operation appears on the dimension, the series stops being zero and
+    // the rule works as usual.
     if (startBalance === 0n && daily.every((v) => v === 0n)) return null;
 
     let earliestBelowThresholdIdx = -1;
@@ -351,8 +361,8 @@ export function buildForecast(input: BuildForecastInput): BuildForecastResult {
       dimension,
       dimensionKey,
       currencyCode,
-      // account сканируется только против нуля; currency получает тот же порог,
-      // заранее переведённый из базовой валюты в нативную валюту группы.
+      // account is scanned only against zero; currency gets the same threshold,
+      // converted in advance from the base currency into the group's native currency.
       thresholdMinor: thresholdMinor.toString(),
       earliestBelowThresholdDate: earliestBelowThresholdIdx === -1 ? null : addDays(asOfDate, earliestBelowThresholdIdx + 1),
       earliestNonPositiveDate: earliestNonPositiveIdx === -1 ? null : addDays(asOfDate, earliestNonPositiveIdx + 1),
@@ -365,16 +375,17 @@ export function buildForecast(input: BuildForecastInput): BuildForecastResult {
   const warnings: ForecastWarning[] = [];
 
   /**
-   * Наибольшая сумма в `currency`, которая после штатного ROUND_HALF_EVEN всё
-   * ещё не превосходит базовый порог. Простая обратная конверсия порога может
-   * ошибиться на минорную единицу: например, вернуть 92851 EUR, хотя обратно
-   * это уже 100001 USD. Монотонная граница сохраняет исходную классификацию в
-   * baseCurrency и одновременно позволяет вернуть честный нативный порог UI.
+   * The largest amount in `currency` that, after the usual ROUND_HALF_EVEN,
+   * still does not exceed the base threshold. A plain inverse conversion of
+   * the threshold can be off by one minor unit: for example, return 92851 EUR
+   * when the reverse of that is already 100001 USD. A monotonic bound keeps
+   * the original classification in baseCurrency and at the same time lets us
+   * return an honest native threshold to the UI.
    */
   function thresholdCutoffInCurrency(currency: string): bigint | null {
-    // Нулевая настройка означает именно «только ноль/минус». Положительная
-    // нативная сумма не становится пороговой лишь потому, что округлилась в
-    // ноль при конверсии в дешёвой валюте.
+    // A zero setting means exactly "only zero/negative". A positive native
+    // amount does not become a threshold merely because it rounded to zero
+    // when converted in a low-value currency.
     if (lowBalanceThresholdMinor === 0n) return 0n;
 
     const approximate = convert(lowBalanceThresholdMinor, baseCurrency, currency);
@@ -409,37 +420,40 @@ export function buildForecast(input: BuildForecastInput): BuildForecastResult {
     return low;
   }
 
-  // dimension=account — нативная валюта, только против нуля.
+  // dimension=account — native currency, against zero only.
   for (const a of accounts) {
     const w = scanSeries('account', String(a.id), a.currency, 0n, BigInt(a.balance_minor), perAccountDaily.get(a.id)!);
     if (w) warnings.push(w);
   }
 
-  // Страна и общий итог — в базовой валюте; валютная группа — в своей
-  // нативной валюте. Все три измерения проверяются против порога И против нуля.
+  // Country and the overall total are in the base currency; a currency group
+  // is in its own native currency. All three dimensions are checked against the
+  // threshold AND against zero.
   //
-  // Неполная группа предупреждений не даёт вовсе. Причина: её ряд — сумма
-  // только тех счетов, чью валюту удалось пересчитать, то есть заведомо
-  // занижена. На таком ряде порог срабатывал бы там, где реальных денег
-  // хватает, а вырожденный случай (единственный счёт в валюте без курса) давал
-  // бы ряд из нулей и предупреждение «уже ниже порога» о сумме, которая на
-  // самом деле НЕИЗВЕСТНА, а не равна нулю. Ложная тревога здесь дороже
-  // пропуска: настоящий сигнал никуда не делся — валюта без курса приходит в
-  // `missingRates`, и это состояние поправимо одним курсом. Предупреждения по
-  // самим счетам (dimension=account) при этом работают всегда: они считаются в
-  // нативной валюте и пересчёта не требуют.
+  // An incomplete group produces no warnings at all. Reason: its series is the
+  // sum of only those accounts whose currency could be converted, so it is
+  // understated by construction. On such a series the threshold would fire
+  // where the real money is enough, and the degenerate case (a single account
+  // in a currency without a rate) would produce a series of zeros and an
+  // "already below the threshold" warning about an amount that is actually
+  // UNKNOWN, not equal to zero. A false alarm here costs more than a miss: the
+  // real signal has not gone anywhere — a currency without a rate arrives in
+  // `missingRates`, and that state is fixable with one rate. Warnings on the
+  // accounts themselves (dimension=account) still always work: they are
+  // computed in the native currency and need no conversion.
   for (const g of groupResults) {
     if (!g.complete) continue;
-    // owner — ряд для графика «по пользователю», не отдельное предупреждение:
-    // сигнал низкого баланса по человеку уже покрыт account/country/overall.
+    // owner — a series for the "by user" chart, not a separate warning: the
+    // low-balance signal for a person is already covered by account/country/overall.
     if (g.dimension === 'owner') continue;
     let w: ForecastWarning | null;
     if (g.dimension === 'currency') {
-      // Подпись «Валюта RSD» обязана сопровождаться рядом в RSD, а не внешне
-      // ошибочным знаком базовой валюты. Порог остаётся одной настройкой в
-      // baseCurrency и переводится тем же серверным FX-путём перед сравнением.
+      // The label "Currency RSD" must be accompanied by a series in RSD, not by
+      // an outwardly wrong symbol of the base currency. The threshold stays one
+      // setting in baseCurrency and is translated by the same server FX path
+      // before the comparison.
       const nativeThreshold = thresholdCutoffInCurrency(g.nativeCurrency!);
-      if (nativeThreshold === null) continue; // complete гарантирует обратимость, защита остаётся fail-closed
+      if (nativeThreshold === null) continue; // complete guarantees reversibility; the guard stays fail-closed
       w = scanSeries(
         g.dimension,
         g.key,

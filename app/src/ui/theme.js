@@ -1,6 +1,6 @@
-// Разрешение сохранённой темы (light / dark / system) в фактическую
-// светлую или тёмную. Тот же `resolved`, которым App ставит `data-theme`
-// и favicon: `icon-${resolved}-32.png` / `icon-${resolved}.svg`.
+// Resolves a saved theme (light / dark / system) into the actual
+// light or dark theme. The same `resolved` that App uses to set `data-theme`
+// and the favicon: `icon-${resolved}-32.png` / `icon-${resolved}.svg`.
 
 export function resolveTheme(theme) {
   if (theme === 'light') return 'light';

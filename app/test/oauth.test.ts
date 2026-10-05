@@ -1,13 +1,13 @@
-// S2-1: Интеграционные тесты OAuth 2.1 для машинных клиентов (issue #261)
+// S2-1: OAuth 2.1 integration tests for machine clients (issue #261)
 //
-// Тесты проверяют:
-// - Discovery RFC 9728 (Protected Resource Metadata) и RFC 8414 (Authorization Server Metadata)
-// - PKCE (S256), валидацию client_id, state, redirect_uri
-// - Защиту страницы согласия (anti-framing заголовки, CSRF-токены)
-// - Выдачу authorization code, обмен на access_token + refresh_token
-// - Защиту от повторного использования authorization code
-// - Запись аудита в D1 (oauth_clients, oauth_consents, oauth_tokens)
-// - Защиту эндпоинта /mcp: 401 без токена, 200 с валидным токеном, 401 после отзыва
+// The tests check:
+// - Discovery RFC 9728 (Protected Resource Metadata) and RFC 8414 (Authorization Server Metadata)
+// - PKCE (S256), and validation of client_id, state, and redirect_uri
+// - Protection of the consent page (anti-framing headers, CSRF tokens)
+// - Issuing an authorization code and exchanging it for an access_token + refresh_token
+// - Protection against reuse of an authorization code
+// - Writing the audit rows to D1 (oauth_clients, oauth_consents, oauth_tokens)
+// - Protection of the /mcp endpoint: 401 without a token, 200 with a valid token, 401 after revocation
 
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -34,7 +34,7 @@ async function generatePkce() {
 }
 
 describe('isTrustedOAuthRedirectUri (#531)', () => {
-  it('принимает RFC 8252 loopback и Google Account Linking на точном хосте', () => {
+  it('accepts an RFC 8252 loopback and Google Account Linking on the exact host', () => {
     expect(isTrustedOAuthRedirectUri('http://127.0.0.1:8080/callback')).toBe(true);
     expect(isTrustedOAuthRedirectUri('http://localhost:3000/callback')).toBe(true);
     expect(isTrustedOAuthRedirectUri('http://127.0.0.1/callback')).toBe(true);
@@ -43,7 +43,7 @@ describe('isTrustedOAuthRedirectUri (#531)', () => {
     expect(isTrustedOAuthRedirectUri('https://gemini.google.com/oauth/callback')).toBe(true);
   });
 
-  it('отклоняет userinfo, чужой хост и prefix-lookalike', () => {
+  it('rejects userinfo, a foreign host, and a prefix-lookalike', () => {
     expect(isTrustedOAuthRedirectUri('http://127.0.0.1:8080@evil-attacker.example/callback')).toBe(false);
     expect(isTrustedOAuthRedirectUri('http://localhost:3000@evil.example/callback')).toBe(false);
     expect(isTrustedOAuthRedirectUri('https://evil-attacker.com/callback')).toBe(false);
@@ -58,7 +58,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
   let cookie: string;
 
   beforeEach(async () => {
-    // Очистка D1 таблиц перед каждым тестом
+    // Clear the D1 tables before each test
     await env.DB.batch([
       env.DB.prepare('DELETE FROM oauth_tokens'),
       env.DB.prepare('DELETE FROM oauth_consents'),
@@ -69,8 +69,8 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
     cookie = setCookie.split(';')[0]!;
   });
 
-  describe('Discovery (RFC 9728 и RFC 8414)', () => {
-    it('отдаёт RFC 9728 Protected Resource Metadata на /.well-known/oauth-protected-resource', async () => {
+  describe('Discovery (RFC 9728 and RFC 8414)', () => {
+    it('returns RFC 9728 Protected Resource Metadata at /.well-known/oauth-protected-resource', async () => {
       const res = await app.request(
         'https://auth.example.com/.well-known/oauth-protected-resource',
         undefined,
@@ -87,7 +87,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       expect(json.bearer_methods_supported).toContain('header');
     });
 
-    it('отдаёт RFC 8414 Authorization Server Metadata на /.well-known/oauth-authorization-server', async () => {
+    it('returns RFC 8414 Authorization Server Metadata at /.well-known/oauth-authorization-server', async () => {
       const res = await app.request(
         'https://auth.example.com/.well-known/oauth-authorization-server',
         undefined,
@@ -106,7 +106,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       expect(json.client_id_metadata_document_supported).toBe(true);
     });
 
-    it('отдаёт тот же AS metadata на OIDC и path-aware URL, неизвестный well-known — 404', async () => {
+    it('returns the same AS metadata at the OIDC and path-aware URLs; an unknown well-known is 404', async () => {
       const canonical = await app.request(
         'https://auth.example.com/.well-known/oauth-authorization-server',
         undefined,
@@ -137,7 +137,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       expect(unknown.status).toBe(404);
     });
 
-    it('отдаёт path-aware Protected Resource Metadata на …/oauth-protected-resource/mcp', async () => {
+    it('returns path-aware Protected Resource Metadata at …/oauth-protected-resource/mcp', async () => {
       const res = await app.request(
         'https://auth.example.com/.well-known/oauth-protected-resource/mcp',
         undefined,
@@ -149,8 +149,8 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
     });
   });
 
-  describe('Страница согласия (Consent Page) и CSRF', () => {
-    it('требует аутентификацию сессионной кукой для открытия согласия', async () => {
+  describe('Consent page and CSRF', () => {
+    it('requires session-cookie authentication to open consent', async () => {
       const helpers = getOAuthHelpers(env as unknown as Env);
       const client = await helpers.createClient({
         clientName: 'Claude Desktop',
@@ -165,12 +165,12 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
         TEST_RESOURCE_URI
       )}`;
 
-      // Без сессионной куки — редирект на логин
+      // Without a session cookie — redirect to login
       const resUnauth = await app.request(authorizeUrl, undefined, env as unknown as Env);
       expect(resUnauth.status).toBe(302);
       expect(resUnauth.headers.get('Location')).toContain('/login?return_to=');
 
-      // С сессионной кукой — 200 OK со страницей согласия
+      // With a session cookie — 200 OK with the consent page
       const resAuth = await app.request(
         authorizeUrl,
         { headers: { Cookie: cookie } },
@@ -192,7 +192,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       expect(html).toContain('name="csrf_token"');
     });
 
-    it('не доверяет loopback redirect_uri с userinfo (open-redirect / theft of auth code)', async () => {
+    it('does not trust a loopback redirect_uri that carries userinfo (open-redirect / theft of auth code)', async () => {
       const helpers = getOAuthHelpers(env as unknown as Env);
       const client = await helpers.createClient({
         clientName: 'Local MCP',
@@ -211,7 +211,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       expect(await res.text()).toContain('Invalid redirect URI');
     });
 
-    it('отклоняет некорректный redirect_uri локально без редиректа (защита от open redirect)', async () => {
+    it('rejects an invalid redirect_uri locally, with no redirect (protection against an open redirect)', async () => {
       const helpers = getOAuthHelpers(env as unknown as Env);
       const client = await helpers.createClient({
         clientName: 'Claude Desktop',
@@ -230,7 +230,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       expect(text).toContain('Invalid redirect URI');
     });
 
-    it('принимает точный зарегистрированный Google Account Linking redirect_uri', async () => {
+    it('accepts the exact registered Google Account Linking redirect_uri', async () => {
       const helpers = getOAuthHelpers(env as unknown as Env);
       const registeredGoogleUri = 'https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-102860837630623043323';
       const client = await helpers.createClient({
@@ -257,7 +257,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       expect(html).toContain(registeredGoogleUri);
     });
 
-    it('успешно обрабатывает POST формы согласия без query string в URL', async () => {
+    it('successfully handles a consent-form POST with no query string in the URL', async () => {
       const helpers = getOAuthHelpers(env as unknown as Env);
       const client = await helpers.createClient({
         clientName: 'Gemini Desktop',
@@ -279,7 +279,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       expect(matchCsrf).toBeTruthy();
       const csrfToken = matchCsrf![1];
 
-      // POST отправляется на чистый URL без query string
+      // The POST is sent to a clean URL with no query string
       const form = new FormData();
       form.append('csrf_token', csrfToken);
       form.append('client_id', client.clientId);
@@ -310,7 +310,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       expect(url.searchParams.get('state')).toBe('gemini-state-99');
     });
 
-    it('проверяет валидность и срок действия CSRF токена', async () => {
+    it('checks that the CSRF token is valid and has not expired', async () => {
       const params = {
         clientId: 'client-1',
         redirectUri: 'https://client.test/callback',
@@ -331,8 +331,8 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
     });
   });
 
-  describe('Полный OAuth 2.1 Flow (Code + PKCE + Token + Revoke)', () => {
-    it('успешно выдаёт токен, пишет аудит в D1 и отзывает доступ', async () => {
+  describe('Full OAuth 2.1 flow (Code + PKCE + Token + Revoke)', () => {
+    it('successfully issues a token, writes the audit to D1, and revokes access', async () => {
       const helpers = getOAuthHelpers(env as unknown as Env);
       const client = await helpers.createClient({
         clientName: 'Cursor AI',
@@ -347,7 +347,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
         TEST_RESOURCE_URI
       )}`;
 
-      // 1. GET запрос страницы согласия
+      // 1. GET request for the consent page
       const getRes = await app.request(
         `https://auth.example.com/api/auth/oauth/authorize?${authQuery}`,
         { headers: { Cookie: cookie } },
@@ -359,7 +359,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       expect(matchCsrf).toBeTruthy();
       const csrfToken = matchCsrf![1];
 
-      // 2. POST подтверждения согласия (Allow)
+      // 2. POST confirming consent (Allow)
       const postForm = new FormData();
       postForm.append('csrf_token', csrfToken);
       postForm.append('client_id', client.clientId);
@@ -391,7 +391,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       const code = redirectUrl.searchParams.get('code');
       expect(code).toBeTruthy();
 
-      // Проверяем запись в D1: oauth_clients, oauth_consents, oauth_tokens
+      // Check the D1 rows: oauth_clients, oauth_consents, oauth_tokens
       const dbClient = await env.DB.prepare('SELECT * FROM oauth_clients WHERE id = ?')
         .bind(client.clientId)
         .first<{ id: string; name: string }>();
@@ -410,7 +410,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       expect(dbTokens.results[0].last_ip).toBe('198.51.100.1');
       expect(dbTokens.results[0].last_country).toBe('DE');
 
-      // 3. Обмен authorization code на токен (POST /api/auth/oauth/token)
+      // 3. Exchange the authorization code for a token (POST /api/auth/oauth/token)
       const tokenParams = new URLSearchParams({
         grant_type: 'authorization_code',
         code: code!,
@@ -438,13 +438,13 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       expect(tokenJson.scope).toBe('read write');
       const accessToken = tokenJson.access_token;
 
-      // 4. Обращение к защищённому MCP роуту
-      // Без токена -> 401
+      // 4. Call the protected MCP route
+      // Without a token -> 401
       const mcpUnauth = await app.request('https://auth.example.com/mcp', undefined, env as unknown as Env);
       expect(mcpUnauth.status).toBe(401);
       expect(mcpUnauth.headers.get('WWW-Authenticate')).toContain('Bearer');
 
-      // С валидным токеном -> 200
+      // With a valid token -> 200
       const mcpAuth = await app.request(
         'https://auth.example.com/mcp',
         { headers: { Authorization: `Bearer ${accessToken}` } },
@@ -452,7 +452,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       );
       expect(mcpAuth.status).toBe(200);
 
-      // ALE-13: Проверка что OAuth client ID пробрасывается в MCP context и audit log
+      // ALE-13: Check that the OAuth client ID is forwarded into the MCP context and the audit log
       const idempotencyKey = 'test-oauth-audit-ale13';
       const mcpWrite = await app.request(
         'https://auth.example.com/mcp',
@@ -482,8 +482,8 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       
       expect(mcpWrite.status).toBe(200);
       const writeResult = await mcpWrite.json<any>();
-      // Если клиент прокинут правильно, мы пройдём этап claim idempotency_key,
-      // и не свалимся с Error executing tool: Unable to claim idempotency_key.
+      // If the client is forwarded correctly, we get past the claim idempotency_key step
+      // and do not fail with Error executing tool: Unable to claim idempotency_key.
       expect(writeResult.error).toBeUndefined();
       expect(writeResult.result).toBeDefined();
       
@@ -494,9 +494,9 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       expect(auditLog).toBeDefined();
       expect(auditLog?.client_id).toBe(client.clientId);
 
-      // 5. Повторное использование code — запрещено (replay attack)
-      // По спецификации RFC 6749 §4.1.2 при попытке replay авторизационный сервер
-      // отклоняет запрос И отзывает выданный грант / токены.
+      // 5. Reusing the code is forbidden (replay attack)
+      // Per RFC 6749 §4.1.2, on a replay attempt the authorization server
+      // rejects the request AND revokes the issued grant / tokens.
       const replayRes = await app.request(
         'https://auth.example.com/api/auth/oauth/token',
         {
@@ -508,7 +508,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       );
       expect(replayRes.status).toBe(400);
 
-      // 6. После обнаружения replay токен отозван -> 401 на /mcp
+      // 6. After the replay is detected the token is revoked -> 401 on /mcp
       const mcpRevoked = await app.request(
         'https://auth.example.com/mcp',
         { headers: { Authorization: `Bearer ${accessToken}` } },
@@ -516,7 +516,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       );
       expect(mcpRevoked.status).toBe(401);
 
-      // Отзываем в D1
+      // Revoke it in D1
       await revokeOAuthTokenInDb(env.DB, dbTokens.results[0].id);
       const revokedToken = await env.DB.prepare('SELECT revoked_at FROM oauth_tokens WHERE id = ?')
         .bind(dbTokens.results[0].id)
@@ -524,7 +524,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       expect(revokedToken?.revoked_at).not.toBeNull();
     });
 
-    it('отклоняет запрос при нажатии «Отклонить» (action=deny)', async () => {
+    it('rejects the request when Deny is pressed (action=deny)', async () => {
       const helpers = getOAuthHelpers(env as unknown as Env);
       const client = await helpers.createClient({
         clientName: 'Windsurf AI',
@@ -569,7 +569,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       expect(redirectUrl.searchParams.get('iss')).toBe(TEST_ISSUER_URI);
     });
 
-    it('отклоняет запрос с недействительным CSRF-токеном', async () => {
+    it('rejects a request with an invalid CSRF token', async () => {
       const helpers = getOAuthHelpers(env as unknown as Env);
       const client = await helpers.createClient({
         clientName: 'Windsurf AI',
@@ -605,7 +605,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       expect(await postRes.text()).toContain('CSRF');
     });
 
-    it('отклоняет запрос авторизации с несовпадающим resource (RFC 8707)', async () => {
+    it('rejects an authorization request whose resource does not match (RFC 8707)', async () => {
       const helpers = getOAuthHelpers(env as unknown as Env);
       const client = await helpers.createClient({
         clientName: 'Test Client',
@@ -626,13 +626,13 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
         env as unknown as Env
       );
 
-      // При несовпадении resource должен быть редирект с error=invalid_target
+      // On a resource mismatch there must be a redirect with error=invalid_target
       expect(res.status).toBe(302);
       const redirectUrl = new URL(res.headers.get('Location')!);
       expect(redirectUrl.searchParams.get('error')).toBe('invalid_target');
     });
 
-    it('выдаёт токен только с одобренными скоупами (сужение скоупов)', async () => {
+    it('issues a token only with the approved scopes (scope narrowing)', async () => {
       const helpers = getOAuthHelpers(env as unknown as Env);
       const client = await helpers.createClient({
         clientName: 'Read Only Client',
@@ -662,7 +662,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       postForm.append('client_id', client.clientId);
       postForm.append('redirect_uri', 'https://readonly.test/callback');
       postForm.append('state', 'ro_state');
-      postForm.append('scope', 'read'); // Только read
+      postForm.append('scope', 'read'); // read only
       postForm.append('action', 'allow');
 
       const postRes = await app.request(
@@ -678,8 +678,8 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       expect(postRes.status).toBe(302);
       const redirectUrl = new URL(postRes.headers.get('Location')!);
       const code = redirectUrl.searchParams.get('code')!;
-      // RFC 9207: успешный авторизационный ответ содержит iss, побайтово
-      // совпадающий с issuer из AS-метаданных (без trailing slash).
+      // RFC 9207: a successful authorization response contains iss, byte for byte
+      // equal to the issuer from the AS metadata (no trailing slash).
       expect(redirectUrl.searchParams.get('iss')).toBe(TEST_ISSUER_URI);
       expect(redirectUrl.searchParams.get('iss')).toBe('https://auth.example.com');
       expect(redirectUrl.searchParams.get('iss')!.endsWith('/')).toBe(false);
@@ -706,10 +706,10 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
 
       expect(tokenRes.status).toBe(200);
       const tokenJson = await tokenRes.json<any>();
-      expect(tokenJson.scope).toBe('read'); // Выдан только read
+      expect(tokenJson.scope).toBe('read'); // only read was issued
     });
 
-    it('отклоняет Allow без выбранных scope вместо выдачи запрошенных', async () => {
+    it('rejects Allow when no scope is selected, instead of issuing the requested scopes', async () => {
       const helpers = getOAuthHelpers(env as unknown as Env);
       const client = await helpers.createClient({
         clientName: 'Empty Scope Client',
@@ -746,7 +746,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
       expect(redirectUrl.searchParams.get('code')).toBeNull();
     });
 
-    it('повторный Allow с тем же grant id не отдаёт OAUTH_GRANT_RECORD_FAILED (#559)', async () => {
+    it('a second Allow with the same grant id does not return OAUTH_GRANT_RECORD_FAILED (#559)', async () => {
       const helpers = getOAuthHelpers(env as unknown as Env);
       const client = await helpers.createClient({
         clientName: 'Grok Double Click',
@@ -815,7 +815,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
   });
 
   describe('Loopback Gemini (#319)', () => {
-    it('сохраняет hostname localhost в Location и принимает исходный localhost на token', async () => {
+    it('keeps the localhost hostname in Location and accepts the original localhost at the token endpoint', async () => {
       const helpers = getOAuthHelpers(env as unknown as Env);
       const client = await helpers.createClient({
         clientName: 'Gemini Desktop',

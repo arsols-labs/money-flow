@@ -1,6 +1,6 @@
 /**
- * MCP Apps — подтверждение write (MRTR).
- * Кнопка в чате повторяет tools/call с requestState. Без неё записи нет.
+ * MCP Apps — write confirmation (MRTR).
+ * The in-chat button repeats tools/call with requestState. Without it there is no write.
  */
 
 import { MCP_WIDGET_RPC_SCRIPT } from './mcp-widget-rpc';

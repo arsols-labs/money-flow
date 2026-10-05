@@ -44,7 +44,7 @@ describe('groupFiscalReceipts (issue #557)', () => {
     expect(grocery.id).toBe('pfr:PFR-GROCERY');
   });
 
-  it('does not invent a PFR and keeps ops without id and without URL out of Чеки', () => {
+  it('does not invent a PFR and keeps ops without id and without URL out of Receipts', () => {
     const groups = groupFiscalReceipts([
       op({ id: 1, item: 'Cash coffee', fiscal_receipt_id: null, receipt_url: null }),
       op({ id: 2, kind: 'transfer_out', fiscal_receipt_id: 'PFR-X' }),

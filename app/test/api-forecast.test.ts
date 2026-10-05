@@ -1,6 +1,6 @@
-// Эндпоинты прогноза и записи настроек (issue #198, S1-4) — настоящий workerd
-// поверх реальной D1, тем же приёмом, что и test/api-v2.test.ts (там же
-// подпись сессионной cookie, здесь не повторяется отдельным комментарием).
+// Forecast endpoints and settings writes (issue #198, S1-4) — a real workerd
+// on top of a real D1, using the same approach as test/api-v2.test.ts (the
+// session-cookie signature lives there and is not repeated in a comment here).
 import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import app from '../src/worker/index';
@@ -23,8 +23,8 @@ beforeEach(async () => {
     env.DB.prepare('DELETE FROM receipts'),
     env.DB.prepare('DELETE FROM fx_rates'),
     env.DB.prepare('DELETE FROM accounts'),
-    // settings не трогаем — там дефолты из самой миграции 0001, а тест
-    // «сквозной прогон» проверяет и запись поверх них.
+    // settings are left alone — the defaults come from migration 0001 itself, and the
+    // "end-to-end run" test also checks a write on top of them.
   ]);
   await env.DB.prepare(
     "INSERT INTO settings (key, value) VALUES ('base_currency', 'USD') ON CONFLICT(key) DO UPDATE SET value = 'USD'",
@@ -58,32 +58,32 @@ async function createAccount(overrides: Record<string, unknown> = {}) {
   return ((await res.json()) as { account: Record<string, unknown> }).account;
 }
 
-describe('guard: без сессии', () => {
-  it('GET /forecast без cookie → 401', async () => {
+describe('guard: no session', () => {
+  it('GET /forecast without a cookie → 401', async () => {
     const res = await api('GET', '/api/v2/forecast', undefined, false);
     expect(res.status).toBe(401);
   });
 
-  it('PUT /settings/:key без cookie → 401', async () => {
+  it('PUT /settings/:key without a cookie → 401', async () => {
     const res = await api('PUT', '/api/v2/settings/low_balance_threshold_minor', { value: 0 }, false);
     expect(res.status).toBe(401);
   });
 });
 
-describe('GET /forecast — валидация days', () => {
+describe('GET /forecast — days validation', () => {
   it.each([
-    ['не число', 'abc'],
-    ['ноль', '0'],
-    ['отрицательное', '-5'],
-    ['дробное', '1.5'],
-    ['больше 366', '367'],
+    ['not a number', 'abc'],
+    ['zero', '0'],
+    ['negative', '-5'],
+    ['fractional', '1.5'],
+    ['above 366', '367'],
   ])('days=%s (%s) → 400', async (_label, raw) => {
     const res = await api('GET', `/api/v2/forecast?days=${raw}`);
     expect(res.status).toBe(400);
     expect(await errorOf(res)).toBeTypeOf('string');
   });
 
-  it('без days — горизонт по умолчанию 365', async () => {
+  it('without days, the default horizon is 365', async () => {
     const res = await api('GET', '/api/v2/forecast');
     expect(res.status).toBe(200);
     const body = (await res.json()) as { horizon_days: number; series: unknown[] };
@@ -91,14 +91,14 @@ describe('GET /forecast — валидация days', () => {
     expect(body.series).toHaveLength(365);
   });
 
-  it('days=366 — верхняя граница валидна', async () => {
+  it('days=366 — the upper bound is valid', async () => {
     const res = await api('GET', '/api/v2/forecast?days=366');
     expect(res.status).toBe(200);
     const body = (await res.json()) as { horizon_days: number };
     expect(body.horizon_days).toBe(366);
   });
 
-  it('на пустой базе — нулевые агрегаты, lowest = null, без предупреждений', async () => {
+  it('on an empty database — zero aggregates, lowest = null, no warnings', async () => {
     const res = await api('GET', '/api/v2/forecast?days=7');
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
@@ -116,7 +116,7 @@ describe('GET /forecast — валидация days', () => {
     });
   });
 
-  it('неизвестный трёхбуквенный код в settings не становится базой прогноза', async () => {
+  it('an unknown three-letter code in settings does not become the forecast base currency', async () => {
     await env.DB.prepare("UPDATE settings SET value = 'ZZZ' WHERE key = 'base_currency'").run();
 
     const res = await api('GET', '/api/v2/forecast?days=1');
@@ -125,11 +125,11 @@ describe('GET /forecast — валидация days', () => {
   });
 });
 
-describe('GET /forecast — сквозной прогон на засеянных данных', () => {
-  it('счета в двух валютах, плановая и регулярная операция, курс — конкретные числа', async () => {
+describe('GET /forecast — end-to-end run on seeded data', () => {
+  it('accounts in two currencies, a planned operation and a recurring one, and a rate — concrete numbers', async () => {
     vi.useFakeTimers();
     try {
-      // «Сегодня» фиксировано, чтобы даты потоков были предсказуемы.
+      // "Today" is fixed so flow dates stay predictable.
       vi.setSystemTime(new Date('2026-08-12T00:00:00Z'));
 
       const usd = await createAccount({ name: 'USD-счёт', currency: 'USD', balance_minor: 1_000_000 }); // $10 000.00
@@ -137,7 +137,7 @@ describe('GET /forecast — сквозной прогон на засеянны�
 
       expect((await api('PUT', '/api/v2/fx-rates/rsd', { rate: '0.0092' })).status).toBe(200);
 
-      // Плановая: -500.00 RSD через 10 дней (2026-08-22), валюта = валюте счёта.
+      // Planned: -500.00 RSD in 10 days (2026-08-22); currency equals the account currency.
       const plannedRes = await api('POST', '/api/v2/planned-items', {
         date: '2026-08-22',
         title: 'Аренда',
@@ -146,8 +146,8 @@ describe('GET /forecast — сквозной прогон на засеянны�
       });
       expect(plannedRes.status).toBe(201);
 
-      // Регулярная: -$10.00 каждые 20 дней от 2026-08-14 — два вхождения в
-      // пределах 30-дневного горизонта (2026-08-14 и 2026-09-03).
+      // Recurring: -$10.00 every 20 days from 2026-08-14 — two occurrences
+      // within the 30-day horizon (2026-08-14 and 2026-09-03).
       const recurringRes = await api('POST', '/api/v2/recurring-items', {
         title: 'Подписка',
         amount_minor: -1000,
@@ -169,10 +169,10 @@ describe('GET /forecast — сквозной прогон на засеянны�
       expect(body.cash_flow_days).toBe(30);
 
       // 1 000 000 (USD) + 184 000 (200 000.00 RSD * 0.0092, ROUND_HALF_EVEN) —
-      // независимо посчитано в момент написания теста, см. отчёт исполнителя.
+      // computed independently when the test was written; see the implementer report.
       expect(body.net_worth_minor).toBe(1_184_000);
-      // К дню 30: 2 регулярных списания (-1000×2) + 1 плановое, конвертированное
-      // из RSD (-50000 RSD → -460 USD-минор) = -2460 суммарно от старта.
+      // By day 30: 2 recurring debits (-1000×2) + 1 planned item, converted
+      // from RSD (-50000 RSD → -460 USD minor) = -2460 in total from the start.
       expect(body.cash_flow_minor).toBe(-2460);
 
       expect(body.countries.sort()).toEqual(['SRB', 'USA']);
@@ -193,12 +193,12 @@ describe('GET /forecast — сквозной прогон на засеянны�
         amount_minor: -50000, currency: 'RSD', amount_base_minor: -460,
       });
 
-      // Оба счёта остаются далеко выше порога ($1000) весь горизонт —
-      // предупреждений нет ни по одному измерению.
+      // Both accounts stay far above the threshold ($1000) for the whole horizon —
+      // there are no warnings on any dimension.
       expect(body.warnings).toEqual([]);
       expect(body.missing_rates).toEqual([]);
 
-      // series — по одному элементу на день горизонта, даты идут подряд.
+      // series — one element per horizon day; dates run consecutively.
       expect(body.series).toHaveLength(30);
       expect(body.series[0].date).toBe('2026-08-13');
       expect(body.series[29].date).toBe('2026-09-11');
@@ -214,7 +214,7 @@ describe('GET /forecast — сквозной прогон на засеянны�
     }
   });
 
-  it('счёт в валюте без курса → выпадает из групп, попадает в missing_rates', async () => {
+  it('an account in a currency with no rate drops out of the groups and lands in missing_rates', async () => {
     await createAccount({ name: 'Без курса', currency: 'CHF', balance_minor: 500000 });
     const res = await api('GET', '/api/v2/forecast?days=5');
     const body = (await res.json()) as Record<string, any>;
@@ -223,7 +223,7 @@ describe('GET /forecast — сквозной прогон на засеянны�
     expect(body.accounts[0]).toMatchObject({ currency: 'CHF', balance_base_minor: null });
   });
 
-  it('просроченный регулярный платёж попадает в прогноз единой суммой на ближайший день и не теряет будущие вхождения (issue #279)', async () => {
+  it('an overdue recurring payment enters the forecast as one sum on the nearest day and does not lose future occurrences (issue #279)', async () => {
     vi.useFakeTimers();
     try {
       // asOf = 2026-08-15
@@ -231,8 +231,8 @@ describe('GET /forecast — сквозной прогон на засеянны�
 
       const account = await createAccount({ name: 'Основной', currency: 'USD', balance_minor: 100_000 }); // $1000.00
 
-      // Регулярный платёж: monthly на 15 число, $100 (-10000 minor), next_due_date = 2026-07-15 (месяц назад).
-      // Наступившие периоды: 2026-07-15 и 2026-08-15 (сегодня). Итого 2 пропущенных периода = -$200.
+      // Recurring payment: monthly on the 15th, $100 (-10000 minor), next_due_date = 2026-07-15 (a month ago).
+      // Periods already due: 2026-07-15 and 2026-08-15 (today). That is 2 missed periods = -$200.
       const recurringRes = await api('POST', '/api/v2/recurring-items', {
         title: 'Аренда серверов',
         amount_minor: -10000,
@@ -248,13 +248,13 @@ describe('GET /forecast — сквозной прогон на засеянны�
       const body = (await res.json()) as Record<string, any>;
 
       expect(body.as_of).toBe('2026-08-15');
-      expect(body.net_worth_minor).toBe(100_000); // на asOf баланс $1000
+      expect(body.net_worth_minor).toBe(100_000); // balance on asOf is $1000
 
-      // В series: первый день 2026-08-16 уже учитывает долг -$200 = $800 (80000)
+      // In series: the first day, 2026-08-16, already includes the -$200 debt = $800 (80000)
       expect(body.series[0].date).toBe('2026-08-16');
       expect(body.series[0].overall_minor).toBe(80_000);
 
-      // Следующее будущее вхождение — 2026-09-15 (-$100 = $700)
+      // The next future occurrence is 2026-09-15 (-$100 = $700)
       const daySep15 = body.series.find((s: any) => s.date === '2026-09-15');
       expect(daySep15.overall_minor).toBe(70_000);
 
@@ -341,13 +341,13 @@ describe('Pulse payment calendar (#470)', () => {
 });
 
 describe('PUT /settings/:key', () => {
-  it('low_balance_threshold_minor принимает число и сохраняет как строку', async () => {
+  it('low_balance_threshold_minor accepts a number and stores it as a string', async () => {
     const res = await api('PUT', '/api/v2/settings/low_balance_threshold_minor', { value: 50000 });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { settings: Record<string, string> };
     expect(body.settings.low_balance_threshold_minor).toBe('50000');
 
-    // Видно и в GET /settings, и учтено в /forecast.
+    // Visible both in GET /settings and taken into account by /forecast.
     const getRes = await api('GET', '/api/v2/settings');
     expect(((await getRes.json()) as { settings: Record<string, string> }).settings.low_balance_threshold_minor).toBe(
       '50000',
@@ -358,7 +358,7 @@ describe('PUT /settings/:key', () => {
     );
   });
 
-  it('принимает строку из цифр, 0 — валидное значение', async () => {
+  it('accepts a string of digits; 0 is a valid value', async () => {
     const res = await api('PUT', '/api/v2/settings/low_balance_threshold_minor', { value: '0' });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { settings: Record<string, string> };
@@ -366,12 +366,12 @@ describe('PUT /settings/:key', () => {
   });
 
   it.each([
-    ['отрицательное число', -1],
-    ['дробное число', 1.5],
-    ['нечисловая строка', 'abc'],
-    ['строка со знаком', '-5'],
+    ['negative number', -1],
+    ['fractional number', 1.5],
+    ['non-numeric string', 'abc'],
+    ['signed string', '-5'],
     ['null', null],
-  ])('мусорное значение (%s) → 400, ничего не меняется', async (_label, value) => {
+  ])('garbage value (%s) → 400, nothing changes', async (_label, value) => {
     const before = await api('GET', '/api/v2/settings');
     const beforeBody = (await before.json()) as { settings: Record<string, string> };
 
@@ -384,7 +384,7 @@ describe('PUT /settings/:key', () => {
     expect(afterBody.settings.low_balance_threshold_minor).toBe(beforeBody.settings.low_balance_threshold_minor);
   });
 
-  it('неизвестный ключ → 404', async () => {
+  it('an unknown key → 404', async () => {
     for (const key of ['unknown_key', 'currency', 'theme']) {
       const res = await api('PUT', `/api/v2/settings/${key}`, { value: '1' });
       expect(res.status).toBe(404);

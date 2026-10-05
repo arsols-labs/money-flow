@@ -1,5 +1,5 @@
-// Управление порядком, видимостью и расположением блоков дашборда «Пульс».
-// Изолированное хранилище в localStorage под ключом mf_dashboard_layout_v1.
+// Controls the order, visibility, and placement of blocks on the "Pulse" dashboard.
+// Isolated localStorage under the key mf_dashboard_layout_v1.
 
 export const DASHBOARD_STORAGE_KEY = 'mf_dashboard_layout_v1';
 export const PULSE_FILTERS_STORAGE_KEY = 'mf_pulse_filters_v1';
@@ -77,7 +77,7 @@ export const DEFAULT_PULSE_FILTERS = {
 };
 
 /**
- * Определяет реальную колонку блока (с учётом режима 'auto').
+ * Resolves a block's actual column (taking the 'auto' mode into account).
  */
 export function resolveBlockColumn(block) {
   if (!block) return 'left';
@@ -93,8 +93,8 @@ export function cloneConfig(config) {
 }
 
 /**
- * Загружает конфигурацию из localStorage с безопасной валидацией,
- * фильтрацией неизвестных ID и дополнением недостающих блоков.
+ * Loads the configuration from localStorage with safe validation,
+ * filtering of unknown IDs, and filling in of missing blocks.
  */
 export function loadDashboardConfig() {
   if (typeof localStorage === 'undefined') {
@@ -131,7 +131,7 @@ export function loadDashboardConfig() {
       });
     }
 
-    // Добавляем новые блоки, которых не было в сохранённой конфигурации
+    // Add new blocks that were not in the saved configuration
     for (const defItem of DEFAULT_DASHBOARD_CONFIG) {
       if (!seen.has(defItem.id)) {
         result.push({ ...defItem });
@@ -145,7 +145,7 @@ export function loadDashboardConfig() {
 }
 
 /**
- * Сохраняет конфигурацию в localStorage.
+ * Saves the configuration to localStorage.
  */
 export function saveDashboardConfig(config) {
   if (typeof localStorage === 'undefined') return;
@@ -159,7 +159,7 @@ export function saveDashboardConfig(config) {
 }
 
 /**
- * Сбрасывает конфигурацию к заводскому значению и очищает хранилище.
+ * Resets the configuration to the factory value and clears storage.
  */
 export function resetDashboardConfig() {
   if (typeof localStorage !== 'undefined') {
@@ -171,7 +171,7 @@ export function resetDashboardConfig() {
 }
 
 /**
- * Перемещает блок вверх или вниз в списке.
+ * Moves a block up or down in the list.
  */
 export function moveBlock(config, index, direction) {
   if (!Array.isArray(config)) return [];
@@ -190,7 +190,7 @@ export function moveBlock(config, index, direction) {
 }
 
 /**
- * Перемещает блок из fromIndex в toIndex (drag-and-drop).
+ * Moves a block from fromIndex to toIndex (drag-and-drop).
  */
 export function reorderBlock(config, fromIndex, toIndex) {
   if (!Array.isArray(config)) return [];
@@ -211,14 +211,14 @@ export function reorderBlock(config, fromIndex, toIndex) {
 }
 
 /**
- * Переключает видимость блока (скрыть / вернуть).
+ * Toggles a block's visibility (hide / restore).
  */
 export function toggleBlockVisibility(config, id) {
   return config.map((b) => (b.id === id ? { ...b, visible: !b.visible } : { ...b }));
 }
 
 /**
- * Изменяет колонку размещения блока для широкого экрана.
+ * Changes a block's column placement for a wide screen.
  */
 export function setBlockColumn(config, id, column, blockDefs = DASHBOARD_BLOCK_DEFS) {
   const def = (blockDefs && blockDefs[id]) || DASHBOARD_BLOCK_DEFS[id];
@@ -227,7 +227,7 @@ export function setBlockColumn(config, id, column, blockDefs = DASHBOARD_BLOCK_D
 }
 
 /**
- * Загружает сохранённые фильтры блоков «Пульса» из localStorage.
+ * Loads saved filters for "Pulse" blocks from localStorage.
  */
 export function loadPulseFilters() {
   if (typeof localStorage === 'undefined') return { ...DEFAULT_PULSE_FILTERS };
@@ -271,7 +271,7 @@ export function loadPulseFilters() {
 }
 
 /**
- * Сохраняет фильтры блоков «Пульса» в localStorage.
+ * Saves filters for "Pulse" blocks to localStorage.
  */
 export function savePulseFilters(filters) {
   if (typeof localStorage === 'undefined' || !filters) return;
@@ -281,7 +281,7 @@ export function savePulseFilters(filters) {
 }
 
 /**
- * Сбрасывает сохранённые фильтры к значениям по умолчанию.
+ * Resets the saved filters to their default values.
  */
 export function resetPulseFilters() {
   if (typeof localStorage !== 'undefined') {

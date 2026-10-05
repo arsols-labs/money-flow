@@ -668,6 +668,18 @@ function safeExecutionCtx(c: any): ExecutionContext {
 
 app.all('/.well-known/*', async (c) => {
   const pathname = new URL(c.req.url).pathname;
+  // workers-oauth-provider 1.2 publishes RFC 9728 only at the resource path
+  // (`/.well-known/oauth-protected-resource/mcp`). The bare prefix stays an alias
+  // so existing clients and the documented discovery URL keep working.
+  if (pathname === OAUTH_PR_METADATA_PREFIX) {
+    const canonical = new URL(c.req.url);
+    canonical.pathname = `${OAUTH_PR_METADATA_PREFIX}/mcp`;
+    return getOAuthProviderForRequest(c.req.raw, c.env).fetch(
+      new Request(canonical.toString(), c.req.raw),
+      c.env,
+      safeExecutionCtx(c) as any
+    );
+  }
   if (providerHandlesWellKnown(pathname)) {
     return getOAuthProviderForRequest(c.req.raw, c.env).fetch(c.req.raw, c.env, safeExecutionCtx(c) as any);
   }

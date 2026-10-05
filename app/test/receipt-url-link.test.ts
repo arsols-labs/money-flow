@@ -6,7 +6,7 @@ import { parseHttpUrl } from '../src/shared/http-url';
 import i18n from '../src/ui/i18n.js';
 
 describe('parseHttpUrl / ReceiptUrlLink (issue #555)', () => {
-  it('принимает http(s) и отвергает javascript:', () => {
+  it('accepts http(s) and rejects javascript:', () => {
     expect(parseHttpUrl(' https://suf.purs.gov.rs/v/?vl=abc ')).toBe('https://suf.purs.gov.rs/v/?vl=abc');
     expect(parseHttpUrl('http://example.com/fiscal')).toBe('http://example.com/fiscal');
     expect(parseHttpUrl('javascript:alert(1)')).toBeNull();
@@ -14,7 +14,7 @@ describe('parseHttpUrl / ReceiptUrlLink (issue #555)', () => {
     expect(parseHttpUrl('')).toBeNull();
   });
 
-  it('рисует короткую i18n-подпись, а не сам URL', () => {
+  it('draws a short i18n label, not the URL itself', () => {
     const url = 'https://suf.purs.gov.rs/v/?vl=' + 'A'.repeat(120);
     const html = renderToStaticMarkup(React.createElement(ReceiptUrlLink, { url }));
     expect(html).toContain(`>${i18n.t('common.link')}</a>`);
@@ -24,12 +24,12 @@ describe('parseHttpUrl / ReceiptUrlLink (issue #555)', () => {
     expect(html).not.toMatch(new RegExp(`>[^<]*${url.slice(0, 40)}`));
   });
 
-  it('не рендерит ничего для опасного или пустого URL', () => {
+  it('renders nothing for a dangerous or empty URL', () => {
     expect(renderToStaticMarkup(React.createElement(ReceiptUrlLink, { url: 'javascript:alert(1)' }))).toBe('');
     expect(renderToStaticMarkup(React.createElement(ReceiptUrlLink, { url: '' }))).toBe('');
   });
 
-  it('обрезает длинный комментарий в мета-линии', () => {
+  it('truncates a long comment in the meta line', () => {
     expect(compactComment('  коротко  ')).toBe('коротко');
     expect(compactComment('x'.repeat(90)).endsWith('…')).toBe(true);
     expect(compactComment('x'.repeat(90)).length).toBe(80);

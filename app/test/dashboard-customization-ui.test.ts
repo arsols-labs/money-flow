@@ -143,7 +143,7 @@ describe('DashboardSettingsModal & Pulse customization UI', () => {
     expect(html).toContain('Настроить дашборд');
   });
 
-  it('renders "Авто" column placement chip in DashboardSettingsModal', () => {
+  it('renders the "Auto" column placement chip in DashboardSettingsModal', () => {
     const html = renderToStaticMarkup(
       React.createElement(DashboardSettingsModal, {
         open: true,
@@ -160,7 +160,7 @@ describe('DashboardSettingsModal & Pulse customization UI', () => {
     expect(html).toContain('На всю ширину');
   });
 
-  it('renders "Поток" in 2 lines with inline period badge and filter reset button when non-default filter is set', () => {
+  it('renders "Flow" in 2 lines with an inline period badge and a filter reset button when a non-default filter is set', () => {
     const customFilters = {
       forecastPeriod: 'quarter',
       spentPeriod: 'yesterday',

@@ -1,7 +1,7 @@
-// Unit-тесты развёртки регулярных платежей (issue #198, S1-4). Адаптировано
-// из golden-тестов archive/v2-codex (app/test/readmodel.test.ts, describe
-// 'forecast golden') под схему v2: у RecurringRule нет start_date, якорь дня
-// берётся напрямую из day_of_month/month_of_year (см. докблок
+// Unit tests of recurring-payment expansion (issue #198, S1-4). Adapted
+// from the golden tests in archive/v2-codex (app/test/readmodel.test.ts, describe
+// 'forecast golden') to the v2 schema: RecurringRule has no start_date, the day anchor
+// is taken directly from day_of_month/month_of_year (see the docblock in
 // src/worker/forecast/recurrence.ts).
 import { describe, expect, it } from 'vitest';
 import { addDays, clampedDate, diffDays, parseIsoDate } from '../src/worker/forecast/dates';
@@ -24,8 +24,8 @@ function rule(overrides: Partial<RecurringRule> & Pick<RecurringRule, 'frequency
   };
 }
 
-describe('expandRecurring — monthly, day_of_month=31 (главный кейс якоря)', () => {
-  it('прижимает к 28/29/30 в коротком месяце и ВОЗВРАЩАЕТСЯ к 31 в длинном', () => {
+describe('expandRecurring — monthly, day_of_month=31 (the main anchor case)', () => {
+  it('clamps to 28/29/30 in a short month and RETURNS to 31 in a long one', () => {
     const dates = expandRecurring(
       rule({ frequency: 'monthly', day_of_month: 31, next_due_date: '2026-07-31' }),
       '2026-07-23', // asOf
@@ -34,16 +34,16 @@ describe('expandRecurring — monthly, day_of_month=31 (главный кейс 
     expect(dates).toEqual([
       '2026-07-31',
       '2026-08-31',
-      '2026-09-30', // короткий месяц — прижато
-      '2026-10-31', // вернулся к 31, а не застрял на 30
+      '2026-09-30', // short month — clamped
+      '2026-10-31', // returned to 31, did not stick on 30
       '2026-11-30',
       '2026-12-31',
     ]);
   });
 
-  it('якорь не дрейфует даже через несколько последовательных коротких месяцев', () => {
-    // day_of_month=31 через фев/апр (30) — каждый раз заново прижимается к
-    // СВОЕМУ короткому месяцу, а не к прошлой прижатой дате.
+  it('the anchor does not drift even through several short months in a row', () => {
+    // day_of_month=31 through Feb/Apr (30) — each time it clamps anew to
+    // ITS OWN short month, not to the previous clamped date.
     const dates = expandRecurring(
       rule({ frequency: 'monthly', day_of_month: 31, next_due_date: '2027-01-31' }),
       '2027-01-01',
@@ -53,8 +53,8 @@ describe('expandRecurring — monthly, day_of_month=31 (главный кейс 
   });
 });
 
-describe('expandRecurring — yearly, 29 февраля', () => {
-  it('невисокосные годы прижимают к 28, високосный возвращает 29', () => {
+describe('expandRecurring — yearly, February 29', () => {
+  it('non-leap years clamp to 28, a leap year returns 29', () => {
     const dates = expandRecurring(
       rule({ frequency: 'yearly', day_of_month: 29, month_of_year: 2, next_due_date: '2028-02-29' }),
       '2028-01-01',
@@ -64,7 +64,7 @@ describe('expandRecurring — yearly, 29 февраля', () => {
   });
 });
 
-describe('expandRecurring — interval_count > 1 для всех четырёх частот', () => {
+describe('expandRecurring — interval_count > 1 for all four frequencies', () => {
   it('daily, interval_count=3', () => {
     const dates = expandRecurring(
       rule({ frequency: 'daily', interval_count: 3, next_due_date: '2026-01-01' }),
@@ -83,7 +83,7 @@ describe('expandRecurring — interval_count > 1 для всех четырёх 
     expect(dates).toEqual(['2026-01-05', '2026-01-19', '2026-02-02']);
   });
 
-  it('monthly, interval_count=3 (квартально)', () => {
+  it('monthly, interval_count=3 (quarterly)', () => {
     const dates = expandRecurring(
       rule({ frequency: 'monthly', interval_count: 3, day_of_month: 15, next_due_date: '2026-01-15' }),
       '2026-01-01',
@@ -102,8 +102,8 @@ describe('expandRecurring — interval_count > 1 для всех четырёх 
   });
 });
 
-describe('expandRecurring — end_date включительно', () => {
-  it('платёж В ДЕНЬ end_date входит, следующий — нет', () => {
+describe('expandRecurring — end_date inclusive', () => {
+  it('a payment ON the end_date is included, the next one is not', () => {
     const dates = expandRecurring(
       rule({ frequency: 'monthly', day_of_month: 15, next_due_date: '2026-01-15', end_date: '2026-03-15' }),
       '2026-01-01',
@@ -112,7 +112,7 @@ describe('expandRecurring — end_date включительно', () => {
     expect(dates).toEqual(['2026-01-15', '2026-02-15', '2026-03-15']);
   });
 
-  it('end_date раньше limitDate ограничивает горизонт сильнее, чем сам limitDate', () => {
+  it('an end_date earlier than limitDate limits the horizon more tightly than limitDate itself', () => {
     const dates = expandRecurring(
       rule({ frequency: 'daily', next_due_date: '2026-01-01', end_date: '2026-01-05' }),
       '2026-01-01',
@@ -121,7 +121,7 @@ describe('expandRecurring — end_date включительно', () => {
     expect(dates).toEqual(['2026-01-02', '2026-01-03', '2026-01-04', '2026-01-05']);
   });
 
-  it('end_date раньше asOf — правило уже закрылось, список пуст', () => {
+  it('end_date earlier than asOf — the rule has already closed, the list is empty', () => {
     const dates = expandRecurring(
       rule({ frequency: 'daily', next_due_date: '2026-01-01', end_date: '2026-01-05' }),
       '2026-06-01',
@@ -131,10 +131,10 @@ describe('expandRecurring — end_date включительно', () => {
   });
 });
 
-// Независимый от recurrence.ts эталон: развёртка ОДНИМ шагом за раз, без
-// periodsToSkip/advanceByPeriods — та самая O(n) реализация, которую O(1)-
-// прыжок обязан воспроизводить бит в бит. Использует только dates.ts, чтобы
-// проверка не зависела от логики, которую как раз проверяет.
+// An oracle independent of recurrence.ts: expansion ONE step at a time, without
+// periodsToSkip/advanceByPeriods — the very O(n) implementation the O(1)
+// jump must reproduce bit for bit. It uses only dates.ts, so the
+// check does not depend on the logic it is checking.
 function stepOnce(r: RecurringRule, from: string): string {
   switch (r.frequency) {
     case 'daily':
@@ -168,8 +168,8 @@ function naiveExpand(r: RecurringRule, asOfDate: string, limitDate: string): str
   return out;
 }
 
-describe('expandRecurring — очень старый next_due_date (годы неактивности)', () => {
-  it('daily: O(1)-прыжок эквивалентен наивному пошаговому развороту', () => {
+describe('expandRecurring — a very old next_due_date (years of inactivity)', () => {
+  it('daily: the O(1) jump is equivalent to the naive step-by-step expansion', () => {
     const r = rule({ frequency: 'daily', next_due_date: '1900-01-01' });
     const asOf = '2026-07-23';
     const limit = '2026-07-30';
@@ -185,13 +185,13 @@ describe('expandRecurring — очень старый next_due_date (годы н
       '2026-07-30',
     ]);
 
-    // periodsToSkip реально считает огромное число периодов, а не молча
-    // усекает его до малого — иначе прыжок не был бы O(1).
+    // periodsToSkip really counts a huge number of periods instead of silently
+    // truncating it to a small one — otherwise the jump would not be O(1).
     expect(periodsToSkip(r, r.next_due_date, asOf)).toBeGreaterThan(40000);
     expect(naiveExpand(r, asOf, limit)).toEqual(dates);
   });
 
-  it('monthly: прыжок эквивалентен циклу и на многолетнем правиле', () => {
+  it('monthly: the jump is equivalent to the loop on a multi-year rule too', () => {
     const r = rule({ frequency: 'monthly', day_of_month: 15, next_due_date: '2019-03-15' });
     const asOf = '2026-07-23';
     const limit = '2026-09-30';
@@ -201,7 +201,7 @@ describe('expandRecurring — очень старый next_due_date (годы н
     expect(naiveExpand(r, asOf, limit)).toEqual(dates);
   });
 
-  it('yearly: прыжок эквивалентен циклу через несколько десятилетий', () => {
+  it('yearly: the jump is equivalent to the loop across several decades', () => {
     const r = rule({ frequency: 'yearly', day_of_month: 4, month_of_year: 7, next_due_date: '1990-07-04' });
     const asOf = '2026-01-01';
     const limit = '2028-12-31';
@@ -212,40 +212,40 @@ describe('expandRecurring — очень старый next_due_date (годы н
   });
 });
 
-describe('expandRecurring — потолок MAX_OCCURRENCES', () => {
-  it('громкий RangeError вместо молчаливого усечения', () => {
-    // MAX_OCCURRENCES считает вхождения ПОСЛЕ прыжка (periodsToSkip уже
-    // довёл cur почти до asOf) — упереться в потолок можно только окном
-    // (asOf, limitDate], где ежедневных вхождений больше 1000: пять лет
-    // daily-правила без interval_count дают 1827 дней, горизонт прогноза в
-    // 366 дней такое окно передать не может — только неверный вызов.
+describe('expandRecurring — the MAX_OCCURRENCES ceiling', () => {
+  it('a loud RangeError instead of a silent truncation', () => {
+    // MAX_OCCURRENCES counts occurrences AFTER the jump (periodsToSkip has already
+    // brought cur almost up to asOf) — the ceiling can be hit only by a window
+    // (asOf, limitDate] with more than 1000 daily occurrences: five years
+    // of a daily rule without interval_count give 1827 days, and a forecast horizon of
+    // 366 days cannot pass such a window — only an incorrect call can.
     const r = rule({ frequency: 'daily', next_due_date: '2020-01-01' });
     expect(() => expandRecurring(r, '2020-01-01', '2025-01-01')).toThrow(RangeError);
   });
 });
 
-describe('expandRecurringRule — просроченные вхождения и долг (issue #279)', () => {
-  it('якорь месяц назад, asOf = сегодня: 2 просроченных (месяц назад + сегодня) и следующие даты', () => {
+describe('expandRecurringRule — overdue occurrences and debt (issue #279)', () => {
+  it('anchor a month ago, asOf = today: 2 overdue (a month ago + today) and the following dates', () => {
     const r = rule({ frequency: 'monthly', day_of_month: 15, next_due_date: '2026-07-15' });
     const asOf = '2026-08-15';
     const limit = '2026-10-15';
 
     const result = expandRecurringRule(r, asOf, limit);
-    expect(result.overdueCount).toBe(2); // 2026-07-15 и 2026-08-15
+    expect(result.overdueCount).toBe(2); // 2026-07-15 and 2026-08-15
     expect(result.futureDates).toEqual(['2026-09-15', '2026-10-15']);
   });
 
-  it('якорь вчера, asOf = сегодня, daily: 2 просроченных (вчера + сегодня) и будущие даты', () => {
+  it('anchor yesterday, asOf = today, daily: 2 overdue (yesterday + today) and future dates', () => {
     const r = rule({ frequency: 'daily', next_due_date: '2026-08-14' });
     const asOf = '2026-08-15';
     const limit = '2026-08-18';
 
     const result = expandRecurringRule(r, asOf, limit);
-    expect(result.overdueCount).toBe(2); // 2026-08-14 и 2026-08-15
+    expect(result.overdueCount).toBe(2); // 2026-08-14 and 2026-08-15
     expect(result.futureDates).toEqual(['2026-08-16', '2026-08-17', '2026-08-18']);
   });
 
-  it('непросроченное правило (next_due_date > asOf): overdueCount = 0, все даты в futureDates', () => {
+  it('a rule that is not overdue (next_due_date > asOf): overdueCount = 0, every date is in futureDates', () => {
     const r = rule({ frequency: 'monthly', day_of_month: 20, next_due_date: '2026-08-20' });
     const asOf = '2026-08-15';
     const limit = '2026-10-20';
@@ -255,17 +255,17 @@ describe('expandRecurringRule — просроченные вхождения и
     expect(result.futureDates).toEqual(['2026-08-20', '2026-09-20', '2026-10-20']);
   });
 
-  it('end_date в прошлом: считает все наступившие до end_date периоды, 0 будущих дат', () => {
+  it('end_date in the past: counts every period that fell due by end_date, 0 future dates', () => {
     const r = rule({ frequency: 'daily', next_due_date: '2026-01-01', end_date: '2026-01-05' });
     const asOf = '2026-06-01';
     const limit = '2026-12-01';
 
     const result = expandRecurringRule(r, asOf, limit);
-    expect(result.overdueCount).toBe(5); // 01, 02, 03, 04, 05 января
+    expect(result.overdueCount).toBe(5); // January 01, 02, 03, 04, 05
     expect(result.futureDates).toEqual([]);
   });
 
-  it('многолетняя неактивность: O(1)-расчёт overdueCount совпадает с точным числом дней', () => {
+  it('years of inactivity: the O(1) overdueCount matches the exact number of days', () => {
     const r = rule({ frequency: 'daily', next_due_date: '1900-01-01' });
     const asOf = '2026-07-23';
     const limit = '2026-07-30';

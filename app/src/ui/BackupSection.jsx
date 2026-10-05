@@ -1,6 +1,6 @@
-// Резервное копирование на экране «Данные» (issue #515).
-// Отдельного `#/settings` в v2 нет — секция живёт здесь, как остальные
-// настройки данных. `#/settings` и `#/data/backup` только прокручивают сюда.
+// Backup on the "Data" screen (issue #515).
+// v2 has no separate `#/settings` — the section lives here, like the other
+// data settings. `#/settings` and `#/data/backup` only scroll to here.
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle, AlertTriangle, Download, Upload, X } from 'lucide-react';

@@ -1,4 +1,4 @@
-// S2-1: OAuth 2.1 Provider и D1-хранилище согласий/токенов (issue #261)
+// S2-1: OAuth 2.1 provider and D1 storage of consents/tokens (issue #261)
 
 import OAuthProvider, {
   AuthorizationError,
@@ -80,7 +80,7 @@ export function isTrustedOAuthRedirectUri(redirectUri: string): boolean {
 }
 
 /**
- * Получает канонический URI издателя (Issuer URI) без trailing slash.
+ * Returns the canonical issuer URI (Issuer URI) without a trailing slash.
  */
 export function getOAuthIssuerUri(origin?: string, env?: Env): string {
   if (origin && origin !== 'null') {
@@ -96,7 +96,7 @@ export function getOAuthIssuerUri(origin?: string, env?: Env): string {
 }
 
 /**
- * Получает Resource URI для MCP-сервера.
+ * Returns the Resource URI for the MCP server.
  */
 export function getOAuthResourceUri(origin?: string, env?: Env): string {
   const issuer = getOAuthIssuerUri(origin, env);
@@ -104,7 +104,7 @@ export function getOAuthResourceUri(origin?: string, env?: Env): string {
 }
 
 /**
- * Создаёт конфигурацию OAuthProviderOptions.
+ * Builds the OAuthProviderOptions configuration.
  */
 export function getOAuthProviderOptions(
   defaultHandler: ExportedHandler<Env>,
@@ -141,7 +141,7 @@ export function getOAuthProviderOptions(
 }
 
 /**
- * Инициализирует OAuthProvider для Cloudflare Workers.
+ * Initializes OAuthProvider for Cloudflare Workers.
  */
 export function createOAuthProvider(
   defaultHandler: ExportedHandler<Env>,
@@ -154,7 +154,7 @@ export function createOAuthProvider(
 }
 
 /**
- * Получает экземпляр OAuthHelpers вне обработчика OAuthProvider.
+ * Gets an OAuthHelpers instance outside the OAuthProvider handler.
  */
 export function getOAuthHelpers(env: Env, origin?: string): OAuthHelpers {
   const options = getOAuthProviderOptions(
@@ -241,7 +241,7 @@ export async function revokeProviderGrantsForClient(
 }
 
 /**
- * Сохраняет или обновляет информацию о клиенте в таблице `oauth_clients`.
+ * Saves or updates client information in the `oauth_clients` table.
  */
 export async function recordOAuthClient(
   db: D1Database,
@@ -262,7 +262,7 @@ export async function recordOAuthClient(
 }
 
 /**
- * Сохраняет выданное согласие в таблице `oauth_consents`.
+ * Saves a granted consent in the `oauth_consents` table.
  */
 export async function recordOAuthConsent(
   db: D1Database,
@@ -282,7 +282,7 @@ export async function recordOAuthConsent(
 }
 
 /**
- * Сохраняет аудит токена в таблице `oauth_tokens`.
+ * Saves a token audit row in the `oauth_tokens` table.
  * Idempotent on grant id: re-consent / double Allow with the same
  * workers-oauth-provider grant must not fail UNIQUE and revoke the live grant.
  */
@@ -314,7 +314,7 @@ export async function recordOAuthToken(
 }
 
 /**
- * Обновляет время последнего использования активных токенов клиента.
+ * Updates the last-used time of the client's active tokens.
  */
 export async function touchOAuthClientUsage(
   db: D1Database,
@@ -335,7 +335,7 @@ export async function touchOAuthClientUsage(
 }
 
 /**
- * Отзывает токен в таблице `oauth_tokens`.
+ * Revokes a token in the `oauth_tokens` table.
  */
 export async function revokeOAuthTokenInDb(db: D1Database, tokenId: string): Promise<void> {
   await db
@@ -349,7 +349,7 @@ export async function revokeOAuthTokenInDb(db: D1Database, tokenId: string): Pro
 }
 
 /**
- * Отзывает все токены клиента в таблице `oauth_tokens`.
+ * Revokes all of a client's tokens in the `oauth_tokens` table.
  */
 export async function revokeOAuthClientTokensInDb(db: D1Database, clientId: string): Promise<void> {
   await db

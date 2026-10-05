@@ -1,13 +1,13 @@
-// Работа с деньгами и датами для UI «Данные».
-// Разбор пользовательского ввода — строковыми операциями, без умножения на
-// 100: `19.99 * 100 === 1998.9999999999998` — классический баг float, ради
-// которого это писано именно так.
+// Money and date handling for the "Data" UI.
+// Parsing user input is done with string operations, without multiplying by
+// 100: `19.99 * 100 === 1998.9999999999998` — the classic float bug, which is
+// why this is written this way.
 
-// Разрядность минорной единицы ISO 4217 нужна и воркеру (движок прогноза,
-// issue #198) — единый источник в src/shared/currency.ts, здесь только
-// реэкспорт: публичный экспорт fractionDigits из этого модуля используют
-// другие модули UI и test/money.test.ts, ломать его нельзя. Комментарий с
-// обоснованием таблицы (а не Intl) живёт там же, вторую копию не заводим.
+// The ISO 4217 minor-unit scale is also needed by the worker (the forecast engine,
+// issue #198) — the single source is src/shared/currency.ts, and this file only
+// re-exports it: other UI modules and test/money.test.ts use the public fractionDigits
+// export from this module, so it must not be broken. The comment with
+// the rationale for the table (rather than Intl) lives there; we do not keep a second copy.
 import { fractionDigits } from '../shared/currency';
 import i18n from './i18n';
 import { intlLocale } from './language';
@@ -17,21 +17,21 @@ function currentIntlLocale() {
   return intlLocale(i18n.resolvedLanguage || i18n.language);
 }
 
-// Родительный падеж — форма для «10 августа». Экспортируется, потому что тем
-// же списком пользуется recurrence.js: вторая копия названий месяцев в том же
-// каталоге разошлась бы с этой на первой же правке.
+// Genitive case — the form for "10 August". Exported because
+// recurrence.js uses the same list: a second copy of the month names in the same
+// catalog would drift from this one on the first edit.
 export const RU_MONTHS = [
   'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
   'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
 ];
 
-// Пробелы-разделители тысяч, которые может вставить пользователь при копипасте.
+// Thousands-separator spaces a user may paste in.
 const SPACE_CHARS = /[\s  ]/g;
 
 /**
- * Строку от пользователя ("19,99", " 1 200.5 ") — в целые минорные единицы.
- * Никакого `parseFloat(...) * 100`: собираем цифры как строку и парсим её
- * целиком, чтобы не словить погрешность двоичной арифметики.
+ * A user string ("19,99", " 1 200.5 ") into integer minor units.
+ * No `parseFloat(...) * 100`: the digits are collected as a string and parsed
+ * whole, so binary-arithmetic error is avoided.
  */
 export function parseAmountToMinor(input, currency) {
   const digits = fractionDigits(currency);
@@ -54,15 +54,15 @@ export function parseAmountToMinor(input, currency) {
   const digitsOnly = (intPart + fracPart).replace(/^0+(?=\d)/, '');
   const minor = parseInt(digitsOnly || '0', 10);
 
-  // Именно isSafeInteger, а не isFinite: parseInt на строке из двадцати цифр
-  // возвращает конечное, но уже неточное число — сумма молча съехала бы ещё до
-  // отправки на сервер. Лучше внятный отказ здесь, чем 400 с техническим
-  // текстом оттуда.
+  // Specifically isSafeInteger, not isFinite: parseInt on a twenty-digit string
+  // returns a finite but already imprecise number — the amount would silently drift even before
+  // it was sent to the server. A clear rejection here is better than a 400 with a technical
+  // message from there.
   if (!Number.isSafeInteger(minor)) throw new Error(i18n.t('validation.amountTooLarge'));
   return negative && minor !== 0 ? -minor : minor;
 }
 
-/** Обратное преобразование для поля ввода — тоже строковыми операциями. */
+/** The reverse conversion for an input field — also done with string operations. */
 export function minorToInputString(minor, currency) {
   const digits = fractionDigits(currency);
   const negative = minor < 0;
@@ -75,21 +75,21 @@ export function minorToInputString(minor, currency) {
 }
 
 /**
- * Для отображения деление допустимо (см. ТЗ) — балансы на порядки меньше
- * MAX_SAFE_INTEGER, здесь это не бьёт точность.
+ * Division is acceptable for display (see the spec) — balances are orders of magnitude below
+ * MAX_SAFE_INTEGER, so precision is not lost here.
  */
 export function formatMinor(minor, currency) {
   return formatMajor(minor / 10 ** fractionDigits(currency), currency);
 }
 
 /**
- * Майорные единицы (уже после minor→major) — в валютную строку с группировкой.
- * Отдельно от formatMinor: графики отдают recharts уже мажорные числа, и
- * повторное деление на 10**digits сдвинуло бы ось в тысячные доли.
+ * Major units (already after minor→major) into a grouped currency string.
+ * Separate from formatMinor: charts hand recharts major numbers already, and
+ * dividing by 10**digits again would shift the axis into thousandths.
  *
- * `compact: true` — без дробной части (тики оси, короткий min-маркер).
- * Группировку тысяч здесь нельзя срезать regex'ом по `[.,]\d+`: в en-US
- * `$17,521.60`.replace(/[.,]\d+/, '') даёт `$17.60` (issue #582).
+ * `compact: true` — no fractional part (axis ticks, a short min marker).
+ * Thousands grouping must not be stripped here with a `[.,]\d+` regex: in en-US
+ * `$17,521.60`.replace(/[.,]\d+/, '') yields `$17.60` (issue #582).
  */
 export function formatMajor(value, currency, locale = currentIntlLocale(), options = {}) {
   const currencyDigits = fractionDigits(currency);
@@ -108,15 +108,15 @@ export function formatMajor(value, currency, locale = currentIntlLocale(), optio
   }
 }
 
-/** Компактная подпись оси / min-маркера: группировка есть, центов нет. */
+/** Compact axis / min-marker label: grouping is kept, cents are not. */
 export function formatMajorCompact(value, currency, locale = currentIntlLocale()) {
   return formatMajor(value, currency, locale, { compact: true });
 }
 
 /**
- * Курс валюты — отдельная от сумм счёта дорожка: до 9 знаков после точки,
- * без нуля и минуса. Через parseAmountToMinor его гнать нельзя — там дробь
- * дополняется нулями по знакам currency (обычно 2), что курсу не подходит.
+ * A currency rate is a track separate from account amounts: up to 9 digits after the point,
+ * with no zero and no minus. It must not be run through parseAmountToMinor — there the fraction
+ * is padded with zeros to the currency's digits (usually 2), which does not fit a rate.
  */
 export function normalizeRateInput(input) {
   const s = String(input ?? '').trim().replace(SPACE_CHARS, '').replace(',', '.');
@@ -126,17 +126,17 @@ export function normalizeRateInput(input) {
   }
   const [, frac = ''] = s.split('.');
   if (frac.length > 9) throw new Error(i18n.t('validation.rateMaxDecimals'));
-  // Проверка нуля строкой, а не через Number(): в модуле, весь смысл которого
-  // в отказе от float, приводить курс к double даже ради сравнения незачем.
+  // The zero check is a string check, not Number(): in a module whose whole point
+  // is to refuse floats, there is no reason to turn a rate into a double even for a comparison.
   if (/^0+(\.0+)?$/.test(s)) throw new Error(i18n.t('validation.rateZero'));
   return s;
 }
 
 /**
- * Русское склонение числительного: `plural(1, 'день', 'дня', 'дней')`.
- * Обобщено из приватного pluralDays, когда «Пульсу» понадобилась вторая форма
- * («1 операция» / «2 операции» / «8 операций»): само правило одно на язык, и
- * второй его копии рядом быть не должно.
+ * Russian numeral declension: `plural(1, one, few, many)`.
+ * Generalized from the private pluralDays when Pulse needed a second form
+ * ("1 operation" / "2 operations" / "8 operations"): the rule itself is one per language, and
+ * there should not be a second copy of it nearby.
  */
 export function plural(n, one, few, many) {
   const mod10 = n % 10;
@@ -155,15 +155,15 @@ function startOfDay(d) {
 }
 
 /**
- * Возраст курса, после которого он считается устаревшим.
+ * Age of a rate after which it counts as stale.
  *
- * Живёт здесь, а не в экранах: подвал курсов и экран «Данные» показывают одну и
- * ту же пометку, и разные пороги в них означали бы, что один и тот же курс
- * одновременно свежий и протухший.
+ * Lives here, not in the screens: the rates footer and the "Data" screen show one and
+ * the same mark, and different thresholds in them would mean the same rate is
+ * fresh and stale at once.
  */
 export const STALE_RATE_DAYS = 30;
 
-/** Сколько дней прошло с момента `iso` — используется для пометки «курс устарел». */
+/** How many days have passed since `iso` — used for the "rate is stale" mark. */
 export function daysSince(iso) {
   if (!iso) return Infinity;
   const date = new Date(iso);
@@ -171,7 +171,7 @@ export function daysSince(iso) {
   return Math.floor((Date.now() - startOfDay(date).getTime()) / 86400000);
 }
 
-/** «сегодня» / «вчера» / «3 дня назад» / «10 августа» / «10 августа 2024». */
+/** "today" / "yesterday" / "3 days ago" / "10 August" / "10 August 2024". */
 export function formatRelativeDate(iso) {
   if (!iso) return i18n.t('date.noData');
   const date = new Date(iso);

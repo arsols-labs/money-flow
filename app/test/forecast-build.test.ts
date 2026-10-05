@@ -1,10 +1,10 @@
-// Golden-тесты чистого ядра прогноза (issue #198, S1-4) — buildForecast не
-// трогает D1 вовсе (см. докблок src/worker/forecast/build.ts), поэтому весь
-// файл работает с руками собранными ForecastAccount/ForecastFlow, без
-// D1-стенда. По духу — портированный `forecast golden` из archive/v2-codex
-// (app/test/readmodel.test.ts), но под нашу схему: суммы со знаком, своя
-// валюта на потоке, настраиваемая базовая валюта, измерение `currency`
-// наравне с `country`/`overall` (ROADMAP, «Фаза 3 — Прогноз и дашборд»).
+// Golden tests of the pure forecast core (issue #198, S1-4) — buildForecast
+// does not touch D1 at all (see the docblock in src/worker/forecast/build.ts), so the
+// whole file runs on hand-built ForecastAccount/ForecastFlow values, without a
+// D1 test bench. In spirit this is a port of `forecast golden` from archive/v2-codex
+// (app/test/readmodel.test.ts), adapted to our schema: signed amounts, its own
+// currency on the flow, a configurable base currency, and a `currency` dimension
+// alongside `country`/`overall` (ROADMAP, "Phase 3 — Forecast and dashboard").
 import { describe, expect, it } from 'vitest';
 import { addDays } from '../src/worker/forecast/dates';
 import { buildForecast, type BuildForecastInput } from '../src/worker/forecast/build';
@@ -44,8 +44,8 @@ function baseInput(overrides: Partial<BuildForecastInput> = {}): BuildForecastIn
   };
 }
 
-describe('buildForecast — без потоков, одна валюта = базовая', () => {
-  it('ряд постоянен, lowest на первом дне, конверсия не нужна вовсе', () => {
+describe('buildForecast — no flows, one currency equal to the base', () => {
+  it('the series is flat, lowest is on the first day, and no conversion is needed at all', () => {
     const acc = account({ id: 1, currency: 'USD', balance_minor: 100000 });
     const result = buildForecast(
       baseInput({ accounts: [acc], asOfDate: '2026-07-23', horizonDays: 5, cashFlowDays: 3 }),
@@ -57,10 +57,10 @@ describe('buildForecast — без потоков, одна валюта = ба�
       expect(day.byCountry.get('USA')).toBe(100000n);
     }
     expect(result.netWorthMinor).toBe(100000n);
-    expect(result.cashFlowMinor).toBe(0n); // 3-й день такой же, как старт
+    expect(result.cashFlowMinor).toBe(0n); // day 3 is the same as the start
     expect(result.lowest).toEqual({ date: '2026-07-24', amountMinor: 100000n });
     expect(result.warnings).toEqual([]);
-    expect(result.missingRates).toEqual([]); // курс USD→USD никогда не запрашивался
+    expect(result.missingRates).toEqual([]); // the USD→USD rate was never requested
     expect(result.accounts).toEqual([{ account: acc, balanceBaseMinor: 100000n }]);
     expect(result.countries).toEqual(['USA']);
     expect(result.owners).toEqual(['Алекс']);
@@ -83,15 +83,15 @@ describe('buildForecast — без потоков, одна валюта = ба�
   });
 });
 
-describe('buildForecast — monthly clamp 31→30→31 на горизонте 100 дней', () => {
-  it('day_of_month=31 прижимается в коротких месяцах и возвращается в длинных', () => {
+describe('buildForecast — monthly clamp 31→30→31 over a 100-day horizon', () => {
+  it('day_of_month=31 clamps in short months and comes back in long ones', () => {
     const acc = account({ id: 1, currency: 'RUB', country: 'RUS', balance_minor: 470000 });
     const asOfDate = '2026-07-23';
-    const horizonDays = 100; // покрывает до 2026-10-31 включительно
+    const horizonDays = 100; // covers through 2026-10-31 inclusive
     const limitDate = addDays(asOfDate, horizonDays);
 
-    // Даты берём из уже отдельно протестированного expandRecurring — здесь
-    // проверяется агрегация build.ts, а не сама развёртка правила.
+    // Dates come from expandRecurring, which is already tested on its own — here
+    // we check the aggregation in build.ts, not the rule expansion itself.
     const dates = expandRecurring(
       { id: 2, frequency: 'monthly', interval_count: 1, day_of_month: 31, month_of_year: null, next_due_date: '2026-07-31', end_date: null },
       asOfDate,
@@ -106,77 +106,77 @@ describe('buildForecast — monthly clamp 31→30→31 на горизонте 1
     const on = (date: string) => result.series.find((s) => s.date === date)?.overallMinor;
     expect(on('2026-07-31')).toBe(458000n); // 470000 - 12000
     expect(on('2026-08-31')).toBe(446000n);
-    expect(on('2026-09-30')).toBe(434000n); // клэмп 31→30 сентября — третье списание
-    expect(on('2026-10-31')).toBe(422000n); // вернулся к 31-му — четвёртое списание
-    expect(result.warnings).toEqual([]); // баланс весь горизонт положителен
+    expect(on('2026-09-30')).toBe(434000n); // clamp 31→30 in September — the third debit
+    expect(on('2026-10-31')).toBe(422000n); // returned to the 31st — the fourth debit
+    expect(result.warnings).toEqual([]); // the balance stays positive for the whole horizon
   });
 });
 
-describe('buildForecast — мультивалютность: поток в валюте, отличной от валюты счёта', () => {
-  it('EUR-поток конвертируется в RSD (валюту счёта), затем группа — в базовую USD', () => {
+describe('buildForecast — multi-currency: a flow in a currency other than the account currency', () => {
+  it('an EUR flow is converted into RSD (the account currency), then the group into base USD', () => {
     const acc = account({ id: 1, currency: 'RSD', country: 'SRB', balance_minor: 200000 }); // 2000.00 RSD
     const ratesE9 = new Map([
       ['RSD', 9_700_000], // 0.0097 USD/RSD
       ['EUR', 1_140_000_000], // 1.14 USD/EUR
     ]);
-    const f = flow({ account_id: 1, date: '2026-01-06', amount_minor: -1000, currency: 'EUR', title: 'Страховка' }); // -10.00 EUR, чужая валюта
+    const f = flow({ account_id: 1, date: '2026-01-06', amount_minor: -1000, currency: 'EUR', title: 'Страховка' }); // -10.00 EUR, a foreign currency
 
     const result = buildForecast(
       baseInput({ accounts: [acc], flows: [f], ratesE9, asOfDate: '2026-01-01', horizonDays: 10 }),
     );
 
-    // -10.00 EUR при курсах 1.14/0.0097 даёт -1175.26 RSD (ROUND_HALF_EVEN) —
-    // независимо посчитано в момент написания теста, см. отчёт исполнителя.
-    // 2000.00 - 1175.26 = 824.74 RSD → в USD по 0.0097: 19.40 до потока,
-    // 8.00 после (824.74 * 0.0097 = 7.99998 → округление к чётному 8.00).
+    // -10.00 EUR at rates 1.14/0.0097 yields -1175.26 RSD (ROUND_HALF_EVEN) —
+    // computed independently when the test was written; see the implementer report.
+    // 2000.00 - 1175.26 = 824.74 RSD → into USD at 0.0097: 19.40 before the flow,
+    // 8.00 after (824.74 * 0.0097 = 7.99998 → round half to even, 8.00).
     const day = (date: string) => result.series.find((s) => s.date === date)!;
-    expect(day('2026-01-05').overallMinor).toBe(1940n); // ещё до потока (он датирован 01-06)
-    expect(day('2026-01-06').overallMinor).toBe(800n); // поток применился
-    expect(result.series.at(-1)!.overallMinor).toBe(800n); // и остаётся до конца горизонта
+    expect(day('2026-01-05').overallMinor).toBe(1940n); // still before the flow (it is dated 01-06)
+    expect(day('2026-01-06').overallMinor).toBe(800n); // the flow has been applied
+    expect(result.series.at(-1)!.overallMinor).toBe(800n); // and it stays through the end of the horizon
 
-    // accounts[].balanceBaseMinor — это СЕГОДНЯШНИЙ баланс, потоки на него не влияют.
+    // accounts[].balanceBaseMinor is TODAY's balance; flows do not affect it.
     expect(result.accounts).toEqual([{ account: acc, balanceBaseMinor: 1940n }]);
-    expect(result.missingRates).toEqual([]); // и RSD, и EUR — с курсом
+    expect(result.missingRates).toEqual([]); // both RSD and EUR have a rate
   });
 });
 
-describe('buildForecast — отсутствующий курс', () => {
-  it('счёт и его валюта выпадают из групповых измерений, валюта — в missing_rates', () => {
+describe('buildForecast — missing rate', () => {
+  it('the account and its currency drop out of the group dimensions, and the currency lands in missing_rates', () => {
     const unconvertible = account({ id: 1, currency: 'XYZ', country: 'ZZZ', balance_minor: 500 });
     const result = buildForecast(baseInput({ accounts: [unconvertible], horizonDays: 3 }));
 
     expect(result.accounts).toEqual([{ account: unconvertible, balanceBaseMinor: null }]);
     expect(result.missingRates).toEqual(['XYZ']);
-    // Групповые ряды исключают счёт целиком — сумма по валюте/стране/overall
-    // остаётся 0, а не искажённым числом, притворяющимся настоящим.
+    // Group series exclude the account entirely — the currency/country/overall sum
+    // stays 0, rather than a distorted number pretending to be real.
     expect(result.netWorthMinor).toBe(0n);
-    // Страны ZZZ на графике нет вовсе: все её счета в валюте без курса, и её
-    // итог — не ноль, а неизвестность. Линия по нулю сказала бы «денег в этой
-    // стране нет», хотя на счёте лежит 500 XYZ.
+    // Country ZZZ is absent from the chart entirely: every one of its accounts is in a
+    // currency with no rate, and its total is unknown, not zero. A line at zero would say
+    // "there is no money in this country", even though the account holds 500 XYZ.
     expect(result.countries).toEqual([]);
     for (const day of result.series) {
       expect(day.overallMinor).toBe(0n);
       expect(day.byCountry.size).toBe(0);
     }
-    // dimension=account считается в НАТИВНОЙ валюте и от курса не зависит:
-    // 500 XYZ положителен, предупреждения по этому измерению нет.
+    // dimension=account is computed in the NATIVE currency and does not depend on the rate:
+    // 500 XYZ is positive, so there is no warning on this dimension.
     expect(result.warnings.find((w) => w.dimension === 'account')).toBeUndefined();
-    // Групповых предупреждений тоже нет, и это главное в этом кейсе. Ряд
-    // неполной группы — сумма подмножества счетов; здесь подмножество пустое,
-    // то есть 0 означает «неизвестно», а не «денег нет». Утверждать по такому
-    // ряду «уже ниже порога» — прямая ложная тревога, поэтому неполные группы
-    // из предупреждений исключены целиком.
+    // There are no group warnings either, and that is the point of this case. The series
+    // of an incomplete group is the sum of a subset of accounts; here the subset is empty,
+    // so 0 means "unknown", not "there is no money". Claiming from such a
+    // series that it is "already below the threshold" is a direct false alarm, so incomplete
+    // groups are excluded from warnings entirely.
     expect(result.warnings.filter((w) => w.dimension !== 'account')).toHaveLength(0);
-    // По той же причине не показывается и «минимум баланса впереди».
+    // For the same reason, "lowest balance ahead" is not shown either.
     expect(result.lowest).toBeNull();
   });
 
-  it('неполная группа не предупреждает даже когда её усечённый ряд ушёл ниже порога', () => {
-    // Порог 100 000. Счёт с курсом даёт 500 базовых минорных единиц — этого
-    // мало, и на полном ряде предупреждение было бы честным. Но оба счёта
-    // лежат в ОДНОЙ стране, и валюту второго не пересчитать: страновой итог
-    // занижен на неизвестную величину, настоящие деньги могут быть и выше
-    // порога. Поэтому по country=USA и по overall мы молчим.
+  it('an incomplete group does not warn even when its truncated series falls below the threshold', () => {
+    // The threshold is 100,000. The account with a rate contributes 500 base minor units —
+    // too little, and on a complete series the warning would be honest. But both accounts
+    // sit in ONE country, and the second currency cannot be converted: the country total
+    // is understated by an unknown amount, and the real money may still be above
+    // the threshold. So we stay silent for country=USA and for overall.
     const withRate = account({ id: 1, currency: 'USD', country: 'USA', balance_minor: 500 });
     const noRate = account({ id: 2, currency: 'XYZ', country: 'USA', balance_minor: 900_000 });
     const result = buildForecast(
@@ -184,21 +184,21 @@ describe('buildForecast — отсутствующий курс', () => {
     );
 
     expect(result.missingRates).toEqual(['XYZ']);
-    expect(result.netWorthMinor).toBe(500n); // усечённый итог виден
+    expect(result.netWorthMinor).toBe(500n); // the truncated total is visible
     expect(result.warnings.find((w) => w.dimension === 'country')).toBeUndefined();
     expect(result.warnings.find((w) => w.dimension === 'overall')).toBeUndefined();
     expect(result.lowest).toBeNull();
-    // Полнота — свойство ГРУППЫ, а не базы: measure currency=USD состоит
-    // только из USD, поэтому оно полное и предупреждает.
+    // Completeness is a property of the GROUP, not of the base: measure currency=USD consists
+    // only of USD, so it is complete and it warns.
     expect(result.warnings.find((w) => w.dimension === 'currency' && w.dimensionKey === 'USD')).toBeDefined();
-    // А currency=XYZ пуста после отбрасывания — про неё тоже молчим.
+    // And currency=XYZ is empty after the drop — we stay silent about it too.
     expect(result.warnings.find((w) => w.dimension === 'currency' && w.dimensionKey === 'XYZ')).toBeUndefined();
   });
 
-  it('группа целиком с курсом предупреждает как обычно, даже если рядом есть валюта без курса', () => {
-    // Контрольный случай к двум предыдущим: измерение currency=USD полное
-    // (в нём только USD), поэтому по нему предупреждение выпускается, хотя в
-    // базе есть и валюта без курса. Полнота считается по группе, а не по базе.
+  it('a group that is fully covered by rates warns as usual, even when a currency without a rate is nearby', () => {
+    // Control case for the previous two: the currency=USD dimension is complete
+    // (it contains only USD), so a warning is emitted for it, even though the
+    // base also has a currency without a rate. Completeness is computed per group, not per base.
     const poor = account({ id: 1, currency: 'USD', country: 'USA', balance_minor: 500 });
     const noRate = account({ id: 2, currency: 'XYZ', country: 'SRB', balance_minor: 900_000 });
     const result = buildForecast(
@@ -207,19 +207,19 @@ describe('buildForecast — отсутствующий курс', () => {
 
     const usd = result.warnings.find((w) => w.dimension === 'currency' && w.dimensionKey === 'USD');
     expect(usd).toBeDefined();
-    expect(usd!.startMinor).toBe('500'); // уже ниже порога 100 000 на день 0
-    // а overall неполный — по нему молчим
+    expect(usd!.startMinor).toBe('500'); // already below the 100,000 threshold on day 0
+    // and overall is incomplete — we stay silent about it
     expect(result.warnings.find((w) => w.dimension === 'overall')).toBeUndefined();
   });
 
-  it('второй, конвертируемый счёт того же измерения не страдает от соседа без курса', () => {
+  it('a second, convertible account in the same dimension is not affected by a neighbor without a rate', () => {
     const bad = account({ id: 1, currency: 'XYZ', country: 'SRB', balance_minor: 500 });
     const good = account({ id: 2, currency: 'USD', country: 'SRB', balance_minor: 100000 });
     const result = buildForecast(baseInput({ accounts: [bad, good], horizonDays: 2 }));
 
     expect(result.missingRates).toEqual(['XYZ']);
-    // country='SRB' объединяет оба счёта — но XYZ выпал, поэтому сумма равна
-    // ТОЛЬКО конвертируемому счёту, а не занижена молча до странного числа.
+    // country='SRB' groups both accounts — but XYZ dropped out, so the sum equals
+    // ONLY the convertible account, rather than being silently understated to a strange number.
     expect(result.series[0]!.byCountry.get('SRB')).toBe(100000n);
     expect(result.series[0]!.byAccount.has(1)).toBe(false);
     expect(result.series[0]!.byAccount.get(2)).toBe(100000n);
@@ -227,36 +227,36 @@ describe('buildForecast — отсутствующий курс', () => {
   });
 });
 
-describe('buildForecast — порог: уже ниже vs пересечёт позже', () => {
-  it('баланс уже ниже порога на день 0 — это видно по startMinor', () => {
+describe('buildForecast — threshold: already below vs will cross later', () => {
+  it('the balance is already below the threshold on day 0 — this shows up in startMinor', () => {
     const acc = account({ id: 1, currency: 'USD', balance_minor: 50000 }); // $500
     const result = buildForecast(
-      baseInput({ accounts: [acc], lowBalanceThresholdMinor: 100000n, horizonDays: 3 }), // порог $1000
+      baseInput({ accounts: [acc], lowBalanceThresholdMinor: 100000n, horizonDays: 3 }), // threshold $1000
     );
     const overall = result.warnings.find((w) => w.dimension === 'overall')!;
-    // startMinor вместе с thresholdMinor и даёт состояние «уже ниже порога»:
-    // 50 000 <= 100 000, но при этом > 0 — то есть НЕ «уже в минусе». Ярлык
-    // state склеивал эти два случая, и экран на нём говорил про минус у счёта
-    // с положительным балансом.
+    // startMinor together with thresholdMinor is what yields the "already below the threshold" state:
+    // 50,000 <= 100,000, yet still > 0 — so it is NOT "already negative". The
+    // state label used to glue those two cases together, and the screen then talked about a
+    // negative balance on an account that still had a positive balance.
     expect(overall.startMinor).toBe('50000');
     expect(overall.thresholdMinor).toBe('100000');
     expect(overall.earliestBelowThresholdDate).toBe('2026-01-02');
-    expect(overall.earliestNonPositiveDate).toBeNull(); // 500 > 0, в ноль не уходит
-    // account-измерение порог не видит — только ноль, а тут баланс положителен.
+    expect(overall.earliestNonPositiveDate).toBeNull(); // 500 > 0, it does not reach zero
+    // the account dimension does not see the threshold — only zero, and here the balance is positive.
     expect(result.warnings.find((w) => w.dimension === 'account')).toBeUndefined();
   });
 
-  it('порог и ноль пересекаются в РАЗНЫЕ дни — обе даты в одном предупреждении', () => {
-    const acc = account({ id: 1, currency: 'USD', balance_minor: 150000 }); // $1500, выше порога
+  it('the threshold and zero are crossed on DIFFERENT days — both dates are in one warning', () => {
+    const acc = account({ id: 1, currency: 'USD', balance_minor: 150000 }); // $1500, above the threshold
     const flows: ForecastFlow[] = [
-      flow({ account_id: 1, date: '2026-01-06', amount_minor: -70000, currency: 'USD', source_id: 1 }), // → $800, ниже порога, ещё > 0
-      flow({ account_id: 1, date: '2026-01-11', amount_minor: -100000, currency: 'USD', source_id: 2 }), // → -$200, в минус
+      flow({ account_id: 1, date: '2026-01-06', amount_minor: -70000, currency: 'USD', source_id: 1 }), // → $800, below the threshold, still > 0
+      flow({ account_id: 1, date: '2026-01-11', amount_minor: -100000, currency: 'USD', source_id: 2 }), // → -$200, into the negative
     ];
     const result = buildForecast(
       baseInput({ accounts: [acc], flows, lowBalanceThresholdMinor: 100000n, horizonDays: 15 }),
     );
     const overall = result.warnings.find((w) => w.dimension === 'overall')!;
-    expect(overall.startMinor).toBe('150000'); // на день 0 порог ещё не пробит
+    expect(overall.startMinor).toBe('150000'); // on day 0 the threshold is not yet breached
     expect(overall.earliestBelowThresholdDate).toBe('2026-01-06');
     expect(overall.earliestNonPositiveDate).toBe('2026-01-11');
     expect(overall.minimumProjectedMinor).toBe('-20000');
@@ -264,39 +264,39 @@ describe('buildForecast — порог: уже ниже vs пересечёт п
   });
 });
 
-describe('buildForecast — пустое измерение молчит (issue #256)', () => {
-  it('счёт с нулевым балансом и без операций не даёт предупреждений вовсе', () => {
-    // Найдено владельцем на проде: пустой EUR-счёт предупреждал всегда, просто
-    // потому что 0 меньше порога в 1000 $. Предупреждать не о чем — денег нет
-    // и движения нет.
+describe('buildForecast — an empty dimension stays silent (issue #256)', () => {
+  it('an account with a zero balance and no operations produces no warnings at all', () => {
+    // Found by the owner in production: an empty EUR account always warned, simply
+    // because 0 is below the $1000 threshold. There is nothing to warn about — there is no money
+    // and no movement.
     const empty = account({ id: 1, currency: 'USD', country: 'SRB', balance_minor: 0 });
     const result = buildForecast(
       baseInput({ accounts: [empty], horizonDays: 5, lowBalanceThresholdMinor: 100_000n }),
     );
 
     expect(result.warnings).toEqual([]);
-    // Счёт при этом никуда не делся: он есть в списке и в рядах, просто про
-    // него нечего сказать.
+    // The account has not disappeared: it is still in the list and in the series; there is just
+    // nothing to say about it.
     expect(result.accounts).toHaveLength(1);
     expect(result.netWorthMinor).toBe(0n);
   });
 
-  it('нулевой баланс, но операция на горизонте — предупреждение возвращается', () => {
+  it('a zero balance, but an operation on the horizon — the warning comes back', () => {
     const acc = account({ id: 1, currency: 'USD', country: 'SRB', balance_minor: 0 });
     const flows = [flow({ account_id: 1, date: '2026-01-04', amount_minor: -5000, currency: 'USD' })];
     const result = buildForecast(
       baseInput({ accounts: [acc], flows, horizonDays: 5, lowBalanceThresholdMinor: 100_000n }),
     );
 
-    // Ряд перестал быть нулевым — правило работает как обычно, и по счёту, и
-    // по группам.
+    // The series is no longer all zeros — the rule works as usual, both for the account and
+    // for the groups.
     expect(result.warnings.find((w) => w.dimension === 'account')).toBeDefined();
     expect(result.warnings.find((w) => w.dimension === 'overall')).toBeDefined();
   });
 
-  it('ненулевой баланс с ровным рядом молчания не даёт — порог тут ни при чём', () => {
-    // Контроль к первому кейсу: тишина наступает именно от «ноль И без
-    // движения», а не от «ряд постоянен».
+  it('a non-zero balance with a flat series does not stay silent — the threshold has nothing to do with it', () => {
+    // Control for the first case: silence comes specifically from "zero AND no
+    // movement", not from "the series is flat".
     const acc = account({ id: 1, currency: 'USD', country: 'SRB', balance_minor: 500 });
     const result = buildForecast(
       baseInput({ accounts: [acc], horizonDays: 5, lowBalanceThresholdMinor: 100_000n }),
@@ -306,21 +306,21 @@ describe('buildForecast — пустое измерение молчит (issue 
   });
 });
 
-describe('buildForecast — lowest при равных минимумах берёт самую раннюю дату', () => {
-  it('два одинаковых минимума на горизонте — выбран первый по времени', () => {
+describe('buildForecast — when the minima are equal, lowest takes the earliest date', () => {
+  it('two equal minima on the horizon — the earliest one is chosen', () => {
     const acc = account({ id: 1, currency: 'USD', balance_minor: 1000 });
     const flows: ForecastFlow[] = [
-      flow({ account_id: 1, date: '2026-01-02', amount_minor: -500, currency: 'USD', source_id: 1 }), // день1: 500
-      flow({ account_id: 1, date: '2026-01-03', amount_minor: 500, currency: 'USD', source_id: 2 }), // день2: 1000
-      flow({ account_id: 1, date: '2026-01-04', amount_minor: -500, currency: 'USD', source_id: 3 }), // день3: 500 — тот же минимум
+      flow({ account_id: 1, date: '2026-01-02', amount_minor: -500, currency: 'USD', source_id: 1 }), // day 1: 500
+      flow({ account_id: 1, date: '2026-01-03', amount_minor: 500, currency: 'USD', source_id: 2 }), // day 2: 1000
+      flow({ account_id: 1, date: '2026-01-04', amount_minor: -500, currency: 'USD', source_id: 3 }), // day 3: 500 — the same minimum
     ];
     const result = buildForecast(baseInput({ accounts: [acc], flows, horizonDays: 3 }));
 
     expect(result.series.map((s) => s.overallMinor)).toEqual([500n, 1000n, 500n]);
-    expect(result.lowest).toEqual({ date: '2026-01-02', amountMinor: 500n }); // не 2026-01-04
+    expect(result.lowest).toEqual({ date: '2026-01-02', amountMinor: 500n }); // not 2026-01-04
   });
 
-  it('lowest — null, только если счетов нет вовсе', () => {
+  it('lowest is null only when there are no accounts at all', () => {
     const result = buildForecast(baseInput({ accounts: [], horizonDays: 3 }));
     expect(result.lowest).toBeNull();
     expect(result.series).toHaveLength(3);
@@ -330,21 +330,21 @@ describe('buildForecast — lowest при равных минимумах бер
   });
 });
 
-describe('buildForecast — cash_flow при cashFlowDays > horizonDays', () => {
-  it('индекс метрики зажимается в последний день горизонта', () => {
+describe('buildForecast — cash_flow when cashFlowDays > horizonDays', () => {
+  it('the metric index is clamped to the last day of the horizon', () => {
     const acc = account({ id: 1, currency: 'USD', balance_minor: 100000 });
     const flows: ForecastFlow[] = [
       flow({ account_id: 1, date: '2026-01-05', amount_minor: -30000, currency: 'USD', source_id: 1 }),
     ];
     const result = buildForecast(baseInput({ accounts: [acc], flows, horizonDays: 5, cashFlowDays: 30 }));
 
-    expect(result.cashFlowDays).toBe(30); // поле отражает ЗАПРОШЕННОЕ окно, не зажатое
+    expect(result.cashFlowDays).toBe(30); // the field reflects the REQUESTED window, not the clamped one
     expect(result.series).toHaveLength(5);
-    expect(result.series[4]!.overallMinor).toBe(70000n); // 100000 - 30000, последний день
-    expect(result.cashFlowMinor).toBe(-30000n); // 70000 - 100000, а не выход за границу массива
+    expect(result.series[4]!.overallMinor).toBe(70000n); // 100000 - 30000, the last day
+    expect(result.cashFlowMinor).toBe(-30000n); // 70000 - 100000, not an out-of-bounds array access
   });
 
-  it('горизонт вне 1..366 или cashFlowDays < 1 — RangeError', () => {
+  it('a horizon outside 1..366, or cashFlowDays < 1, raises RangeError', () => {
     const acc = account({ id: 1, currency: 'USD', balance_minor: 0 });
     expect(() => buildForecast(baseInput({ accounts: [acc], horizonDays: 0 }))).toThrow(RangeError);
     expect(() => buildForecast(baseInput({ accounts: [acc], horizonDays: 367 }))).toThrow(RangeError);
@@ -352,15 +352,15 @@ describe('buildForecast — cash_flow при cashFlowDays > horizonDays', () => 
   });
 });
 
-// Уточнение контракта (ROADMAP «Фаза 3 — Прогноз и дашборд на своих данных»):
-// «для каждого счёта, страны И ВАЛЮТЫ — первая дата пересечения нуля и
-// минимальный баланс». Измерение currency — та же группировка, что country и
-// overall, но по коду валюты счёта, а не по стране.
-describe('buildForecast — измерение currency', () => {
-  it('два счёта в одной валюте: предупреждение по СУММЕ, а не по каждому счёту отдельно', () => {
+// Contract clarification (ROADMAP "Phase 3 — Forecast and dashboard on our own data"):
+// "for each account, country, AND CURRENCY — the first date of crossing zero and
+// the minimum balance". The currency dimension is the same grouping as country and
+// overall, but by the account currency code, not by country.
+describe('buildForecast — the currency dimension', () => {
+  it('two accounts in one currency: a warning on the SUM, not on each account separately', () => {
     const acc1 = account({ id: 1, currency: 'USD', country: 'USA', balance_minor: 70000 }); // $700
     const acc2 = account({ id: 2, currency: 'USD', country: 'CAN', balance_minor: 20000 }); // $200
-    // Сумма $900 — ниже порога $1000, хотя оба счёта по отдельности не в нуле.
+    // The sum is $900 — below the $1000 threshold, even though neither account is at zero on its own.
     const result = buildForecast(
       baseInput({ accounts: [acc1, acc2], lowBalanceThresholdMinor: 100000n, horizonDays: 3 }),
     );
@@ -378,14 +378,14 @@ describe('buildForecast — измерение currency', () => {
       startMinor: '90000',
     });
 
-    // dimension=account по отдельности порог не пробивает ни у одного счёта —
-    // ни один из них не уходит в ноль.
+    // dimension=account does not breach the threshold for either account on its own —
+    // neither of them goes to zero.
     expect(result.warnings.filter((w) => w.dimension === 'account')).toEqual([]);
   });
 
-  it('разные валюты — разные группы, предупреждение только у просевшей', () => {
-    const usd = account({ id: 1, currency: 'USD', balance_minor: 50000 }); // $500, ниже порога
-    const eur = account({ id: 2, currency: 'EUR', balance_minor: 500000 }); // 5000.00 EUR, выше
+  it('different currencies are different groups; a warning only for the one that dropped', () => {
+    const usd = account({ id: 1, currency: 'USD', balance_minor: 50000 }); // $500, below the threshold
+    const eur = account({ id: 2, currency: 'EUR', balance_minor: 500000 }); // 5000.00 EUR, above
     const ratesE9 = new Map([['EUR', 1_140_000_000]]);
     const result = buildForecast(
       baseInput({ accounts: [usd, eur], ratesE9, lowBalanceThresholdMinor: 100000n, horizonDays: 2 }),
@@ -396,7 +396,7 @@ describe('buildForecast — измерение currency', () => {
     expect(byKey.has('EUR')).toBe(false);
   });
 
-  it('валютная группа отдаёт минимум и порог в своей нативной валюте', () => {
+  it('a currency group reports its minimum and its threshold in its own native currency', () => {
     const eur = account({ id: 1, currency: 'EUR', balance_minor: 80_000 }); // €800
     const ratesE9 = new Map([['EUR', 1_140_000_000]]); // €1 = $1.14
     const result = buildForecast(
@@ -412,7 +412,7 @@ describe('buildForecast — измерение currency', () => {
     });
   });
 
-  it('не даёт ложное валютное предупреждение на границе банковского округления', () => {
+  it('does not emit a false currency warning at the banker-rounding boundary', () => {
     const ratesE9 = new Map([['EUR', 1_077_000_000]]); // 92851 EUR minor -> 100001 USD minor
     const above = account({ id: 1, currency: 'EUR', balance_minor: 92_851 });
     const resultAbove = buildForecast(
@@ -431,8 +431,8 @@ describe('buildForecast — измерение currency', () => {
     });
   });
 
-  it('сохраняет буквальный нулевой порог для дешёвой валюты', () => {
-    const rsd = account({ id: 1, currency: 'RSD', balance_minor: 54 }); // 0.54 RSD округляется в 0 USD minor
+  it('keeps a literal zero threshold for a cheap currency', () => {
+    const rsd = account({ id: 1, currency: 'RSD', balance_minor: 54 }); // 0.54 RSD rounds to 0 USD minor
     const result = buildForecast(
       baseInput({
         accounts: [rsd],
@@ -446,20 +446,20 @@ describe('buildForecast — измерение currency', () => {
   });
 });
 
-describe('buildForecast — валидация', () => {
-  it('дробный или нецелый horizonDays/cashFlowDays отклоняется тем же RangeError', () => {
+describe('buildForecast — validation', () => {
+  it('a fractional or non-integer horizonDays/cashFlowDays is rejected with the same RangeError', () => {
     const acc = account({ id: 1, currency: 'USD', balance_minor: 0 });
     expect(() => buildForecast(baseInput({ accounts: [acc], horizonDays: 1.5 }))).toThrow(RangeError);
     expect(() => buildForecast(baseInput({ accounts: [acc], cashFlowDays: 1.5 }))).toThrow(RangeError);
   });
 });
 
-describe('buildForecast — просроченный регулярный платёж (issue #279)', () => {
-  it('агрегированный долг на первом дне горизонта сдвигает весь посуточный ряд и cash_flow', () => {
+describe('buildForecast — overdue recurring payment (issue #279)', () => {
+  it('aggregated debt on the first day of the horizon shifts the whole daily series and cash_flow', () => {
     const acc = account({ id: 1, currency: 'USD', balance_minor: 100000 }); // $1000.00
     const asOfDate = '2026-08-15';
-    // Долг за 2 пропущенных периода (-$100 * 2 = -$200) на первом дне (2026-08-16)
-    // плюс будущий платёж -$100 на 2026-09-15
+    // Debt for 2 missed periods (-$100 * 2 = -$200) on the first day (2026-08-16)
+    // plus a future payment of -$100 on 2026-09-15
     const flows: ForecastFlow[] = [
       flow({
         account_id: 1,
@@ -485,19 +485,19 @@ describe('buildForecast — просроченный регулярный пла
       baseInput({ accounts: [acc], flows, baseCurrency: 'USD', asOfDate, horizonDays: 60, cashFlowDays: 30 }),
     );
 
-    // День 0 (старт / net worth) = $1000.00 (100000n)
+    // Day 0 (start / net worth) = $1000.00 (100000n)
     expect(result.netWorthMinor).toBe(100000n);
-    // День 1 (2026-08-16) закрывается с учётом долга -$200.00 = $800.00
+    // Day 1 (2026-08-16) closes including the -$200.00 debt = $800.00
     expect(result.series[0].date).toBe('2026-08-16');
     expect(result.series[0].overallMinor).toBe(80000n);
-    // День 30 (2026-09-14) баланс по-прежнему $800.00
+    // Day 30 (2026-09-14) the balance is still $800.00
     expect(result.series[29].date).toBe('2026-09-14');
     expect(result.series[29].overallMinor).toBe(80000n);
-    // День 31 (2026-09-15) второе списание -$100.00 = $700.00
+    // Day 31 (2026-09-15) the second debit of -$100.00 = $700.00
     expect(result.series[30].date).toBe('2026-09-15');
     expect(result.series[30].overallMinor).toBe(70000n);
 
-    // cashFlowMinor на окне 30 дней = 80000n - 100000n = -20000n
+    // cashFlowMinor over a 30-day window = 80000n - 100000n = -20000n
     expect(result.cashFlowMinor).toBe(-20000n);
   });
 });

@@ -10,7 +10,6 @@ import { isoBase64URL } from '@simplewebauthn/server/helpers';
 import type {
   AuthenticationResponseJSON,
   RegistrationResponseJSON,
-  AuthenticatorTransportFuture,
 } from '@simplewebauthn/server';
 import type { Env } from './types';
 import { AuthError } from './api-error';
@@ -255,7 +254,7 @@ export interface StoredCredential {
   id: string; // base64url credential id
   publicKey: string; // base64url
   counter: number;
-  transports?: AuthenticatorTransportFuture[];
+  transports?: string[];
   label: string;
   createdAt: string;
   lastUsedAt?: string;

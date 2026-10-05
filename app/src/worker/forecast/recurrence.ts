@@ -1,12 +1,12 @@
-// Разворот регулярных платежей в даты (issue #198, S1-4) — перенесено из
-// archive/v2-codex (app/src/worker/readmodel/forecast.ts) и адаптировано под
-// схему v2: там якорь дня по умолчанию брался из `start_date` правила
-// (колонки, которой у нас нет), здесь день/месяц якоря читаются напрямую из
-// колонок `day_of_month`/`month_of_year` — CHECK `recurring_items_rule_anchors`
-// (migrations/0001_initial_schema.sql) гарантирует, что они заполнены для
-// monthly/yearly и пусты для daily/weekly. Один якорь на правило, а не «якорь
-// из последней прижатой даты», — иначе 31 января, один раз прижатое к 28
-// февраля, навсегда осталось бы 28-м числом.
+// Expanding recurring payments into dates (issue #198, S1-4) — moved from
+// archive/v2-codex (app/src/worker/readmodel/forecast.ts) and adapted to the
+// v2 schema: there the day anchor was taken by default from the rule's
+// `start_date` (a column we do not have); here the anchor day/month are read
+// directly from the `day_of_month`/`month_of_year` columns — CHECK
+// `recurring_items_rule_anchors` (migrations/0001_initial_schema.sql)
+// guarantees they are filled for monthly/yearly and empty for daily/weekly.
+// One anchor per rule, not "the anchor from the last clamped date" — otherwise
+// 31 January, once clamped to 28 February, would forever remain the 28th.
 import { addDays, clampedDate, diffDays, parseIsoDate } from './dates';
 
 export interface RecurringRule {
@@ -19,15 +19,16 @@ export interface RecurringRule {
   end_date: string | null;
 }
 
-/** Потолок развёртки: упереться в него можно только неверным входом. */
+/** Expansion ceiling: it can be hit only by invalid input. */
 const MAX_OCCURRENCES = 1000;
 
 /**
- * День-якорь monthly/yearly правила. CHECK `recurring_items_rule_anchors`
- * гарантирует, что колонка заполнена для этих частот на уровне самой D1 — здесь
- * это лишь защита от битой строки (ручная правка БД, гонка миграций), а не
- * штатный путь: дошли до NULL там, где схема его не допускает, — громкий отказ
- * лучше, чем NaN, тихо просочившийся в даты прогноза.
+ * Day anchor of a monthly/yearly rule. CHECK `recurring_items_rule_anchors`
+ * guarantees the column is filled for these frequencies at the D1 level itself
+ * — here this is only a guard against a corrupt row (a manual DB edit, a
+ * migration race), not the normal path: reaching NULL where the schema does
+ * not allow it, a loud failure is better than a NaN that quietly leaked into
+ * forecast dates.
  */
 function requiredDayOfMonth(r: RecurringRule): number {
   if (r.day_of_month === null) {
@@ -38,7 +39,7 @@ function requiredDayOfMonth(r: RecurringRule): number {
   return r.day_of_month;
 }
 
-/** Симметрично requiredDayOfMonth, но для месяца-якоря yearly правила. */
+/** Symmetric to requiredDayOfMonth, but for the month anchor of a yearly rule. */
 function requiredMonthOfYear(r: RecurringRule): number {
   if (r.month_of_year === null) {
     throw new RangeError(
@@ -49,10 +50,10 @@ function requiredMonthOfYear(r: RecurringRule): number {
 }
 
 /**
- * Оценивает количество ПОЛНЫХ периодов между fromDate и targetDate — заведомо
- * НЕ БОЛЬШЕ фактически нужного (округление вниз, с запасом −1 период на
- * clamp дня месяца), чтобы не перескочить ни одного валидного occurrence.
- * Остаток докручивает обычный цикл nextOccurrence в expandRecurring.
+ * Estimates the number of FULL periods between fromDate and targetDate —
+ * certainly NOT MORE than actually needed (rounding down, with a margin of −1
+ * period for the month-day clamp), so as not to skip any valid occurrence.
+ * The remainder is finished by the ordinary nextOccurrence loop in expandRecurring.
  */
 export function periodsToSkip(r: RecurringRule, fromDate: string, targetDate: string): number {
   if (fromDate >= targetDate) return 0;
@@ -73,12 +74,12 @@ export function periodsToSkip(r: RecurringRule, fromDate: string, targetDate: st
 }
 
 /**
- * Прыгает НАПРЯМУЮ на `periods` полных периодов вперёд от fromDate — O(1),
- * БЕЗ вызова nextOccurrence в цикле. Корректно для ВСЕХ форм правила:
- * daily/weekly — чистая арифметика дней; monthly/yearly — потому что якорь
- * дня ФИКСИРОВАН (колонка `day_of_month`, та же, что берёт nextOccurrence), а
- * прижатие 29–31 к короткому месяцу не меняет месячную арифметику. Прыжок на
- * k периодов эквивалентен k последовательным nextOccurrence.
+ * Jumps DIRECTLY `periods` full periods ahead of fromDate — O(1), WITHOUT
+ * calling nextOccurrence in a loop. Correct for ALL forms of the rule:
+ * daily/weekly are pure day arithmetic; monthly/yearly because the day anchor
+ * is FIXED (the `day_of_month` column, the same one nextOccurrence reads), and
+ * clamping 29–31 to a short month does not change the month arithmetic. A jump
+ * of k periods is equivalent to k successive nextOccurrence calls.
  */
 function advanceByPeriods(r: RecurringRule, fromDate: string, periods: number): string {
   if (periods <= 0) return fromDate;
@@ -105,16 +106,17 @@ export interface ExpandedRecurring {
 }
 
 /**
- * Разворачивает recurring-правило относительно asOfDate до limitDate.
+ * Expands a recurring rule relative to asOfDate up to limitDate.
  *
- * Возвращает:
- * - `overdueCount`: количество наступивших/просроченных периодов
- *   (`next_due_date <= cur <= min(asOfDate, hardEnd)`). Вычисляется за O(1)
- *   (advanceByPeriods + periodsToSkip), не тратя CPU на пошаговые циклы по годам.
- * - `futureDates`: список дат будущих платежей в окне (asOfDate, hardEnd].
+ * Returns:
+ * - `overdueCount`: the number of elapsed/overdue periods
+ *   (`next_due_date <= cur <= min(asOfDate, hardEnd)`). Computed in O(1)
+ *   (advanceByPeriods + periodsToSkip), without spending CPU on step-by-step
+ *   loops across years.
+ * - `futureDates`: the list of future payment dates in the window (asOfDate, hardEnd].
  *
- * `end_date` — дата ПОСЛЕДНЕГО платежа ВКЛЮЧИТЕЛЬНО (докблок миграции
- * 0002_recurring_items_end_date.sql), отсюда `cur <= hardEnd`.
+ * `end_date` is the date of the LAST payment INCLUSIVE (docblock of migration
+ * 0002_recurring_items_end_date.sql), hence `cur <= hardEnd`.
  */
 export function expandRecurringRule(
   r: RecurringRule,
@@ -147,9 +149,9 @@ export function expandRecurringRule(
   const futureDates: string[] = [];
   let guard = 0;
   while (cur <= hardEnd) {
-    // Молчаливое усечение возвращало бы короткий список без единого признака —
-    // прогноз просто терял бы потоки. Лучше громкий отказ: горизонт ограничен
-    // 366 днями, поэтому упереться в потолок можно только ошибкой вызывающего.
+    // Silent truncation would return a short list with no sign at all — the
+    // forecast would simply lose flows. A loud failure is better: the horizon
+    // is limited to 366 days, so the ceiling can be hit only by a caller error.
     if (guard >= MAX_OCCURRENCES) {
       throw new RangeError(
         `expandRecurring: больше ${MAX_OCCURRENCES} вхождений до ${hardEnd}; окно или правило заданы неверно`,
@@ -168,10 +170,9 @@ export function expandRecurringRule(
 }
 
 /**
- * Разворачивает recurring в будущие даты (asOf, limitDate].
+ * Expands a recurring rule into future dates (asOf, limitDate].
  *
- * Обёртка над expandRecurringRule для совместимости с местами, где нужны
- * только будущие даты.
+ * Wrapper over expandRecurringRule for call sites that need only future dates.
  */
 export function expandRecurring(r: RecurringRule, asOfDate: string, limitDate: string): string[] {
   return expandRecurringRule(r, asOfDate, limitDate).futureDates;
@@ -185,10 +186,10 @@ export function nextOccurrence(r: RecurringRule, from: string): string {
     case 'weekly':
       return addDays(from, 7 * r.interval_count);
     case 'monthly': {
-      // 29–31 прижимаются к последнему дню месяца. Якорь — день ПРАВИЛА, а не
-      // уже прижатой текущей даты: иначе 31 января превращается в 28 февраля
-      // и дальше правило навсегда остаётся 28-м числом, хотя прижатие по
-      // контракту действует только на короткий месяц.
+      // 29–31 are clamped to the last day of the month. The anchor is the RULE's
+      // day, not the already-clamped current date: otherwise 31 January becomes
+      // 28 February and the rule forever stays the 28th, even though clamping
+      // by contract applies only to a short month.
       const dom = requiredDayOfMonth(r);
       const total = d.year * 12 + (d.month - 1) + r.interval_count;
       const year = Math.floor(total / 12);
@@ -196,12 +197,12 @@ export function nextOccurrence(r: RecurringRule, from: string): string {
       return clampedDate(year, month, dom);
     }
     case 'yearly': {
-      // Тот же якорь: 29 февраля иначе после первого невисокосного года
-      // навсегда становится 28-м. Месяц-якорь — `month_of_year`, а не месяц
-      // текущей даты: CHECK `recurring_items_yearly_month_matches_anchor`
-      // (migrations/0003_recurring_items_yearly_month_anchor.sql) держит их
-      // согласованными на каждом UPDATE строки, это ровно то предусловие,
-      // которое здесь используется.
+      // The same anchor: otherwise 29 February, after the first non-leap year,
+      // forever becomes the 28th. The month anchor is `month_of_year`, not the
+      // month of the current date: CHECK `recurring_items_yearly_month_matches_anchor`
+      // (migrations/0003_recurring_items_yearly_month_anchor.sql) keeps them
+      // consistent on every UPDATE of the row, and that is exactly the
+      // precondition used here.
       const dom = requiredDayOfMonth(r);
       const month = requiredMonthOfYear(r);
       return clampedDate(d.year + r.interval_count, month, dom);

@@ -1,7 +1,7 @@
-// Секция «Чеки» экрана «Данные» (issue #557): фискальные документы по PFR.
+// "Receipts" section of the "Data" screen (issue #557): fiscal documents via PFR.
 //
-// Карточки внешне как у «Аналитики / Чеки», но ключ другой: stored
-// fiscal_receipt_id, а не store+date+account. Аналитику эта секция не трогает.
+// Cards look like "Analytics / Receipts", but the key differs: a stored
+// fiscal_receipt_id, not store+date+account. This section does not touch Analytics.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown } from 'lucide-react';

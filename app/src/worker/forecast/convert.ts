@@ -1,27 +1,29 @@
-// Конверсия сумм между валютами через курсы к базовой (issue #198, S1-4).
+// Amount conversion between currencies through rates against the base (issue #198, S1-4).
 //
-// Отдельный модуль, а не приватная функция build.ts, потому что конвертируют
-// двое и по-разному: ядро прогноза (build.ts) — агрегаты по группам счетов, а
-// роут `/forecast` (api.ts) — суммы отдельных предстоящих операций для секции
-// `upcoming`. Пока это были две реализации, они могли разойтись в округлении и
-// в трактовке «курса нет» — и разошлись бы молча, потому что обе выдают
-// правдоподобное число. Здесь путь один (Закон 3).
+// A separate module, not a private function of build.ts, because two callers
+// convert and they do it differently: the forecast core (build.ts) converts
+// aggregates by account groups, and the `/forecast` route (api.ts) converts
+// amounts of individual upcoming operations for the `upcoming` section. While
+// those were two implementations, they could diverge in rounding and in the
+// meaning of "no rate" — and they would diverge silently, because both emit
+// a plausible number. Here there is one path (Law 3).
 import { IDENTITY_RATE, convertMinor, rateFromE9, type FxRate } from './fx';
 import { fractionDigits } from '../../shared/currency';
 
 export interface Converter {
-  /** `null` означает «нет курса хотя бы у одной стороны», а не «ноль». */
+  /** `null` means "no rate for at least one side", not "zero". */
   (amountMinor: bigint, from: string, to: string): bigint | null;
 }
 
 /**
- * Конвертер поверх таблицы курсов `code -> rate_e9`.
+ * Converter over the rate table `code -> rate_e9`.
  *
- * `onMissingRate` вызывается ровно тогда, когда курс реально понадобился и его
- * не оказалось — то есть список «валют без курса» собирается по факту нужды, а
- * не по факту присутствия валюты в данных. Разница видна на счёте в базовой
- * валюте с операцией в ней же: конверсия там не нужна вовсе, и сообщать о
- * недостающем курсе не о чем.
+ * `onMissingRate` is called exactly when a rate was actually needed and was
+ * missing — that is, the "currencies without a rate" list is collected by
+ * actual need, not by the mere presence of a currency in the data. The
+ * difference shows up on an account in the base currency with an operation in
+ * that same currency: no conversion is needed there at all, and there is
+ * nothing to report about a missing rate.
  */
 export function makeConverter(
   ratesE9: Map<string, number>,
@@ -39,14 +41,15 @@ export function makeConverter(
   }
 
   return (amountMinor, from, to) => {
-    // Одинаковые коды возвращаются как есть — без прогона через
-    // BigInt-математику: платить округлением ROUND_HALF_EVEN за тождественную
-    // конверсию незачем, да и курс для неё не нужен (см. rateOf выше).
+    // Identical codes are returned as-is — without a pass through
+    // BigInt math: there is no reason to pay ROUND_HALF_EVEN rounding for an
+    // identity conversion, and a rate is not needed for it (see rateOf above).
     if (from === to) return amountMinor;
     const sourceRate = rateOf(from);
     const targetRate = rateOf(to);
-    // Оба rateOf вызваны ДО проверки намеренно: когда курса нет у обеих сторон,
-    // владелец должен увидеть в missing_rates обе валюты, а не первую.
+    // Both rateOf calls happen BEFORE the check on purpose: when both sides
+    // lack a rate, the owner must see both currencies in missing_rates, not
+    // only the first.
     if (sourceRate === null || targetRate === null) return null;
     return convertMinor(
       amountMinor,

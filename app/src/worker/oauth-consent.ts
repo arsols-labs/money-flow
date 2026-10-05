@@ -1,4 +1,4 @@
-// S2-1: Логика страницы согласия (Consent Page) и CSRF-защиты (issue #261)
+// S2-1: Consent page logic and CSRF protection (issue #261)
 
 import { timingSafeEqualString } from './crypto-eq';
 import { escapeHtml } from './html';
@@ -31,7 +31,7 @@ export const CONSENT_SUBMIT_ONCE_JS =
 export const CONSENT_SUBMIT_ONCE_CSP_HASH = 'sha256-4ow1BBW1yb3WDAPVVpTtkrIBABtAmXdCFiwzyyFHsJg=';
 
 /**
- * Создаёт подписанный одноразовый CSRF-токен для формы согласия с коротким сроком жизни.
+ * Creates a signed one-time CSRF token for the consent form with a short lifetime.
  */
 export async function createConsentCsrfToken(
   secret: string,
@@ -54,13 +54,13 @@ export async function createConsentCsrfToken(
 }
 
 /**
- * Проверяет подпись и срок жизни CSRF-токена формы согласия.
+ * Checks the signature and lifetime of the consent form's CSRF token.
  */
 export async function verifyConsentCsrfToken(
   secret: string,
   token: string,
   params: { clientId: string; redirectUri: string; state: string },
-  maxAgeMs: number = 10 * 60 * 1000 // 10 минут
+  maxAgeMs: number = 10 * 60 * 1000 // 10 minutes
 ): Promise<boolean> {
   if (!token || typeof token !== 'string') return false;
   const [timestampStr, sigHex] = token.split('.');
@@ -85,7 +85,7 @@ export async function verifyConsentCsrfToken(
 }
 
 /**
- * Извлекает хост из Client ID Metadata Document URL для защиты от поддельных коннекторов (confused deputy).
+ * Extracts the host from a Client ID Metadata Document URL to protect against fake connectors (confused deputy).
  */
 export function extractClientHost(clientId: string): string {
   try {
@@ -97,7 +97,7 @@ export function extractClientHost(clientId: string): string {
 }
 
 /**
- * Рендерит защищённую HTML-страницу согласия.
+ * Renders the protected consent HTML page.
  */
 export function renderConsentHtml(data: ConsentPageData): string {
   const isHttpsHost = data.clientId.startsWith('https://');

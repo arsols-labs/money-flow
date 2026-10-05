@@ -1,31 +1,31 @@
-// Детерминированная FX-математика v2 (issue #198): никаких float —
-// целочисленная (BigInt) арифметика и банковское округление ROUND_HALF_EVEN.
+// Deterministic FX math v2 (issue #198): no floats —
+// integer (BigInt) arithmetic and banker's rounding ROUND_HALF_EVEN.
 //
-// Курс хранится как positive integer mantissa + scale (base_per_unit = m / 10^s),
-// суммы — в minor units валюты с exponent 0–8. Конверсия:
+// A rate is stored as a positive integer mantissa + scale (base_per_unit = m / 10^s),
+// amounts are in minor units of a currency with exponent 0–8. Conversion:
 //   N = A * mS * 10^(eT + sT)
 //   D = mT * 10^(eS + sS)
 //   target_minor = divide_round_half_even(N, D)
-// Tie — строго 2*remainder == denominator; частное округляется к чётному.
+// A tie is strictly 2*remainder == denominator; the quotient rounds to even.
 
 export interface FxRate {
   /** base_per_unit_mantissa > 0 */
   mantissa: bigint;
-  /** base_per_unit_scale >= 0 — число десятичных знаков мантиссы */
+  /** base_per_unit_scale >= 0 — number of decimal digits in the mantissa */
   scale: number;
 }
 
 export interface CurrencyInfo {
-  /** ISO-4217 exponent 0–8: minor units в одной единице валюты */
+  /** ISO-4217 exponent 0–8: minor units in one unit of the currency */
   exponent: number;
 }
 
-/** Курс базовой валюты к самой себе — тождественная конверсия. */
+/** Rate of the base currency against itself — an identity conversion. */
 export const IDENTITY_RATE: FxRate = { mantissa: 1n, scale: 0 };
 
 /**
- * Курс из `fx_rates.rate_e9` (migrations/0001_initial_schema.sql:
- * `base_per_unit = rate_e9 / 1e9`) — единственный источник курсов в схеме v2.
+ * Rate from `fx_rates.rate_e9` (migrations/0001_initial_schema.sql:
+ * `base_per_unit = rate_e9 / 1e9`) — the only source of rates in schema v2.
  */
 export function rateFromE9(rateE9: number | bigint): FxRate {
   return { mantissa: BigInt(rateE9), scale: 9 };
@@ -41,8 +41,8 @@ function pow10(exp: number): bigint {
 }
 
 /**
- * Целочисленное деление со знаком и округлением half-to-even (банковским).
- * Знаменатель должен быть > 0 (курсы всегда положительны).
+ * Signed integer division with half-to-even (banker's) rounding.
+ * The denominator must be > 0 (rates are always positive).
  */
 export function divideRoundHalfEven(numerator: bigint, denominator: bigint): bigint {
   if (denominator <= 0n) {
@@ -56,16 +56,16 @@ export function divideRoundHalfEven(numerator: bigint, denominator: bigint): big
   if (twice > denominator) {
     quotient += 1n;
   } else if (twice === denominator && quotient % 2n === 1n) {
-    // Ровно половина — округляем к чётному.
+    // Exactly half — round to even.
     quotient += 1n;
   }
   return negative ? -quotient : quotient;
 }
 
 /**
- * Конверсия minor units source-валюты в minor units target-валюты через пару
- * курсов к базовой валюте. Обе величины и результат — BigInt: произведения
- * легко выходят за Number.MAX_SAFE_INTEGER.
+ * Converts minor units of the source currency into minor units of the target
+ * currency through a pair of rates against the base currency. Both amounts
+ * and the result are BigInt: products easily exceed Number.MAX_SAFE_INTEGER.
  */
 export function convertMinor(
   amountMinor: bigint,
@@ -86,9 +86,9 @@ function assertRate(rate: FxRate, label: string): void {
   if (rate.mantissa <= 0n) {
     throw new RangeError(`FX ${label}: mantissa должна быть > 0`);
   }
-  // Верхняя граница 12: единственный производитель курсов в v2 — rateFromE9
-  // (scale всегда 9), а граница защищает pow10() от непроверенного входа —
-  // без неё скачок scale уходит прямиком в 10n ** BigInt(scale).
+  // Upper bound of 12: the only producer of rates in v2 is rateFromE9
+  // (scale is always 9), and the bound protects pow10() from unchecked input —
+  // without it a jump in scale goes straight into 10n ** BigInt(scale).
   if (!Number.isInteger(rate.scale) || rate.scale < 0 || rate.scale > 12) {
     throw new RangeError(`FX ${label}: scale должен быть целым в диапазоне 0–12`);
   }

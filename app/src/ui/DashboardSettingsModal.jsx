@@ -14,7 +14,7 @@ import {
 import { blockDescription, blockTitle } from './i18nLabels';
 
 /**
- * Изменяет колонку размещения блока с валидацией по allowedColumns переданного blockDefs.
+ * Changes a block's column placement, validated against allowedColumns of the given blockDefs.
  * @param {any[]} config
  * @param {string} id
  * @param {string} column
@@ -192,7 +192,7 @@ export default function DashboardSettingsModal({
                       <div className="dashboard-block-desc">{defDescription}</div>
                     )}
 
-                    {/* Выбор колонки для широкого экрана */}
+                    {/* Wide-screen column choice */}
                     {def.allowedColumns && def.allowedColumns.length > 1 && (
                       <div className="dashboard-block-column-picker">
                         <span className="dashboard-column-label">{t('dashboard.settings.columnLabel')}</span>

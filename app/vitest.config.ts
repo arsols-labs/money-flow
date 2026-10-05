@@ -1,9 +1,9 @@
-// v2 tests run in real workerd (@cloudflare/vitest-pool-workers), not in Node
+// v2 tests run in real workerd (@cloudflare/vitest-plugin), not in Node
 // with an emulation layer: D1 comes up locally in miniflare, so the schema
 // smoke test does not call a Cloudflare account and works in CI without secrets.
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-pool-workers';
+import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-plugin';
 import { defineConfig } from 'vitest/config';
 
 function sqlTextPlugin() {

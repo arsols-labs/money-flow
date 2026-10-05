@@ -1,12 +1,12 @@
-// Разбор денежного ввода на клиенте (S1-2, issue #196).
+// Parsing money input on the client (S1-2, issue #196).
 //
-// Почему это вообще тестируется, хотя «CRUD и UI — smoke» по ТЗ: сюда
-// пользователь вводит суммы руками, и ошибка здесь молча искажает баланс, на
-// котором держится весь прогноз. `19.99 * 100 === 1998.9999999999998` — ровно
-// тот случай, который тесты обязаны зафиксировать навсегда.
+// Why this is tested at all, even though "CRUD and UI are smoke" per the spec: this is
+// where the user types amounts by hand, and an error here silently distorts the balance
+// the whole forecast rests on. `19.99 * 100 === 1998.9999999999998` is exactly
+// the case the tests must pin down forever.
 //
-// Гоняется в том же workerd-пуле, что и остальные тесты v2; DOM здесь не
-// нужен — money.js работает со строками и Intl.
+// It runs in the same workerd pool as the other v2 tests; no DOM is
+// needed here — money.js works with strings and Intl.
 import './use-ru-i18n';
 import { describe, expect, it } from 'vitest';
 import {
@@ -19,7 +19,7 @@ import {
 } from '../src/ui/money.js';
 
 describe('fractionDigits', () => {
-  it('знает разрядность обычных валют', () => {
+  it('knows the scale of ordinary currencies', () => {
     expect(fractionDigits('USD')).toBe(2);
     expect(fractionDigits('EUR')).toBe(2);
     expect(fractionDigits('RUB')).toBe(2);
@@ -28,14 +28,14 @@ describe('fractionDigits', () => {
     expect(fractionDigits('CLF')).toBe(4);
   });
 
-  // Отдельным тестом, потому что это не абстрактный край: у владельца есть
-  // счета в динарах, а CLDR (то есть Intl) отдаёт для RSD 0 знаков вопреки
-  // ISO 4217. Ответ должен приходить из нашей таблицы, а не из ICU браузера.
-  it('для RSD даёт два знака — ISO 4217, а не CLDR', () => {
+  // A separate test, because this is not an abstract edge: the owner has
+  // dinar accounts, and CLDR (that is, Intl) reports 0 fraction digits for RSD contrary to
+  // ISO 4217. The answer must come from our table, not from the browser ICU.
+  it('gives RSD two digits — ISO 4217, not CLDR', () => {
     expect(fractionDigits('RSD')).toBe(2);
   });
 
-  it('на неизвестном коде не падает, а отдаёт два знака', () => {
+  it('does not throw on an unknown code and returns two digits', () => {
     expect(fractionDigits('ZZZ')).toBe(2);
     expect(fractionDigits('')).toBe(2);
     expect(fractionDigits(undefined)).toBe(2);
@@ -45,7 +45,7 @@ describe('fractionDigits', () => {
 describe('parseAmountToMinor', () => {
   it.each([
     ['19.99', 'USD', 1999],
-    // Запятая — как её набирают на русской раскладке.
+    // A comma — as it is typed on a Russian keyboard layout.
     ['19,99', 'USD', 1999],
     ['0.05', 'USD', 5],
     ['.5', 'USD', 50],
@@ -54,16 +54,16 @@ describe('parseAmountToMinor', () => {
     ['-5.5', 'USD', -550],
     ['0', 'USD', 0],
     ['-0.00', 'USD', 0],
-    // Валюта без дробной части: минорная единица равна майорной.
+    // A currency with no fractional part: the minor unit equals the major unit.
     ['1200', 'JPY', 1200],
   ])('%s (%s) → %i', (input, currency, expected) => {
     expect(parseAmountToMinor(input, currency)).toBe(expected);
   });
 
-  it('не теряет копейки на float-опасных значениях', () => {
-    // У каждого из этих значений `Number(x) * 100` даёт хвост вида
-    // 1998.9999999999998 или 823.9999999999999 — строковый разбор обязан
-    // давать ровное целое.
+  it('does not lose cents on float-unsafe values', () => {
+    // For each of these values `Number(x) * 100` produces a tail like
+    // 1998.9999999999998 or 823.9999999999999 — string parsing must
+    // yield a clean integer.
     for (const [input, expected] of [
       ['19.99', 1999],
       ['0.07', 7],
@@ -76,22 +76,22 @@ describe('parseAmountToMinor', () => {
   });
 
   it.each([
-    ['пустая строка', ''],
-    ['только пробелы', '   '],
-    ['буквы', 'abc'],
-    ['две точки', '1.2.3'],
-    ['один минус', '-'],
-    ['одна точка', '.'],
-    ['лишний знак для двухзначной валюты', '1.999'],
-  ])('отклоняет: %s', (_label, input) => {
+    ['empty string', ''],
+    ['whitespace only', '   '],
+    ['letters', 'abc'],
+    ['two dots', '1.2.3'],
+    ['a lone minus', '-'],
+    ['a lone dot', '.'],
+    ['extra digit for a two-decimal currency', '1.999'],
+  ])('rejects: %s', (_label, input) => {
     expect(() => parseAmountToMinor(input, 'USD')).toThrow();
   });
 
-  it('отклоняет сумму за пределами точного целого, а не округляет молча', () => {
+  it('rejects an amount beyond an exact integer instead of rounding silently', () => {
     expect(() => parseAmountToMinor('999999999999999999', 'USD')).toThrow(/Слишком большая/);
   });
 
-  it('для валюты без дробной части лишний знак — ошибка', () => {
+  it('for a currency with no fractional part an extra digit is an error', () => {
     expect(() => parseAmountToMinor('1200.5', 'JPY')).toThrow();
   });
 });
@@ -107,7 +107,7 @@ describe('minorToInputString', () => {
     expect(minorToInputString(minor, currency)).toBe(expected);
   });
 
-  it('round-trip: строка → минорные → строка не меняет значения', () => {
+  it('round-trip: string → minor → string does not change the value', () => {
     for (const value of ['19.99', '0.05', '-5.50', '1200.00']) {
       const minor = parseAmountToMinor(value, 'USD');
       expect(parseAmountToMinor(minorToInputString(minor, 'USD'), 'USD')).toBe(minor);
@@ -117,8 +117,8 @@ describe('minorToInputString', () => {
 
 describe('formatMajorCompact (issue #582)', () => {
   it('keeps thousands grouping instead of stripping the group as cents', () => {
-    // Старый форматтер оси: formatMajor(v).replace(/[.,]\d+/, '') —
-    // на en-US `$17,521.60` превращался в `$17.60`.
+    // The old axis formatter: formatMajor(v).replace(/[.,]\d+/, '') —
+    // on en-US `$17,521.60` turned into `$17.60`.
     const fullEn = formatMajor(17521.60, 'USD', 'en-US');
     expect(fullEn.replace(/[.,]\d+/, '')).toBe('$17.60');
     expect(formatMajorCompact(17521.60, 'USD', 'en-US')).toBe('$17,522');
@@ -135,7 +135,7 @@ describe('formatMajorCompact (issue #582)', () => {
 });
 
 describe('normalizeRateInput', () => {
-  it('пропускает курс с девятью знаками и нормализует запятую', () => {
+  it('accepts a rate with nine digits and normalizes a comma', () => {
     expect(normalizeRateInput('0.0092')).toBe('0.0092');
     expect(normalizeRateInput(' 0,0092 ')).toBe('0.0092');
     expect(normalizeRateInput('0.000000001')).toBe('0.000000001');
@@ -143,14 +143,14 @@ describe('normalizeRateInput', () => {
   });
 
   it.each([
-    ['ноль', '0'],
-    ['ноль с нулевой дробью', '0.000'],
-    ['отрицательный', '-1'],
-    ['десять знаков после точки', '0.0000000001'],
-    ['экспонента', '1e5'],
-    ['буквы', 'abc'],
-    ['пусто', ''],
-  ])('отклоняет: %s', (_label, input) => {
+    ['zero', '0'],
+    ['zero with a zero fraction', '0.000'],
+    ['negative', '-1'],
+    ['ten digits after the dot', '0.0000000001'],
+    ['exponent', '1e5'],
+    ['letters', 'abc'],
+    ['empty', ''],
+  ])('rejects: %s', (_label, input) => {
     expect(() => normalizeRateInput(input)).toThrow();
   });
 });

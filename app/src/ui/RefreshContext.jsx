@@ -1,20 +1,20 @@
-// Глобальное обновление данных без перезагрузки страницы (issue #381).
+// Global data refresh without reloading the page (issue #381).
 //
-// Зачем: кнопка «Обновить» в шапке должна реально перечитать данные всех
-// экранов (Пульс, Данные, Доступ), а не делать window.location.reload() —
-// рефреш страницы средствами браузера роняет все локальные состояния
-// (развёрнутые блоки «Данных», фильтры, выбранный период Пульса) и виден
-// пользователю как «моргание».
+// Why: the "Refresh" button in the header must actually re-read data on every
+// screen (Pulse, Data, Access), rather than calling window.location.reload() —
+// a browser page refresh drops all local state
+// (expanded "Data" blocks, filters, the selected Pulse period) and looks to
+// the user like a "flicker".
 //
-// Как работает: провайдер держит счётчик `nonce`. Shell поднимает его по
-// клику иконки; каждый экран/секция подписывается на него через
-// useRefreshNonce() и перезапускает свой load() в эффекте от nonce. Сброс
-// кеша «Данных» (useLoadWhenExpanded грузит блок один раз) тоже идёт через
-// nonce — эффект сбрасывает startedRef перед повторным load().
+// How it works: the provider holds a `nonce` counter. Shell increments it on
+// an icon click; each screen/section subscribes through
+// useRefreshNonce() and restarts its load() in an effect on nonce. Resetting
+// the "Data" cache (useLoadWhenExpanded loads a block once) also goes through
+// nonce — the effect clears startedRef before calling load() again.
 //
-// StrictMode дважды монтирует эффекты в dev: nonce там меняться не должен от
-// самого монтажа (изменяется только по клику), поэтому зависимость — только
-// [nonce]. Двойной вызов load() в dev безвреден (idempotent fetch).
+// StrictMode mounts effects twice in dev: nonce must not change there from
+// the mount itself (it changes only on click), so the dependency is only
+// [nonce]. A double load() call in dev is harmless (idempotent fetch).
 import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 
 const RefreshContext = createContext(null);
@@ -26,15 +26,15 @@ export function RefreshProvider({ children }) {
   return <RefreshContext.Provider value={value}>{children}</RefreshContext.Provider>;
 }
 
-// Подписка на счётчик обновлений. Возвращает текущее значение nonce; эффект,
-// зависящий от него, перезапустит загрузку данных при каждом клике «Обновить».
+// Subscription to the refresh counter. Returns the current nonce; an effect
+// that depends on it reloads data on every "Refresh" click.
 export function useRefreshNonce() {
   const ctx = useContext(RefreshContext);
   if (!ctx) throw new Error('useRefreshNonce must be used within RefreshProvider');
   return ctx.nonce;
 }
 
-// Функция, которую Shell вызывает по клику иконки «Обновить».
+// The function Shell calls when the "Refresh" icon is clicked.
 export function useRefresh() {
   const ctx = useContext(RefreshContext);
   if (!ctx) throw new Error('useRefresh must be used within RefreshProvider');

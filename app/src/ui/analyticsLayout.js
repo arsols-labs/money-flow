@@ -1,5 +1,5 @@
-// Управление порядком, видимостью и расположением блоков экрана «Аналитика».
-// Изолированное хранилище в localStorage под ключами mf_analytics_layout_v1 и mf_analytics_filters_v1.
+// Controls the order, visibility, and placement of blocks on the "Analytics" screen.
+// Isolated localStorage under the keys mf_analytics_layout_v1 and mf_analytics_filters_v1.
 
 export const ANALYTICS_STORAGE_KEY = 'mf_analytics_layout_v1';
 export const ANALYTICS_FILTERS_STORAGE_KEY = 'mf_analytics_filters_v1';
@@ -113,7 +113,7 @@ export const DEFAULT_ANALYTICS_FILTERS = {
 };
 
 /**
- * Определяет реальную колонку блока аналитики (с учётом режима 'auto').
+ * Resolves an analytics block's actual column (taking the 'auto' mode into account).
  */
 export function resolveAnalyticsBlockColumn(block) {
   if (!block) return 'left';
@@ -129,8 +129,8 @@ export function cloneConfig(config) {
 }
 
 /**
- * Загружает конфигурацию блоков аналитики из localStorage с валидацией,
- * фильтрацией неизвестных ID и дополнением недостающих блоков.
+ * Loads the analytics block configuration from localStorage, with validation,
+ * filtering of unknown IDs, and filling in of missing blocks.
  */
 export function loadAnalyticsConfig() {
   if (typeof localStorage === 'undefined') {
@@ -167,7 +167,7 @@ export function loadAnalyticsConfig() {
       });
     }
 
-    // Добавляем недостающие блоки из конфигурации по умолчанию
+    // Add missing blocks from the default configuration
     for (const defItem of DEFAULT_ANALYTICS_CONFIG) {
       if (!seen.has(defItem.id)) {
         result.push({ ...defItem });
@@ -181,7 +181,7 @@ export function loadAnalyticsConfig() {
 }
 
 /**
- * Сохраняет конфигурацию аналитики в localStorage.
+ * Saves the analytics configuration to localStorage.
  */
 export function saveAnalyticsConfig(config) {
   if (typeof localStorage === 'undefined') return;
@@ -195,7 +195,7 @@ export function saveAnalyticsConfig(config) {
 }
 
 /**
- * Сбрасывает конфигурацию аналитики к эталонному значению и очищает хранилище.
+ * Resets the analytics configuration to the reference value and clears storage.
  */
 export function resetAnalyticsConfig() {
   if (typeof localStorage !== 'undefined') {
@@ -207,7 +207,7 @@ export function resetAnalyticsConfig() {
 }
 
 /**
- * Перемещает блок вверх или вниз в списке.
+ * Moves a block up or down in the list.
  */
 export function moveBlock(config, index, direction) {
   if (!Array.isArray(config)) return [];
@@ -226,7 +226,7 @@ export function moveBlock(config, index, direction) {
 }
 
 /**
- * Перемещает блок из fromIndex в toIndex (drag-and-drop).
+ * Moves a block from fromIndex to toIndex (drag-and-drop).
  */
 export function reorderBlock(config, fromIndex, toIndex) {
   if (!Array.isArray(config)) return [];
@@ -247,14 +247,14 @@ export function reorderBlock(config, fromIndex, toIndex) {
 }
 
 /**
- * Переключает видимость блока (скрыть / вернуть).
+ * Toggles a block's visibility (hide / restore).
  */
 export function toggleBlockVisibility(config, id) {
   return config.map((b) => (b.id === id ? { ...b, visible: !b.visible } : { ...b }));
 }
 
 /**
- * Изменяет колонку размещения блока для широкого экрана.
+ * Changes a block's column placement for a wide screen.
  */
 export function setBlockColumn(config, id, column, blockDefs = ANALYTICS_BLOCK_DEFS) {
   const def = blockDefs[id];
@@ -263,7 +263,7 @@ export function setBlockColumn(config, id, column, blockDefs = ANALYTICS_BLOCK_D
 }
 
 /**
- * Загружает сохранённые фильтры экрана «Аналитика» из localStorage.
+ * Loads saved filters for the "Analytics" screen from localStorage.
  */
 export function loadAnalyticsFilters() {
   if (typeof localStorage === 'undefined') return { ...DEFAULT_ANALYTICS_FILTERS };
@@ -324,7 +324,7 @@ export function loadAnalyticsFilters() {
 }
 
 /**
- * Сохраняет фильтры «Аналитики» в localStorage.
+ * Saves "Analytics" filters to localStorage.
  */
 export function saveAnalyticsFilters(filters) {
   if (typeof localStorage === 'undefined' || !filters) return;
@@ -354,7 +354,7 @@ export function saveAnalyticsFilters(filters) {
 }
 
 /**
- * Сбрасывает сохранённые фильтры «Аналитики» к значениям по умолчанию.
+ * Resets the saved "Analytics" filters to their default values.
  */
 export function resetAnalyticsFilters() {
   if (typeof localStorage !== 'undefined') {

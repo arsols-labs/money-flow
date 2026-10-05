@@ -1,7 +1,7 @@
-// Секция «Регулярные» на экране «Данные» (S1-3, issue #197, #280): правила
-// повторения без конкретной даты каждой операции. Устройство — зеркало
-// PlannedSection.jsx: своя форма, свой chain для правок строки, закрытие
-// периода и пропуск периода, пауза/возобновление и удаление.
+// "Recurring" section on the "Data" screen (S1-3, issue #197, #280): recurrence
+// rules without a specific date for each operation. The structure mirrors
+// PlannedSection.jsx: its own form, its own chain for row edits, closing a
+// period and skipping a period, pause/resume, and deletion.
 import React, { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pause, Play, Plus, Trash2, ChevronDown, ChevronRight, Check, SkipForward } from 'lucide-react';
