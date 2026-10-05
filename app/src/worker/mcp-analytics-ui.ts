@@ -1,7 +1,7 @@
 /**
- * MCP Apps — Аналитика (Analytics) UI
+ * MCP Apps — Analytics UI
  * SEP-1865: text/html;profile=mcp-app
- * Интерактивный интерфейс аналитики расходов и структуры трат внутри переписки.
+ * Interactive UI for spending analytics and spend structure inside a conversation.
  */
 
 import { MCP_WIDGET_RPC_SCRIPT } from './mcp-widget-rpc';

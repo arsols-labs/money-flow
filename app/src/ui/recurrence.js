@@ -1,7 +1,7 @@
-// Помощники для секций «Плановые» и «Регулярные» на экране «Данные»:
-// человекочитаемое описание правила повторения и мелкие форматтеры дат для
-// форм. Чистые функции без React — чтобы их можно было протестировать
-// отдельно (см. test/recurrence.test.ts), по той же логике, что money.js.
+// Helpers for the "Planned" and "Recurring" sections on the "Data" screen:
+// a human-readable description of a recurrence rule and small date formatters for
+// forms. Pure functions without React — so they can be tested
+// on their own (see test/recurrence.test.ts), on the same principle as money.js.
 
 import { RU_MONTHS } from './money';
 import i18n from './i18n';
@@ -11,13 +11,13 @@ function currentLang() {
   return i18n.resolvedLanguage || i18n.language || 'en';
 }
 
-/** Склонение существительного периода под конкретное число: 2 недели, 5 недель. */
+/** Declension of a period noun for a specific number: 2 weeks, 5 weeks. */
 export function intervalUnitLabel(frequency, count) {
   const key = `recurrence.unit.${frequency}`;
   return i18n.t(key, { count: Math.abs(Number(count) || 0) });
 }
 
-/** Список для `select` периодичности в формах плановых/регулярных операций. */
+/** Options for the frequency `select` in planned/recurring operation forms. */
 export const FREQUENCY_OPTIONS = [
   { value: 'daily', get label() { return i18n.t('recurrence.everyOption.daily'); } },
   { value: 'weekly', get label() { return i18n.t('recurrence.everyOption.weekly'); } },
@@ -38,8 +38,8 @@ function monthIndexFromDate(dateStr) {
 }
 
 /**
- * Человекочитаемое описание правила повторения: «каждый месяц 15 числа»,
- * «раз в 2 недели», «каждый год 29 февраля», «каждый день».
+ * Human-readable description of a recurrence rule: "every month on the 15th",
+ * "every 2 weeks", "every year on 29 February", "every day".
  */
 export function describeRecurrence(item) {
   const frequency = item?.frequency;
@@ -83,7 +83,7 @@ export function describeRecurrence(item) {
 }
 
 /**
- * «15 сентября» / «15 сентября 2027» — год виден только не в текущем году.
+ * "15 September" / "15 September 2027" — the year is shown only when it is not the current year.
  */
 export function formatDayMonth(dateStr) {
   if (typeof dateStr !== 'string') return '';
@@ -102,7 +102,7 @@ export function formatDayMonth(dateStr) {
   });
 }
 
-/** Сегодняшняя дата в формате поля даты, по локальному времени — не UTC. */
+/** Today's date in the date-field format, in local time — not UTC. */
 export function todayDateString() {
   const now = new Date();
   const y = now.getFullYear();
@@ -112,7 +112,7 @@ export function todayDateString() {
 }
 
 /**
- * Описание срока ближайшего платежа относительно текущего дня.
+ * Description of when the next payment is due relative to the current day.
  */
 export function describeDueDate(dateStr, baseDateStr = todayDateString()) {
   if (typeof dateStr !== 'string' || !dateStr) return { text: '', tone: 'future' };

@@ -1,21 +1,21 @@
-// Календарь финансовых дат v2 (issue #198): financial date — строка YYYY-MM-DD,
-// не зависящая от таймзоны просмотра. Все операции — целочисленные, без
-// Date-парсинга локали. Используется расписаниями (recurrence.ts) и движком
-// прогноза (build.ts, load.ts). Конвенция дат — шапка
-// migrations/0001_initial_schema.sql: даты TEXT 'YYYY-MM-DD'.
+// Financial date calendar v2 (issue #198): a financial date is a YYYY-MM-DD
+// string, independent of the viewing timezone. Every operation is integer
+// arithmetic, without locale Date parsing. Used by schedules (recurrence.ts)
+// and the forecast engine (build.ts, load.ts). The date convention is the
+// header of migrations/0001_initial_schema.sql: dates are TEXT 'YYYY-MM-DD'.
 
-// Год 0000 отвергается здесь же, а не только в formatIsoDate: без этого
-// isIsoDateString('0000-01-01') возвращал true, дата проходила валидацию и
-// сохранялась (миграционные CHECK'и её тоже принимали — SQLite считает
-// date('0000-01-01') корректной), а падало уже потом, на addDays() или
-// генерации прогноза, когда formatIsoDate доходил до своей границы 0001–9999.
-// Диапазон модуля один и объявлен в одном месте — в этой регулярке.
+// Year 0000 is rejected here as well, not only in formatIsoDate: without this,
+// isIsoDateString('0000-01-01') returned true, the date passed validation and
+// was stored (the migration CHECKs accepted it too — SQLite considers
+// date('0000-01-01') valid), and it failed only later, in addDays() or
+// forecast generation, when formatIsoDate reached its own bound of 0001–9999.
+// The module's range is one and is declared in one place — in this regex.
 export const ISO_DATE_RE = /^(?!0000)\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 
 export interface IsoDate {
   year: number;
   month: number; // 1–12
-  day: number; // 1–31, валидный для месяца
+  day: number; // 1–31, valid for the month
 }
 
 export function isIsoDateString(value: unknown): value is string {
@@ -40,9 +40,9 @@ export function parseIsoDate(value: string): IsoDate {
 }
 
 export function formatIsoDate({ year, month, day }: IsoDate): string {
-  // Отрицательный год давал '00-1' вместо отказа: строка переставала совпадать
-  // с ISO_DATE_RE и неверно сравнивалась со всеми остальными датами. Остальные
-  // функции модуля бросают RangeError — эта молчала.
+  // A negative year produced '00-1' instead of a rejection: the string stopped
+  // matching ISO_DATE_RE and compared incorrectly with every other date. The
+  // other functions in the module throw RangeError — this one stayed silent.
   if (!Number.isInteger(year) || year < 1 || year > 9999) {
     throw new RangeError(`formatIsoDate: год вне диапазона 0001–9999: ${year}`);
   }
@@ -78,10 +78,10 @@ export function daysInMonth(year: number, month: number): number {
   }
 }
 
-/** Дни с эпохи 1970-01-01 (день 0) — чисто календарная арифметика. */
+/** Days since the epoch 1970-01-01 (day 0) — pure calendar arithmetic. */
 export function isoDateToEpochDay(date: string): number {
   const { year, month, day } = parseIsoDate(date);
-  // Алгоритм Хиннанта (civil_from_days наоборот) — целочисленный, без Date.
+  // Hinnant's algorithm (civil_from_days in reverse) — integer, without Date.
   const y = month <= 2 ? year - 1 : year;
   const era = Math.floor(y / 400);
   const yoe = y - era * 400;
@@ -109,14 +109,14 @@ export function addDays(date: string, days: number): string {
   return epochDayToIsoDate(isoDateToEpochDay(date) + days);
 }
 
-/** Разница dateB - dateA в днях. */
+/** Difference dateB - dateA in days. */
 export function diffDays(dateA: string, dateB: string): number {
   return isoDateToEpochDay(dateB) - isoDateToEpochDay(dateA);
 }
 
 /**
- * День месяца с clamp: 29–31 в коротких месяцах прижимаются к последнему
- * календарному дню.
+ * Day of month with clamp: 29–31 in short months are clamped to the last
+ * calendar day.
  */
 export function clampedDate(year: number, month: number, dayOfMonth: number): string {
   if (!Number.isInteger(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 31) {

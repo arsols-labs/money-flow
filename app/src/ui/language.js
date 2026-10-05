@@ -1,8 +1,8 @@
-// Выбор языка интерфейса (issues #511, #548, #586).
+// Interface language selection (issues #511, #548, #586).
 //
-// Отдельный модуль без i18next: его держат тесты и инициализация i18n.
-// Первый визит без mf_lang — язык браузера/региона, иначе en.
-// Ручной выбор в меню пишет mf_lang и больше не переопределяется детектом.
+// A separate module without i18next: tests and i18n initialization depend on it.
+// A first visit with no mf_lang uses the browser/region language, otherwise en.
+// A manual choice in the menu writes mf_lang and is no longer overridden by detection.
 
 export const LANGUAGE_STORAGE_KEY = 'mf_lang';
 export const DEFAULT_LANGUAGE = 'en';
@@ -128,7 +128,7 @@ export function persistLanguage(lng, storage) {
   try {
     store.setItem(LANGUAGE_STORAGE_KEY, lng);
   } catch {
-    // quota / private mode — язык остаётся на сессию
+    // quota / private mode — the language lasts for the session
   }
 }
 

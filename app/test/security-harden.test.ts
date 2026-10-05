@@ -31,7 +31,7 @@ describe('security harden (#533)', () => {
   });
 
   describe('timingSafeEqualString', () => {
-    it('принимает равные строки и отвергает отличающиеся', () => {
+    it('accepts equal strings and rejects ones that differ', () => {
       expect(timingSafeEqualString('abc', 'abc')).toBe(true);
       expect(timingSafeEqualString('abc', 'abd')).toBe(false);
       expect(timingSafeEqualString('abc', 'ab')).toBe(false);
@@ -40,7 +40,7 @@ describe('security harden (#533)', () => {
   });
 
   describe('escapeHtml', () => {
-    it('экранирует ledger-строки для innerHTML', () => {
+    it('escapes ledger strings for innerHTML', () => {
       expect(escapeHtml(`<img src=x onerror="alert(1)">`)).toBe(
         '&lt;img src=x onerror=&quot;alert(1)&quot;&gt;',
       );
@@ -49,7 +49,7 @@ describe('security harden (#533)', () => {
   });
 
   describe('MCP Apps widget sources', () => {
-    it('экранирует метки в analytics и pulse UI', () => {
+    it('escapes labels in the analytics and pulse UI', () => {
       const analytics = getAnalyticsHtml();
       const pulse = getPulseHtml();
       expect(analytics).toContain('function escapeHtml');
@@ -69,7 +69,7 @@ describe('security harden (#533)', () => {
   });
 
   describe('SETUP_TOKEN query', () => {
-    it('игнорирует query token и принимает только fragment', () => {
+    it('ignores a query token and accepts only a fragment', () => {
       const discarded = consumeSetupTokenFromSearch(
         'https://example.com/setup/passkey?token=secret-value&x=1#/access',
       );
@@ -86,7 +86,7 @@ describe('security harden (#533)', () => {
       expect(fromHash.nextUrl).toBe('/setup/passkey?x=1');
     });
 
-    it('не трогает URL без token', () => {
+    it('leaves a URL with no token untouched', () => {
       const { token, nextUrl, discardedQueryToken } = consumeSetupTokenFromSearch('https://example.com/setup/passkey');
       expect(token).toBe('');
       expect(discardedQueryToken).toBe(false);
@@ -95,7 +95,7 @@ describe('security harden (#533)', () => {
   });
 
   describe('rate limit', () => {
-    it('после лимита возвращает allowed=false', async () => {
+    it('returns allowed=false after the limit', async () => {
       const bucket = `test:${crypto.randomUUID()}`;
       for (let i = 0; i < 3; i++) {
         const ok = await consumeRateLimit(bucket, 3, 60);
@@ -106,7 +106,7 @@ describe('security harden (#533)', () => {
       expect(blocked.retryAfterSec).toBeGreaterThan(0);
     });
 
-    it('режет POST /api/auth/oauth/register', async () => {
+    it('rate-limits POST /api/auth/oauth/register', async () => {
       const ip = `198.51.100.${Math.floor(Math.random() * 200) + 1}`;
       let lastStatus = 0;
       for (let i = 0; i < RATE_LIMITS.oauthRegister.limit + 2; i++) {
@@ -130,7 +130,7 @@ describe('security harden (#533)', () => {
       expect(lastStatus).toBe(429);
     });
 
-    it('режет POST /api/auth/login/options', async () => {
+    it('rate-limits POST /api/auth/login/options', async () => {
       const ip = `203.0.113.${Math.floor(Math.random() * 200) + 1}`;
       let saw429 = false;
       for (let i = 0; i < RATE_LIMITS.authLogin.limit + 2; i++) {
@@ -154,7 +154,7 @@ describe('security harden (#533)', () => {
   });
 
   describe('logout', () => {
-    it('сбрасывает cookie и denylist-ит sid — повторный /me уже не авторизован', async () => {
+    it('clears the cookie and denylists the sid — a repeated /me is no longer authorized', async () => {
       const setCookie = await createSessionCookie(env as unknown as Env, false);
       const cookie = setCookie.split(';')[0]!;
       expect(await verifySessionCookie(env as unknown as Env, cookie)).toBe(true);
@@ -187,7 +187,7 @@ describe('security harden (#533)', () => {
   });
 
   describe('Access revoke kills /mcp bearer', () => {
-    it('после DELETE /access/tokens/:grantId bearer больше не проходит на /mcp', async () => {
+    it('after DELETE /access/tokens/:grantId the bearer no longer passes on /mcp', async () => {
       await env.DB.batch([
         env.DB.prepare('DELETE FROM oauth_tokens'),
         env.DB.prepare('DELETE FROM oauth_consents'),

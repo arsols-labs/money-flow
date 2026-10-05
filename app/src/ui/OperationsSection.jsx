@@ -1,17 +1,17 @@
-// Секция «Операции» на экране «Данные» (S1-5a, issue #200): траты, доходы и
-// возвраты, введённые вручную. Устройство — как у «Плановых»: форма со своими
-// busy/error, действия без формы идут через runAction с общим баннером, правки
-// одной строки выстроены в цепочку через serialize.
+// "Operations" section on the "Data" screen (S1-5a, issue #200): expenses, income, and
+// refunds entered by hand. The structure matches "Planned": a form with its own
+// busy/error, actions without a form go through runAction with a shared banner, and edits
+// of one row are chained through serialize.
 //
-// Три вещи, которыми секция отличается от плановых, и все три идут от того, что
-// операция уже случилась (решение владельца 2026-08-12):
+// Three things that set this section apart from planned items, and all three come from the fact that
+// the operation has already happened (decision of 2026-08-12):
 //
-//   - валюты в форме нет вовсе. Она равна валюте счёта и не правится: с
-//     динарового счёта долларовая покупка списывается в динарах;
-//   - сумма правит баланс счёта при сохранении, поэтому форма показывает
-//     будущий баланс до нажатия «Сохранить», а не после;
-//   - вид выбирается явно (трата / доход / возврат) и задаёт знак: возврат и
-//     доход оба увеличивают баланс, но «Аналитике» различать их обязательно.
+//   - the form has no currency at all. It equals the account currency and is not edited: a
+//     dollar purchase from a dinar account is debited in dinars;
+//   - the amount adjusts the account balance on save, so the form shows
+//     the future balance before "Save" is pressed, not after;
+//   - the kind is chosen explicitly (expense / income / refund) and sets the sign: a refund and
+//     income both increase the balance, but "Analytics" must tell them apart.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, Trash2, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
@@ -24,9 +24,9 @@ import { DATA_BLOCK_DEFS } from './dataLayout';
 import { blockTitle } from './i18nLabels';
 import { compactComment, ReceiptUrlLink } from './ReceiptUrlLink';
 
-// Сколько операций показывать до нажатия «Показать все». Список растёт без
-// границы (в v1 позиций уже больше четырёхсот), а «Данные» — экран ввода:
-// разбор по периодам и категориям живёт в «Аналитике».
+// How many operations to show before "Show all" is pressed. The list grows without
+// a bound (v1 already has more than four hundred items), and "Data" is an entry screen:
+// breakdown by period and category lives in "Analytics".
 export const KINDS = [
   { key: 'expense', labelKey: 'data.operations.kind.expense', className: 'data-kind-btn--expense' },
   { key: 'income', labelKey: 'data.operations.kind.income', className: 'data-kind-btn--income' },
@@ -160,8 +160,8 @@ export function OperationForm({ initial = null, accounts, onSubmit, onCancel, su
   const fromCurrency = fromAccount?.currency ?? '';
   const toCurrency = toAccount?.currency ?? '';
 
-  // Знак задаёт вид, а не минус в поле: набранный минус берётся по модулю,
-  // чтобы он не мог втихую перевернуть трату в доход (тот же приём у плановых).
+  // The kind sets the sign, not a minus in the field: a typed minus is taken by absolute value,
+  // so it cannot quietly turn an expense into income (the same approach as planned items).
   const signedMinor = useMemo(() => {
     if (isTransfer) return null;
     if (!currency) return null;
@@ -174,8 +174,8 @@ export function OperationForm({ initial = null, accounts, onSubmit, onCancel, su
     }
   }, [form.amount, form.kind, currency, isTransfer]);
 
-  // Главная подсказка формы: операция правит баланс при сохранении, и увидеть
-  // это владелец должен ДО нажатия, а не по факту.
+  // The form's main hint: an operation adjusts the balance on save, and that
+  // must be seen BEFORE the press, not after the fact.
   const balancePreview = useMemo(() => {
     if (isTransfer) {
       if (!fromAccount || !toAccount || fromAccount.id === toAccount.id) return null;
@@ -536,9 +536,9 @@ function OperationRow({ operation, accounts, expanded, onToggle, onUpdate, onDel
   );
 }
 
-// Перевод показываем одной строкой (#378): дата, «Перевод», счёт-источник →
-// счёт-назначение и суммы обеих сторон. Раскрытие показывает обе операции
-// (списание и зачисление) вместе с кнопкой удаления всей пары.
+// A transfer is shown as one row (#378): date, "Transfer", source account →
+// destination account, and both sides' amounts. Expanding shows both operations
+// (the debit and the credit) together with a button that deletes the whole pair.
 export function TransferRow({ out, inn, accounts, expanded, onToggle, onDelete, onUpdate = () => {} }) {
   const { t } = useTranslation();
   const fromAcc = findAccount(accounts, out?.account_id);
@@ -861,8 +861,8 @@ export default function OperationsSection({
   const [operations, setOperations] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
   const [showNew, setShowNew] = useState(false);
-  // Пагинация (issue #379): по умолчанию 10 последних; лимит-селект
-  // 10/20/50/100/все; «Показать ещё» добавляет по 10 к видимому.
+  // Pagination (issue #379): 10 latest by default; a limit select of
+  // 10/20/50/100/all; "Show more" adds 10 to what is visible.
   const [internalLimit, setInternalLimit] = useState(10);
   const limit = propLimit !== undefined ? propLimit : internalLimit;
   const [visibleCount, setVisibleCount] = useState(limit === 'all' ? Number.MAX_SAFE_INTEGER : (typeof limit === 'number' ? limit : 10));
@@ -872,19 +872,19 @@ export default function OperationsSection({
     setVisibleCount(limit === 'all' ? Number.MAX_SAFE_INTEGER : (typeof limit === 'number' ? limit : 10));
   }, [limit]);
 
-  // Сброс видимого числа при смене лимита, чтобы «все» сразу раскрывал список,
-  // а возврат к 10 не оставлял старые 50 на экране.
+  // Reset the visible count when the limit changes, so "all" opens the list at once
+  // and going back to 10 does not leave the old 50 on screen.
   const changeLimit = (n) => {
     if (propOnLimitChange) propOnLimitChange(n);
     else setInternalLimit(n);
     setVisibleCount(n === 'all' ? Number.MAX_SAFE_INTEGER : n);
   };
 
-  // Список для отображения (issue #377 #378 #379):
-  // 1) фильтр по поиску (item/store/category/счёт) — client-side поверх
-  //    уже загруженного списка;
-  // 2) группировка пар transfer_out/transfer_in в одну карточку перевода;
-  // 3) пагинация поверх сгруппированного списка.
+  // The list to display (issue #377 #378 #379):
+  // 1) a search filter (item/store/category/account) — client-side over
+  //    the list already loaded;
+  // 2) grouping of transfer_out/transfer_in pairs into one transfer card;
+  // 3) pagination over the grouped list.
   const matchesSearch = (op) => {
     const q = search.trim().toLowerCase();
     if (!q) return true;
@@ -895,7 +895,7 @@ export default function OperationsSection({
 
   const displayList = useMemo(() => {
     const filtered = operations.filter(matchesSearch);
-    // Группируем переводы: transfer_id одинаков у списания и зачисления.
+    // Group transfers: transfer_id is the same for the debit and the credit.
     const items = [];
     const seen = new Set();
     for (const op of filtered) {
@@ -930,10 +930,10 @@ export default function OperationsSection({
 
   useLoadWhenExpanded(expanded, load, refreshNonce);
 
-  // Плановая галочка создаёт или удаляет факт в другом блоке (#267). Хук выше
-  // грузит список один раз; без этого ревизия оставила бы открытый блок со
-  // старым списком до перезагрузки. Тихий refresh, без «загрузка…»: мигание
-  // чужой секции хуже слегка устаревшего кадра на один кадр сети.
+  // A planned checkbox creates or deletes a fact in another block (#267). The hook above
+  // loads the list once; without this, a revision would leave an open block with
+  // the old list until a reload. A quiet refresh, without "loading…": a flicker
+  // of someone else's section is worse than a slightly stale frame for one network frame.
   const loadedRef = useRef(false);
   useEffect(() => {
     if (status === 'ready' || status === 'error') loadedRef.current = true;
@@ -944,15 +944,15 @@ export default function OperationsSection({
     api.listOperations().then((res) => {
       if (!cancelled) setOperations(res.operations);
     }).catch(() => {
-      // Список, который уже на экране, лучше оставить, чем погасить его ошибкой
-      // соседнего блока.
+      // A list already on screen is better left as it is than wiped by an error
+      // from a neighboring block.
     });
     return () => { cancelled = true; };
   }, [factsRevision]);
 
-  // Счета перечитываются после каждого действия, и это не перестраховка: их
-  // балансы только что изменились на сервере. Без этого форма показывала бы
-  // будущий баланс от устаревшего значения, а строка счёта выше — старую сумму.
+  // Accounts are re-read after every action, and this is not over-caution: their
+  // balances have just changed on the server. Without it the form would show
+  // a future balance from a stale value, and the account row above would show the old amount.
   const refresh = useCallback(async () => {
     const res = await api.listOperations();
     setOperations(res.operations);
@@ -960,9 +960,9 @@ export default function OperationsSection({
     await refreshAccounts();
   }, [refreshAccounts]);
 
-  // Цепочка правок одной строки — тот же приём и та же причина, что у плановых:
-  // параллельные PATCH применились бы в непредсказуемом порядке, а здесь это
-  // ещё и разъехавшийся баланс.
+  // A chain of edits to one row — the same approach and the same reason as planned items:
+  // parallel PATCHes would apply in an unpredictable order, and here that is
+  // also a balance that has drifted apart.
   const chainRef = useRef(Promise.resolve());
   const serialize = useCallback((fn) => {
     const next = chainRef.current.then(fn, fn);
@@ -1163,7 +1163,7 @@ export default function OperationsSection({
                 )}
               </div>
 
-              {/* Правая панель (Detail pane) для широких экранов */}
+              {/* Right pane (detail pane) for wide screens */}
               <div className="ops-detail-pane">
                 {showNew && !noAccounts ? (
                   <div className="card ops-detail-card">

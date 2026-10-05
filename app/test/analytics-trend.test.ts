@@ -1,4 +1,4 @@
-// Разделение расхода и возврата на графике динамики (issue #582).
+// Split of expense and refund on the trend chart (issue #582).
 import { describe, expect, it } from 'vitest';
 import { splitTrendPoint, trendHasRefunds } from '../src/ui/analyticsTrend.js';
 

@@ -219,7 +219,7 @@ async function recordToolAudit(
     if (!clientExists) return;
     await recordMcpAuditLog(db, clientId, toolName, status, resultSummary, idempotencyKey);
   } catch {
-    // журнал не должен ронять tools/call
+    // the log must not take down tools/call
   }
 }
 
@@ -1048,7 +1048,7 @@ for (const tool of TOOLS) {
   }
 }
 
-/** CallToolResult 2025-11-25: только content / structuredContent / isError / _meta. */
+/** CallToolResult 2025-11-25: only content / structuredContent / isError / _meta. */
 function callToolResult(partial: {
   content: Array<{ type: string; text: string }>;
   structuredContent?: Record<string, unknown>;
@@ -2027,7 +2027,7 @@ mcpApp.post('/mcp', async (c) => {
   const hasReadScope = scopes.includes('read');
   const hasWriteScope = scopes.includes('write');
 
-  // Обновляем время использования активного токена клиента в фоне
+  // Refresh the active client token's last-used time in the background
   if (clientId && clientId !== 'anonymous' && c.env?.DB) {
     const ip = c.req.header('cf-connecting-ip');
     const country = c.req.header('cf-ipcountry');
@@ -2395,7 +2395,7 @@ mcpApp.post('/mcp', async (c) => {
         });
       }
 
-      // Проверка MRTR (подтверждения)
+      // MRTR (confirmation) check
       const requestStateStr = params?.requestState || args?.requestState;
       const {
         auto_confirm: _fingerprintAutoConfirm,
@@ -2443,7 +2443,7 @@ mcpApp.post('/mcp', async (c) => {
       let state: any = null;
 
       if (!requestStateStr) {
-        // Шаг 1: Валидация аргументов и запрос подтверждения (MRTR)
+        // Step 1: validate the arguments and request confirmation (MRTR)
         if ('auto_confirm' in args && typeof args.auto_confirm !== 'boolean') {
           const errMsg = 'Error executing tool: auto_confirm должен быть boolean';
           await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
@@ -2482,13 +2482,13 @@ mcpApp.post('/mcp', async (c) => {
         }
 
         const isAgent = clientId !== 'anonymous';
-        // Позволяем агентам выполнять прямую запись (Single Round-Trip).
-        // Для fx_rate_set по умолчанию разрешаем (как просил Gemini), если явно не передано auto_confirm: false (для тестов MRTR).
+        // Allow a non-anonymous client to perform a direct write (Single Round-Trip).
+        // For fx_rate_set, allow it by default (as Gemini requested) unless auto_confirm: false is passed explicitly (for MRTR tests).
         const autoConfirm = args.auto_confirm === true || (name === 'fx_rate_set' && args.auto_confirm !== false);
         const shouldDirectExecute = isAgent && autoConfirm;
 
         if (shouldDirectExecute) {
-          // Прямое выполнение (Single Round-Trip)
+          // Direct execution (Single Round-Trip)
           state = {
             name,
             confirmedArgs: validation.confirmedArgs,
@@ -2499,7 +2499,7 @@ mcpApp.post('/mcp', async (c) => {
             createdAt: Date.now()
           };
         } else {
-          // Двухфазный MRTR: snapshot stays server-side; token is an opaque handle.
+          // Two-phase MRTR: snapshot stays server-side; token is an opaque handle.
           const confirmHandle = await storeWriteConfirmation(c.env, {
             confirmationSnapshot: validation.confirmationSnapshot ?? null,
             confirmedArgs: validation.confirmedArgs,
@@ -2542,7 +2542,7 @@ mcpApp.post('/mcp', async (c) => {
           });
         }
       } else {
-        // Шаг 2: Повторный вызов с переданным состоянием подтверждения (MRTR).
+        // Step 2: a repeated call carrying the confirmation state (MRTR).
         state = await decodeRequestState(c.env.SESSION_SECRET, requestStateStr);
         if (state?.confirmHandle && typeof state.confirmHandle === 'string') {
           const stored = await loadWriteConfirmation(c.env, state.confirmHandle);
@@ -2823,15 +2823,15 @@ mcpApp.post('/mcp', async (c) => {
           });
         }
 
-        // DELETE /fx-rates/:code отвечает 204 без тела (контракт api.ts).
-        // response.json() на пустом теле бросает исключение — клиент видел бы
-        // isError, хотя курс уже удалён (#327). У 204 тела нет по определению.
+        // DELETE /fx-rates/:code answers 204 with no body (the api.ts contract).
+        // response.json() throws on an empty body — the client would see
+        // isError even though the rate is already deleted (#327). A 204 has no body by definition.
         const mutationData: Record<string, any> =
           response.status === 204 ? {} : ((await response.json()) as Record<string, any>);
 
-        // MCP не объявляет mutation response источником истины. Для новых
-        // planning writes сначала читаем провайдера через тот же apiV2, а уже
-        // затем фиксируем audit success и отвечаем агенту.
+        // MCP does not treat the mutation response as the source of truth. For new
+        // planning writes, read the provider first through the same apiV2, and only
+        // then record audit success and answer the client.
         const providerGet = async (path: string): Promise<Record<string, any>> => {
           const readResponse = await apiV2.fetch(
             new Request(new URL(path, reqUrl.origin).toString(), { headers: subHeaders }),
@@ -3052,8 +3052,8 @@ mcpApp.post('/mcp', async (c) => {
           };
         }
 
-        // fx_rate_delete по outputSchema отвечает { success: true, ...WRITE_OUTPUT_COMMON };
-        // у 204 тела нет, поэтому success доливаем явно, не трогая контракт API.
+        // fx_rate_delete answers { success: true, ...WRITE_OUTPUT_COMMON } per outputSchema;
+        // a 204 has no body, so success is filled in explicitly without touching the API contract.
         let written: Record<string, unknown> =
           name === 'fx_rate_delete'
             ? { ...data, success: true, written: true, resultType: 'complete' }

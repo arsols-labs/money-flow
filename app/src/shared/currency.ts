@@ -1,20 +1,20 @@
-// Разрядность минорной единицы ISO 4217 — общий источник для UI и воркера
-// (issue #198). Раньше жила только в src/ui/money.js; движку прогноза она
-// нужна для конверсии потоков между валютами (см. src/worker/forecast/build.ts),
-// поэтому вынесена сюда одним модулем (Закон 3 — один источник, не вторая копия).
+// ISO 4217 minor-unit scale — the shared source for the UI and the worker
+// (issue #198). It used to live only in src/ui/money.js; the forecast engine
+// needs it to convert flows between currencies (see src/worker/forecast/build.ts),
+// so it is extracted here as one module (Law 3 — one source, not a second copy).
 
-// Разрядность минорной единицы по ISO 4217. Таблица, а не
-// `Intl.…resolvedOptions().maximumFractionDigits`, и это принципиально:
-// Intl отвечает по данным CLDR, а они местами расходятся с ISO — для RSD CLDR
-// даёт 0 знаков (проверено в workerd), то есть баланс сербского счёта уехал бы
-// в базу в сто раз меньше. Хуже, что ответ зависит от версии ICU в конкретном
-// браузере: раскладка суммы на минорные единицы — это то, как деньги лежат в
-// D1 навсегда, и она не может меняться вместе с окружением. Перечислены только
-// исключения, всё остальное — два знака.
+// Minor-unit scale per ISO 4217. A table, not
+// `Intl.…resolvedOptions().maximumFractionDigits`, and that is deliberate:
+// Intl answers from CLDR data, and in places that diverges from ISO — for RSD
+// CLDR gives 0 digits (verified in workerd), so a Serbian account's balance
+// would land in the database a hundred times too small. Worse, the answer
+// depends on the ICU version in a particular browser: splitting an amount into
+// minor units is how money sits in D1 forever, and it cannot change along with
+// the environment. Only the exceptions are listed; everything else is two digits.
 const ZERO_DECIMAL = new Set(['BIF', 'CLP', 'DJF', 'GNF', 'ISK', 'JPY', 'KMF', 'KRW', 'PYG', 'RWF', 'UGX', 'UYI', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']);
 const THREE_DECIMAL = new Set(['BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND']);
-// Четырёхзначные расчётные единицы ISO. В быту не встречаются, но раз таблица
-// называется таблицей ISO 4217, в ней не должно быть дырок.
+// Four-decimal ISO accounting units. They do not occur in everyday use, but
+// since the table is called an ISO 4217 table, it must not have holes.
 const FOUR_DECIMAL = new Set(['CLF', 'UYW']);
 
 // Active alphabetic codes from ISO 4217 List One published 2026-01-01 and

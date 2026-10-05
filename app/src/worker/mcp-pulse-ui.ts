@@ -1,7 +1,7 @@
 /**
- * MCP Apps — Пульс (Pulse) UI
+ * MCP Apps — Pulse UI
  * SEP-1865: text/html;profile=mcp-app
- * Интерактивный пульт диагностики денежного потока внутри переписки.
+ * Interactive cash-flow diagnostic console inside a conversation.
  */
 
 import { MCP_WIDGET_RPC_SCRIPT } from './mcp-widget-rpc';

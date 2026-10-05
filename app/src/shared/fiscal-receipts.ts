@@ -123,7 +123,7 @@ function buildGroup(params: {
 }
 
 /**
- * Group operations into fiscal-document cards for Data → Чеки.
+ * Group operations into fiscal-document cards for Data → Receipts.
  *
  * Primary key is a stored `fiscal_receipt_id` (PFR). Fallback without PFR is
  * one card per operation, and only when `receipt_url` is present — a weaker

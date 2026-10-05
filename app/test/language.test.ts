@@ -1,6 +1,6 @@
-// Выбор языка интерфейса (issue #511, #548, #586).
+// Interface language selection (issue #511, #548, #586).
 //
-// Чистые функции без i18next: default `en`, ключ `mf_lang`.
+// Pure functions without i18next: default `en`, key `mf_lang`.
 import { describe, expect, it } from 'vitest';
 import {
   LANGUAGE_STORAGE_KEY,
@@ -34,7 +34,7 @@ function memoryStorage(initial: Record<string, string> = {}) {
 }
 
 describe('language storage (issue #511, #548, #586)', () => {
-  it('держит en/ru/de/fr/es/pt/sr, default — en', () => {
+  it('keeps en/ru/de/fr/es/pt/sr, default is en', () => {
     expect(DEFAULT_LANGUAGE).toBe('en');
     expect([...SUPPORTED_LANGUAGES]).toEqual(['en', 'ru', 'de', 'fr', 'es', 'pt', 'sr']);
     expect(LANGUAGE_STORAGE_KEY).toBe('mf_lang');
@@ -50,14 +50,14 @@ describe('language storage (issue #511, #548, #586)', () => {
     expect(isSupportedLanguage(null)).toBe(false);
   });
 
-  it('без записи и без storage возвращает en', () => {
+  it('returns en when there is no record and no storage', () => {
     expect(readStoredLanguage(memoryStorage())).toBe('en');
     expect(readStoredLanguage(null)).toBe('en');
     expect(peekStoredLanguage(memoryStorage())).toBeNull();
     expect(peekStoredLanguage(null)).toBeNull();
   });
 
-  it('читает сохранённый язык и отбрасывает мусор', () => {
+  it('reads the stored language and drops garbage', () => {
     expect(readStoredLanguage(memoryStorage({ mf_lang: 'ru' }))).toBe('ru');
     expect(readStoredLanguage(memoryStorage({ mf_lang: 'en' }))).toBe('en');
     expect(readStoredLanguage(memoryStorage({ mf_lang: 'de' }))).toBe('de');
@@ -69,7 +69,7 @@ describe('language storage (issue #511, #548, #586)', () => {
     expect(readStoredLanguage(memoryStorage({ mf_lang: '' }))).toBe('en');
   });
 
-  it('пишет только поддерживаемый язык', () => {
+  it('writes only a supported language', () => {
     const store = memoryStorage();
     persistLanguage('ru', store);
     expect(store.dump()).toEqual({ mf_lang: 'ru' });
@@ -83,7 +83,7 @@ describe('language storage (issue #511, #548, #586)', () => {
     expect(store.dump()).toEqual({ mf_lang: 'sr' });
   });
 
-  it('не падает, если storage бросает', () => {
+  it('does not throw if storage throws', () => {
     const broken = {
       getItem() {
         throw new Error('blocked');
@@ -97,7 +97,7 @@ describe('language storage (issue #511, #548, #586)', () => {
     expect(() => persistLanguage('ru', broken)).not.toThrow();
   });
 
-  it('ставит lang на documentElement только для поддерживаемых языков', () => {
+  it('sets lang on documentElement only for supported languages', () => {
     const doc = { documentElement: { lang: 'ru' } };
     applyDocumentLanguage('en', doc);
     expect(doc.documentElement.lang).toBe('en');

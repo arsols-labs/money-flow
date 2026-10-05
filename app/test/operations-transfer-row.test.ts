@@ -53,7 +53,7 @@ function render(props: Record<string, unknown>) {
 }
 
 describe('TransferRow', () => {
-  it('использует общую оболочку строки вместо нативной кнопки', () => {
+  it('uses the shared row shell instead of a native button', () => {
     const html = render({});
 
     expect(html).toContain('class="data-row data-row--transfer"');
@@ -62,7 +62,7 @@ describe('TransferRow', () => {
     expect(html).not.toContain('<button type="button" class="data-row-main"');
   });
 
-  it('в раскрытии показывает обе стороны перевода и детали на токенах секции', () => {
+  it('when expanded shows both sides of the transfer and details on the section tokens', () => {
     const html = render({ expanded: true });
 
     expect(html).toContain('Наличные → Карта');
@@ -75,7 +75,7 @@ describe('TransferRow', () => {
     expect(html).toContain(i18n.t('common.deleteTransfer'));
   });
 
-  it('в свёрнутой строке показывает i18n-ссылку, а не полный URL', () => {
+  it('in the collapsed row shows the i18n link, not the full URL', () => {
     const url = 'https://suf.purs.gov.rs/v/?vl=' + 'B'.repeat(80);
     const html = render({
       out: { ...out, receipt_url: url },

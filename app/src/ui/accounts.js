@@ -1,28 +1,28 @@
-// Две подсказки формы счёта (issue #235, правила счетов в ROADMAP).
+// Two hints for the account form (issue #235, account rules in ROADMAP).
 //
-// Обе — про момент, когда владелец заводит реальный набор счетов вручную,
-// впервые и подряд: импорта из Sheets в v2 нет. Ни одна из них ничего не
-// запрещает — правила прямо называют законными и одинаковые имена, и два счёта
-// с одной тройкой (владелец, валюта, страна). Логика вынесена сюда чистыми
-// функциями, чтобы её можно было проверить тестами без DOM: React-рендер в
-// тестах v2 не поднимается, пул гоняется в workerd.
+// Both are about the moment when a real set of accounts is entered by hand,
+// for the first time and in a row: v2 has no import from Sheets. Neither of them
+// forbids anything — the rules explicitly call both identical names and two accounts
+// with one triple (owner, currency, country) legitimate. The logic lives here as pure
+// functions so it can be checked by tests without the DOM: a React render is not
+// brought up in v2 tests; the pool runs in workerd.
 
 const SEPARATOR = ' · ';
 
-// Пусто, пробелы, undefined — всё это «поле не заполнено».
+// Empty, whitespace, undefined — all of these mean "the field is not filled in".
 function clean(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
 /**
- * Имя по умолчанию: «Вид · Валюта · Страна» — «Наличные · USD · Global».
- * Владелец в имя не входит: по правилу он идёт подписью карточки.
- * Вид и страна — свободный текст (справочников в v2 нет), поэтому
- * подставляются как есть; валюта приводится к верхнему регистру, потому что
- * именно в таком виде она и хранится.
+ * Default name: "Type · Currency · Country" — "Cash · USD · Global".
+ * The owner is not part of the name: by rule it is the card's caption.
+ * Type and country are free text (v2 has no directories), so
+ * they are inserted as-is; currency is uppercased because
+ * that is the form in which it is stored.
  *
- * Пока заполнена не вся тройка, предлагать нечего: «Наличные · · Global» —
- * не имя, а полуфабрикат.
+ * Until the whole triple is filled in, there is nothing to suggest: "Cash · · Global"
+ * is not a name, it is a half-finished one.
  */
 export function suggestAccountName(form) {
   const type = clean(form?.type);
@@ -33,16 +33,16 @@ export function suggestAccountName(form) {
 }
 
 /**
- * Что подставить в поле «Название», или null — «не трогать».
+ * What to put in the "Name" field, or null — "do not touch".
  *
- * `touched` — владелец уже вводил имя руками. Такое не перетирается никогда:
- * явный ввод — сигнал намерения сильнее подставленного значения (то же
- * правило, что у поля баланса в AccountForm). Стёртое до пустоты имя — тоже
- * ручной ввод: подсказка задаёт стартовое значение, а не формат, и
- * возвращаться после удаления она не должна.
+ * `touched` means the name was already typed by hand. That is never overwritten:
+ * an explicit entry is a stronger signal of intent than a suggested value (the same
+ * rule as the balance field in AccountForm). A name erased to empty is also
+ * manual input: the hint sets a starting value, not a format, and
+ * it must not come back after a deletion.
  *
- * Неполная тройка не стирает то, что уже стоит в поле: владелец, поправляющий
- * валюту, не должен видеть, как имя исчезает на время правки.
+ * An incomplete triple does not erase what is already in the field: someone correcting
+ * the currency should not see the name disappear for the duration of the edit.
  */
 export function suggestedNameUpdate(form, { touched } = {}) {
   if (touched) return null;
@@ -56,19 +56,19 @@ function key(value) {
 }
 
 /**
- * Похожий счёт — тот же владелец, та же валюта, та же страна, без учёта
- * регистра и краевых пробелов. Возвращает первый найденный или null.
+ * A similar account is the same owner, the same currency, and the same country, ignoring
+ * case and surrounding whitespace. Returns the first match or null.
  *
- * Имя в сравнении не участвует намеренно: одинаковые имена допустимы по тому
- * же правилу, и дубль имени сам по себе поводом для предупреждения не является.
+ * The name is left out of the comparison on purpose: identical names are allowed by the
+ * same rule, and a duplicate name by itself is not a reason to warn.
  *
- * Архивные не в счёт: «кошелёк» из архива не мешает завести новый счёт той же
- * тройки, а предупреждение о нём заставило бы владельца искать счёт, которого
- * он в списке не видит.
+ * Archived accounts do not count: a "wallet" from the archive does not block creating a new account of the same
+ * triple, and a warning about it would make the owner look for an account
+ * that is not visible in the list.
  *
- * Функция обслуживает создание счёта. Для правки существующего она не годится:
- * счёт нашёл бы сам себя — и не нужна, потому что предупреждение показывается
- * только в форме создания.
+ * The function serves account creation. It is unfit for editing an existing account:
+ * the account would find itself — and it is not needed, because the warning is shown
+ * only on the create form.
  */
 export function findSimilarAccount(accounts, form) {
   const owner = key(form?.owner);

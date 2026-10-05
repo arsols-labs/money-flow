@@ -1,6 +1,6 @@
-// «Аналитика» — траты по операциям D1 (S1-5b, issue #250, S1-5c, issue #251).
-// Поиск и фильтры сверху действуют на все блоки страницы одновременно.
-// Агрегация считается на сервере отдельным роутом (POST /api/v2/analytics).
+// "Analytics" — spending from D1 operations (S1-5b, issue #250, S1-5c, issue #251).
+// The search and filters at the top apply to every block on the page at once.
+// Aggregation is computed on the server by a separate route (POST /api/v2/analytics).
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -80,18 +80,18 @@ export function periodToDateRange(key, now = new Date()) {
 }
 
 
-// ---------- фильтры ----------
+// ---------- filters ----------
 
 /**
- * Подсветка чипа по числу операций (требование владельца 2026-08-21):
- * категория с сотней операций должна бросаться в глаза, категория с одной —
- * оставаться доступной, но тихой. Градация плавная (кубический корень в
- * palette.js), а не тремя ступенями: у реальных данных длинный хвост, и на
- * ступенях он схлопывается в одну неразличимую массу.
+ * Chip highlight by operation count (requirement of 2026-08-21):
+ * a category with a hundred operations should catch the eye, a category with one
+ * should stay available but quiet. The gradation is smooth (cube root in
+ * palette.js), not three steps: real data has a long tail, and on
+ * steps it collapses into one indistinguishable mass.
  *
- * Подсвечиваются фон, рамка и цвет подписи. Выбранный чип не подсвечивается
- * долей: у него своя, более сильная заливка, и смешивать два сигнала в одном
- * элементе значит потерять оба.
+ * The background, the border, and the label color are highlighted. The selected chip is not highlighted
+ * by share: it has its own, stronger fill, and mixing two signals in one
+ * element means losing both.
  */
 function countEmphasisStyle(count, maxCount, active) {
   if (active || !maxCount) return undefined;
@@ -260,7 +260,7 @@ function FilterBar({ state, setState, options, activeCount }) {
   );
 }
 
-// ---------- график динамики ----------
+// ---------- trend chart ----------
 
 function trendLabel(ts, granularity, locale) {
   const d = new Date(ts);
@@ -405,7 +405,7 @@ function TrendSection({
   );
 }
 
-// ---------- топ позиций ----------
+// ---------- top items ----------
 
 function TopItemsSection({
   topItems,
@@ -511,7 +511,7 @@ function TopItemsSection({
   );
 }
 
-// ---------- чеки ----------
+// ---------- receipts ----------
 
 function ReceiptCard({ receipt, baseCurrency }) {
   const { t, i18n } = useTranslation();
@@ -571,7 +571,7 @@ function ReceiptCard({ receipt, baseCurrency }) {
   );
 }
 
-// ---------- регулярные операции и планы (issue #290) ----------
+// ---------- recurring operations and plans (issue #290) ----------
 
 function frequencyLabels(t) {
   return {
@@ -616,7 +616,7 @@ function RecurringPlansSection({
 
   const planItems = plans?.items ?? [];
 
-  // Собираем все уникальные категории из правил и фактических операций
+  // Collect every unique category from rules and actual operations
   const allCategories = useMemo(() => {
     const set = new Set();
     planItems.forEach((p) => {
@@ -628,7 +628,7 @@ function RecurringPlansSection({
     return Array.from(set).sort((a, b) => a.localeCompare(b, locale));
   }, [planItems, recurringDetails, locale]);
 
-  // Собираем доступные подкатегории (для выбранной категории или вообще)
+  // Collect available subcategories (for the selected category, or in general)
   const availableSubcategories = useMemo(() => {
     const set = new Set();
     recurringDetails.forEach((r) => {
@@ -648,16 +648,16 @@ function RecurringPlansSection({
     });
   };
 
-  // Фильтрация правил (plans) по выбранной категории
+  // Filter rules (plans) by the selected category
   const filteredPlans = useMemo(() => {
     return planItems.filter((p) => {
       if (selectedCat && p.category !== selectedCat) return false;
-      if (selectedSubcat) return false; // в правилах нет подкатегорий
+      if (selectedSubcat) return false; // rules have no subcategories
       return true;
     });
   }, [planItems, selectedCat, selectedSubcat]);
 
-  // Фильтрация фактических операций (recurringDetails) по категории и подкатегории
+  // Filter actual operations (recurringDetails) by category and subcategory
   const filteredRecurringOps = useMemo(() => {
     return recurringDetails.filter((r) => {
       if (selectedCat && r.category !== selectedCat) return false;
@@ -666,7 +666,7 @@ function RecurringPlansSection({
     });
   }, [recurringDetails, selectedCat, selectedSubcat]);
 
-  // Агрегация по категориям для вкладки "По категориям"
+  // Aggregate by category for the "By category" tab
   const categoryGroups = useMemo(() => {
     const map = new Map();
 
@@ -701,7 +701,7 @@ function RecurringPlansSection({
     });
   }, [filteredPlans, filteredRecurringOps, uncategorized, locale]);
 
-  // Расчёты для вкладки "Ежедневные"
+  // Calculations for the "Daily" tab
   const dailyData = useMemo(() => {
     const dailyRules = filteredPlans.filter((p) => p.frequency === 'daily');
     const dailyPlanPerDay = dailyRules.reduce((sum, p) => sum + Math.abs(p.converted_amount_minor), 0);
@@ -718,7 +718,7 @@ function RecurringPlansSection({
     };
   }, [filteredPlans, filteredRecurringOps]);
 
-  // Расчёты для вкладки "Доходы/Расходы"
+  // Calculations for the "Income/Expenses" tab
   const incomeExpenseData = useMemo(() => {
     let planIncomeMonthly = 0;
     let planExpenseMonthly = 0;
@@ -1049,7 +1049,7 @@ function RecurringPlansSection({
   );
 }
 
-// ---------- доска аналитики ----------
+// ---------- analytics board ----------
 
 /**
  * @param {{
@@ -1331,7 +1331,7 @@ export function AnalyticsDashboard({
   );
 }
 
-// ---------- главный экран ----------
+// ---------- main screen ----------
 
 export default function Analytics({ isCustomizing: externalCustomizing = false, onCustomizingChange }) {
   const { t } = useTranslation();

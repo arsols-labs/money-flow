@@ -13,7 +13,7 @@ const accounts = [
 
 describe('Data form kind toggles (Section 12 of Design Spec)', () => {
   describe('RecurringItemForm', () => {
-    it('по умолчанию выбирает «Расход» с классами data-kind-btn--expense data-kind-btn--active и aria-pressed="true"', () => {
+    it('by default selects "Expense" with classes data-kind-btn--expense data-kind-btn--active and aria-pressed="true"', () => {
       const html = renderToStaticMarkup(
         React.createElement(RecurringItemForm as any, {
           initial: null,
@@ -33,7 +33,7 @@ describe('Data form kind toggles (Section 12 of Design Spec)', () => {
       );
     });
 
-    it('при начальном доходе (amount_minor > 0) активирует «Доход» с data-kind-btn--income data-kind-btn--active', () => {
+    it('with an initial income (amount_minor > 0) activates "Income" with data-kind-btn--income data-kind-btn--active', () => {
       const initial = {
         id: 10,
         title: 'Зарплата',
@@ -66,7 +66,7 @@ describe('Data form kind toggles (Section 12 of Design Spec)', () => {
   });
 
   describe('PlannedItemForm', () => {
-    it('рендерит переключатель с role="group", семантическими классами и aria-pressed', () => {
+    it('renders a toggle with role="group", semantic classes, and aria-pressed', () => {
       const html = renderToStaticMarkup(
         React.createElement(PlannedItemForm as any, {
           initial: null,
@@ -86,7 +86,7 @@ describe('Data form kind toggles (Section 12 of Design Spec)', () => {
       );
     });
 
-    it('при доходе подсвечивает кнопку «Доход»', () => {
+    it('highlights the "Income" button when the item is income', () => {
       const initial = {
         id: 20,
         title: 'Премия',
@@ -117,7 +117,7 @@ describe('Data form kind toggles (Section 12 of Design Spec)', () => {
   });
 
   describe('OperationForm', () => {
-    it('рендерит переключатель с role="group", 4 кнопками и корректным aria-pressed', () => {
+    it('renders a toggle with role="group", 4 buttons, and the correct aria-pressed', () => {
       const html = renderToStaticMarkup(
         React.createElement(OperationForm as any, {
           initial: null,

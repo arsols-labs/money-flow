@@ -1,15 +1,15 @@
-// Чистые помощники графика «Динамика трат» (issue #582): расход и возврат
-// на одной шкале, но разными рядами. Сервер отдаёт минорные; здесь только
-// minor→major для recharts и запасной разбор старого `total_minor` без сплита.
+// Pure helpers for the "Spending trend" chart (issue #582): expense and refund
+// on one scale, but as different series. The server sends minor units; here only
+// minor→major for recharts and a fallback parse of the old `total_minor` without a split.
 
 export const TREND_EXPENSE_COLOR = 'var(--danger)';
 export const TREND_REFUND_COLOR = 'var(--safe)';
 
 /**
- * Точка API → поля графика.
- * `expense_minor` / `refund_minor` — абсолютные суммы (не нетто).
- * Если сплита нет (старый ответ), положительный нетто читаем как расход,
- * отрицательный — как возврат: иначе зелёный минус снова смешается с тратой.
+ * API point → chart fields.
+ * `expense_minor` / `refund_minor` are absolute amounts (not net).
+ * If there is no split (an old response), a positive net is read as an expense
+ * and a negative net as a refund: otherwise a green minus mixes back in with spending.
  */
 export function splitTrendPoint(point, digits) {
   const scale = 10 ** digits;

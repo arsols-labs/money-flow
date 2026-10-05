@@ -1,4 +1,4 @@
-// S2-2: Тесты API для экрана «Доступ» и журнала аудита MCP (issue #262)
+// S2-2: API tests for the "Access" screen and the MCP audit log (issue #262)
 
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -23,12 +23,12 @@ describe('S2-2: MCP Access & Audit API', () => {
   });
 
   describe('GET /api/v2/mcp/access', () => {
-    it('требует авторизацию (401 без cookie)', async () => {
+    it('requires authorization (401 without a cookie)', async () => {
       const res = await app.request('https://example.com/api/v2/mcp/access', undefined, env as unknown as Env);
       expect(res.status).toBe(401);
     });
 
-    it('возвращает пустой список клиентов если данных нет', async () => {
+    it('returns an empty client list when there is no data', async () => {
       const res = await app.request('https://example.com/api/v2/mcp/access', {
         headers: { Cookie: cookie },
       }, env as unknown as Env);
@@ -37,7 +37,7 @@ describe('S2-2: MCP Access & Audit API', () => {
       expect(json.clients).toEqual([]);
     });
 
-    it('возвращает клиентов с их активными токенами и парсит хост', async () => {
+    it('returns clients with their active tokens and parses the host', async () => {
       const clientId = 'https://claude.ai/mcp-metadata.json';
       await env.DB.prepare(
         `INSERT INTO oauth_clients (id, name, metadata_document_url, created_at)
@@ -58,7 +58,7 @@ describe('S2-2: MCP Access & Audit API', () => {
          VALUES (?, ?, ?, '2026-08-15T13:00:00Z', NULL, NULL, NULL)`
       ).bind(tokenId2, clientId, JSON.stringify(['read'])).run();
 
-      // Отозванный токен — не должен попасть в активные
+      // A revoked token must not land among the active ones
       await env.DB.prepare(
         `INSERT INTO oauth_tokens (id, client_id, scopes, created_at, revoked_at)
          VALUES (?, ?, ?, '2026-08-15T10:00:00Z', '2026-08-15T11:00:00Z')`
@@ -84,7 +84,7 @@ describe('S2-2: MCP Access & Audit API', () => {
       expect(client.tokens[1].last_country).toBe('US');
     });
 
-    it('синхронизирует last_used_at токена с более свежим вызовом из mcp_audit_log', async () => {
+    it('syncs the token last_used_at with a newer call from mcp_audit_log', async () => {
       const clientId = 'cursor-ide';
       await env.DB.prepare(
         `INSERT INTO oauth_clients (id, name, created_at)
@@ -114,7 +114,7 @@ describe('S2-2: MCP Access & Audit API', () => {
   });
 
   describe('POST /api/v2/mcp/access/clients', () => {
-    it('требует авторизацию (401 без cookie)', async () => {
+    it('requires authorization (401 without a cookie)', async () => {
       const res = await app.request('https://example.com/api/v2/mcp/access/clients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -123,7 +123,7 @@ describe('S2-2: MCP Access & Audit API', () => {
       expect(res.status).toBe(401);
     });
 
-    it('требует поле name (400 при пустом name)', async () => {
+    it('requires the name field (400 when name is empty)', async () => {
       const res = await app.request('https://example.com/api/v2/mcp/access/clients', {
         method: 'POST',
         headers: {
@@ -135,7 +135,7 @@ describe('S2-2: MCP Access & Audit API', () => {
       expect(res.status).toBe(400);
     });
 
-    it('успешно создаёт OAuth-клиента, записывает в D1 и возвращает ключи', async () => {
+    it('successfully creates an OAuth client, writes it to D1, and returns the keys', async () => {
       const res = await app.request('https://example.com/api/v2/mcp/access/clients', {
         method: 'POST',
         headers: {
@@ -162,7 +162,7 @@ describe('S2-2: MCP Access & Audit API', () => {
       expect(json.redirectUris).toContain('http://localhost:8080/callback');
       expect(json.redirectUris).toContain('https://oauth-redirect.googleusercontent.com');
 
-      // Проверка сохранения в D1
+      // Check that it was saved in D1
       const clientRow = await env.DB.prepare('SELECT * FROM oauth_clients WHERE id = ?')
         .bind(json.clientId)
         .first<{ id: string; name: string }>();
@@ -173,7 +173,7 @@ describe('S2-2: MCP Access & Audit API', () => {
   });
 
   describe('DELETE /api/v2/mcp/access/tokens/:tokenId', () => {
-    it('отзывает токен в БД', async () => {
+    it('revokes the token in the database', async () => {
       const clientId = 'client-1';
       const tokenId = 'tok-123';
 
@@ -196,7 +196,7 @@ describe('S2-2: MCP Access & Audit API', () => {
       expect(row?.revoked_at).not.toBeNull();
     });
 
-    it('не помечает D1, если отзыв гранта в провайдере падает (fail closed)', async () => {
+    it('does not mark D1 if revoking the grant in the provider fails (fail closed)', async () => {
       const clientId = 'client-fail-closed';
       const tokenId = 'tok-fail-closed';
       await env.DB.prepare(
@@ -239,7 +239,7 @@ describe('S2-2: MCP Access & Audit API', () => {
   });
 
   describe('DELETE /api/v2/mcp/access/clients/:clientId', () => {
-    it('отзывает все активные токены клиента', async () => {
+    it('revokes every active token of the client', async () => {
       const clientId = 'client-multi';
 
       await env.DB.prepare(
@@ -269,7 +269,7 @@ describe('S2-2: MCP Access & Audit API', () => {
   });
 
   describe('GET /api/v2/mcp/audit & recordMcpAuditLog', () => {
-    it('записывает и возвращает логи аудита с джоином клиента', async () => {
+    it('writes and returns audit logs with a join to the client', async () => {
       const clientId = 'https://claude.ai/metadata.json';
       await env.DB.prepare(
         `INSERT INTO oauth_clients (id, name, metadata_document_url, created_at)
@@ -299,7 +299,7 @@ describe('S2-2: MCP Access & Audit API', () => {
       expect(secondLog.status).toBe('success');
     });
 
-    it('#325: created_at журнала отдаёт ISO с Z даже из sqlite datetime(now)', async () => {
+    it('#325: the log created_at returns ISO with Z even from sqlite datetime(now)', async () => {
       const clientId = 'https://claude.ai/metadata.json';
       await env.DB.prepare(
         `INSERT INTO oauth_clients (id, name, metadata_document_url, created_at)
@@ -321,8 +321,8 @@ describe('S2-2: MCP Access & Audit API', () => {
     });
   });
 
-  describe('#325: штампы токенов в ISO с Z', () => {
-    it('GET /access нормализует sqlite datetime(now) в ISO UTC', async () => {
+  describe('#325: token timestamps in ISO with Z', () => {
+    it('GET /access normalizes sqlite datetime(now) to ISO UTC', async () => {
       const clientId = 'https://claude.ai/mcp-metadata.json';
       await env.DB.prepare(
         `INSERT INTO oauth_clients (id, name, metadata_document_url, created_at)

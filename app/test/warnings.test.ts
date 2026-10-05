@@ -19,8 +19,8 @@ function warning(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe('очередь предупреждений Пульса', () => {
-  it('ставит наступившие критические состояния выше будущих и ограничивает список тремя', () => {
+describe('Pulse warning queue', () => {
+  it('ranks critical states that have already occurred above future ones and limits the list to three', () => {
     const warnings = [
       warning({ dimension_key: 'below-later' }),
       warning({ dimension: 'account', dimension_key: '17', threshold_minor: 0, start_minor: -1, minimum_projected_minor: -500 }),
@@ -43,7 +43,7 @@ describe('очередь предупреждений Пульса', () => {
     expect(warningSeverity(result.visible[2]!).label).toBe('Важно');
   });
 
-  it('фильтрует по стране, счёту и валюте, сохраняя единый порядок', () => {
+  it('filters by country, account, and currency, keeping a single order', () => {
     const warnings = [
       warning({ dimension: 'country', dimension_key: 'USA', start_minor: -10 }),
       warning({ dimension: 'country', dimension_key: 'SRB' }),
@@ -64,14 +64,14 @@ describe('очередь предупреждений Пульса', () => {
     expect(warningSelection(warnings, 'currency').total).toBe(1);
   });
 
-  it('сбрасывает исчезнувшую категорию на Все и держит tie-breaker детерминированным', () => {
+  it('resets a disappeared category to All and keeps the tie-breaker deterministic', () => {
     const warnings = [warning({ dimension_key: '2' }), warning({ dimension_key: '10' })];
 
     expect(warningSelection(warnings, 'account').activeFilter).toBe('all');
     expect([...warnings].sort(compareWarnings).map((item) => item.dimension_key)).toEqual(['2', '10']);
   });
 
-  it('возвращает устойчивое пустое состояние с нулевым общим фильтром', () => {
+  it('returns a stable empty state with a zero overall filter', () => {
     expect(warningSelection([], 'currency')).toEqual({
       activeFilter: 'all',
       availableFilters: [{ key: 'all', label: 'Все', count: 0 }],
@@ -81,7 +81,7 @@ describe('очередь предупреждений Пульса', () => {
     });
   });
 
-  it('не схлопывает глубокий минус цветовым clamp и поднимает его в очереди', () => {
+  it('does not collapse a deep negative with the color clamp and raises it in the queue', () => {
     const warnings = [
       warning({ dimension_key: 'shallow', start_minor: -1, minimum_projected_minor: -1 }),
       warning({ dimension_key: 'deep', start_minor: -1, minimum_projected_minor: -300_000 }),
@@ -93,7 +93,7 @@ describe('очередь предупреждений Пульса', () => {
     expect(warningRatio(warnings[0]!)).toBeLessThan(0.5);
   });
 
-  it('фильтрует срочность раньше прежних категорий и раскрывает заданный лимит', () => {
+  it('filters urgency before the former categories and honors the given limit', () => {
     const warnings = [
       warning({ dimension_key: 'critical', start_minor: -1 }),
       warning({ dimension_key: 'important', earliest_non_positive_date: '2026-09-01' }),
@@ -109,7 +109,7 @@ describe('очередь предупреждений Пульса', () => {
     expect(warningSelection(warnings, 'all', 6).visible).toHaveLength(4);
   });
 
-  it('не смешивает относительный порог группы с нативной суммой счёта', () => {
+  it('does not mix a group relative threshold with an account native amount', () => {
     const warnings = [
       warning({ dimension: 'account', dimension_key: 'account', threshold_minor: 0, start_minor: -1, minimum_projected_minor: -100 }),
       warning({ dimension: 'overall', dimension_key: 'overall', start_minor: -1_000, minimum_projected_minor: -1_000 }),
@@ -118,7 +118,7 @@ describe('очередь предупреждений Пульса', () => {
     expect([...warnings].sort(compareWarnings).map((item) => item.dimension_key)).toEqual(['overall', 'account']);
   });
 
-  it('задаёт транзитивный порядок для смешанных денежных шкал', () => {
+  it('defines a transitive order for mixed money scales', () => {
     const a = warning({ dimension: 'account', dimension_key: 'A', threshold_minor: 0, start_minor: 100, minimum_projected_minor: -1_000, earliest_non_positive_date: '2026-09-03' });
     const b = warning({ dimension: 'account', dimension_key: 'B', threshold_minor: 0, start_minor: 100, minimum_projected_minor: -10, earliest_non_positive_date: '2026-09-01' });
     const c = warning({ dimension: 'country', dimension_key: 'C', minimum_projected_minor: -50_000, earliest_non_positive_date: '2026-09-02' });

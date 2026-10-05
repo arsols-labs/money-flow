@@ -1,5 +1,5 @@
-// Чистая логика очереди предупреждений «Пульса». Компонент отвечает только за
-// разметку; лимит, фильтры и порядок проверяются отдельно без DOM.
+// Pure logic for the "Pulse" warning queue. The component is responsible only for
+// markup; the limit, filters, and order are checked separately without the DOM.
 
 import { fractionDigits } from './money';
 import i18n from './i18n';
@@ -26,12 +26,12 @@ export function warningState(warning) {
 }
 
 export function warningRatio(warning) {
-  // Обычный clamp(minimum / threshold) превращал любой минус в один и тот же
-  // красный. Отрицательная часть теперь остаётся в красной половине денежной
-  // шкалы, но signed-log сохраняет внутри неё порядок глубины: чем глубже
-  // минус, тем ближе цвет к `--danger`. Ноль — 0.35, не оранжевая середина.
-  // У счёта нет общего порога, поэтому масштабом служит его стартовый баланс
-  // (не меньше одной мажорной единицы своей валюты).
+  // A plain clamp(minimum / threshold) turned every negative into the same
+  // red. The negative part now stays in the red half of the money
+  // scale, but signed-log keeps the depth order inside it: the deeper the
+  // negative, the closer the color is to `--danger`. Zero is 0.35, not the orange midpoint.
+  // An account has no shared threshold, so the scale is its starting balance
+  // (at least one major unit of its currency).
   const unit = 10 ** fractionDigits(warning.currency_code);
   const reference = warning.threshold_minor > 0
     ? warning.threshold_minor
@@ -42,9 +42,9 @@ export function warningRatio(warning) {
   return 0.35 + 0.65 * Math.min(1, relative);
 }
 
-// Сопоставимые денежные шкалы образуют явные buckets. Иначе попарное решение
-// «сравнивать / не сравнивать» создаёт цикл A < B < C < A и Array.sort меняет
-// первые пять в зависимости от входного порядка.
+// Comparable money scales form explicit buckets. Otherwise a pairwise decision
+// to "compare / not compare" creates a cycle A < B < C < A and Array.sort changes
+// the first five depending on input order.
 function impactBucket(warning) {
   return warning.threshold_minor > 0 ? '0:threshold' : `1:${warning.currency_code}`;
 }

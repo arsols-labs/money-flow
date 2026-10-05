@@ -1,9 +1,9 @@
-// Алиасы счетов (issue #339) — поведенческие тесты модуля резолвера и API.
+// Account aliases (issue #339) — behavioral tests of the resolver module and the API.
 //
-// Проверяем именно то, что ловит Закон 1 и контракт issue: резолвер НЕ падает
-// на неизвестном счёте (а кладёт строку в pending), алиас уникален по
-// нормализации, удаление счёта уносит алиасы каскадом, а bind из pending
-// создаёт алиас и убирает строку.
+// We check exactly what Law 1 and the issue contract catch: the resolver does NOT throw
+// on an unknown account (it puts the string in pending), an alias is unique by
+// normalization, deleting an account takes its aliases with it via cascade, and bind from pending
+// creates an alias and removes the row.
 import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import app from '../src/worker/index';
@@ -48,7 +48,7 @@ describe('normalizeAlias', () => {
     expect(normalizeAlias('Visa   *6125')).toBe('visa *6125');
     expect(normalizeAlias('DinaCard')).toBe('dinacard');
   });
-  it('пустое/не-строка → null', () => {
+  it('empty / non-string → null', () => {
     expect(normalizeAlias('   ')).toBeNull();
     expect(normalizeAlias(null)).toBeNull();
     expect(normalizeAlias(undefined)).toBeNull();
@@ -57,25 +57,25 @@ describe('normalizeAlias', () => {
 });
 
 describe('resolveOrPend', () => {
-  it('резолвит по точному совпадению алиаса', async () => {
+  it('resolves by an exact alias match', async () => {
     const accId = await insertAccount();
     await addAlias(env.DB, accId, 'Visa *6125');
     expect(await resolveOrPend(env.DB, 'Visa *6125')).toBe(accId);
   });
 
-  it('резолвит по алиасу с другим регистром/пробелами', async () => {
+  it('resolves by an alias with different case/spaces', async () => {
     const accId = await insertAccount();
     await addAlias(env.DB, accId, 'Visa *6125');
-    // Нормализация в запросе ловит разницу регистра и внутренних пробелов.
+    // Normalization in the query catches a difference in case and internal spaces.
     expect(await resolveOrPend(env.DB, ' visa *6125 ')).toBe(accId);
   });
 
-  it('резолвит по имени счёта как fallback', async () => {
+  it('resolves by account name as a fallback', async () => {
     const accId = await insertAccount('200-0750000027949-16');
     expect(await resolveOrPend(env.DB, '200-0750000027949-16')).toBe(accId);
   });
 
-  it('НЕ падает на неизвестном счёте — кладёт в pending и возвращает null', async () => {
+  it('does NOT throw on an unknown account — puts it in pending and returns null', async () => {
     await insertAccount();
     const res = await resolveOrPend(env.DB, 'Совсем неизвестный счёт');
     expect(res).toBeNull();
@@ -84,20 +84,20 @@ describe('resolveOrPend', () => {
     expect(pending[0].raw_string).toBe('Совсем неизвестный счёт');
   });
 
-  it('пустой счёт не падает и не создаёт pending', async () => {
+  it('an empty account does not throw and does not create pending', async () => {
     expect(await resolveOrPend(env.DB, '   ')).toBeNull();
     expect(await listPending(env.DB)).toHaveLength(0);
   });
 
-  it('повторный first-seen того же счёта не плодит дубли в pending', async () => {
+  it('a repeated first-seen of the same account does not spawn duplicates in pending', async () => {
     await resolveOrPend(env.DB, 'Unknown X');
-    await resolveOrPend(env.DB, 'unknown x'); // та же нормализация
+    await resolveOrPend(env.DB, 'unknown x'); // same normalization
     expect(await listPending(env.DB)).toHaveLength(1);
   });
 });
 
 describe('addAlias / listAliases / removeAlias', () => {
-  it('добавляет и перечисляет алиасы счёта', async () => {
+  it('adds and lists account aliases', async () => {
     const accId = await insertAccount();
     const a = await addAlias(env.DB, accId, 'Visa *6125');
     expect(a.account_id).toBe(accId);
@@ -107,7 +107,7 @@ describe('addAlias / listAliases / removeAlias', () => {
     expect(list[0].alias_text).toBe('Visa *6125');
   });
 
-  it('хранит оригинал, а не нормализованную форму', async () => {
+  it('stores the original, not the normalized form', async () => {
     const accId = await insertAccount();
     await addAlias(env.DB, accId, 'Visa *6125');
     const row = await env.DB.prepare('SELECT alias_text, alias_norm FROM account_aliases').first<{ alias_text: string; alias_norm: string }>();
@@ -115,7 +115,7 @@ describe('addAlias / listAliases / removeAlias', () => {
     expect(row?.alias_norm).toBe('visa *6125');
   });
 
-  it('отклоняет пустой alias_text (400)', async () => {
+  it('rejects an empty alias_text (400)', async () => {
     const accId = await insertAccount();
     await expect(addAlias(env.DB, accId, '   ')).rejects.toThrow(AliasError);
     try {
@@ -125,13 +125,13 @@ describe('addAlias / listAliases / removeAlias', () => {
     }
   });
 
-  it('не даёт завести тот же алиас дважды (409)', async () => {
+  it('does not allow the same alias to be created twice (409)', async () => {
     const accId = await insertAccount();
     await addAlias(env.DB, accId, 'Visa *6125');
     await expect(addAlias(env.DB, accId, 'visa *6125')).rejects.toThrow(/already bound/i);
   });
 
-  it('не даёт привязать алиас к несуществующему счёту (404)', async () => {
+  it('does not allow binding an alias to a nonexistent account (404)', async () => {
     await expect(addAlias(env.DB, 99999, 'X')).rejects.toThrow(AliasError);
     try {
       await addAlias(env.DB, 99999, 'X');
@@ -140,14 +140,14 @@ describe('addAlias / listAliases / removeAlias', () => {
     }
   });
 
-  it('удаление счёта уносит алиасы каскадом', async () => {
+  it('deleting an account takes its aliases with it via cascade', async () => {
     const accId = await insertAccount();
     await addAlias(env.DB, accId, 'Visa *6125');
     await env.DB.prepare('DELETE FROM accounts WHERE id = ?').bind(accId).run();
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM account_aliases').first()).toEqual({ n: 0 });
   });
 
-  it('removeAlias 404 на чужом алиасе', async () => {
+  it('removeAlias 404 on someone else\'s alias', async () => {
     const a = await insertAccount('A');
     const b = await insertAccount('B');
     const alias = await addAlias(env.DB, a, 'Visa *6125');
@@ -161,7 +161,7 @@ describe('addAlias / listAliases / removeAlias', () => {
 });
 
 describe('bindPending', () => {
-  it('создаёт алиас из оригинала строки и убирает её из pending', async () => {
+  it('creates an alias from the original string and removes it from pending', async () => {
     const accId = await insertAccount();
     await resolveOrPend(env.DB, 'Новая карта');
     const pending = await listPending(env.DB);
@@ -169,13 +169,13 @@ describe('bindPending', () => {
     const alias = await bindPending(env.DB, pending[0].id, accId);
     expect(alias.account_id).toBe(accId);
     expect(alias.alias_text).toBe('Новая карта');
-    // Строка ушла из pending, алиас появился у счёта.
+    // The row left pending, and the alias appeared on the account.
     expect(await listPending(env.DB)).toHaveLength(0);
     const list = await listAliases(env.DB, accId);
     expect(list.map((x) => x.alias_text)).toContain('Новая карта');
   });
 
-  it('404 на уже обработанную строку', async () => {
+  it('404 on an already processed row', async () => {
     const accId = await insertAccount();
     await resolveOrPend(env.DB, 'X');
     const pending = await listPending(env.DB);
@@ -183,27 +183,27 @@ describe('bindPending', () => {
     await expect(bindPending(env.DB, pending[0].id, accId)).rejects.toThrow(AliasError);
   });
 
-  it('batch откатывается, если алиас уже занят — строка остаётся', async () => {
+  it('the batch rolls back if the alias is already taken — the row stays', async () => {
     const a = await insertAccount('A');
     const b = await insertAccount('B');
-    // Алиас `Visa *6125` уже занят счётом A.
+    // Alias `Visa *6125` is already taken by account A.
     await addAlias(env.DB, a, 'Visa *6125');
-    // Независимая неизвестная строка (не совпадает по норме с существующим
-    // алиасом, поэтому resolveOrPend кладёт её в pending, а не резолвит).
+    // An independent unknown string (it does not match an existing
+    // alias by norm, so resolveOrPend puts it in pending instead of resolving it).
     await resolveOrPend(env.DB, 'Совсем другой счёт');
     const pending = await listPending(env.DB);
     expect(pending).toHaveLength(1);
-    // bind пытается создать алиас `Совсем другой счёт` — уникален, поэтому
-    // здесь успех; конфликт проверяем отдельно ниже через addAlias.
+    // bind tries to create an alias from that pending string — it is unique, so
+    // this succeeds; the conflict is checked separately below via addAlias.
     await bindPending(env.DB, pending[0].id, b);
     expect(await listPending(env.DB)).toHaveLength(0);
-    // Прямая попытка завести уже занятый алиас отклоняется (409), и счёт B
-    // не получает дубль — это тот же инвариант, что ловит bind через UNIQUE.
+    // A direct attempt to create an already taken alias is rejected (409), and account B
+    // does not get a duplicate — the same invariant bind catches via UNIQUE.
     await expect(addAlias(env.DB, b, 'Visa *6125')).rejects.toThrow(/already bound/i);
   });
 });
 
-describe('API алиасов счетов', () => {
+describe('account aliases API', () => {
   let cookie: string;
   beforeEach(async () => {
     const { createSessionCookie } = await import('../src/worker/auth');
@@ -231,7 +231,7 @@ describe('API алиасов счетов', () => {
     return ((await res.json()) as { account: { id: number } }).account.id;
   }
 
-  it('GET /accounts несёт aliases (пустой массив)', async () => {
+  it('GET /accounts carries aliases (empty array)', async () => {
     const id = await createAccount();
     const res = await api('GET', '/api/v2/accounts');
     const acc = (await res.json() as { accounts: Array<{ id: number; aliases: unknown[] }> })
@@ -239,7 +239,7 @@ describe('API алиасов счетов', () => {
     expect(acc.aliases).toEqual([]);
   });
 
-  it('POST/GET/DELETE алиаса по счёту', async () => {
+  it('POST/GET/DELETE an alias by account', async () => {
     const id = await createAccount();
     const add = await api('POST', `/api/v2/accounts/${id}/aliases`, { alias_text: 'Visa *6125' });
     expect(add.status).toBe(201);
@@ -255,12 +255,12 @@ describe('API алиасов счетов', () => {
     expect(((await list2.json()) as { aliases: unknown[] }).aliases).toHaveLength(0);
   });
 
-  it('POST алиаса на несуществующий счёт → 404', async () => {
+  it('POST an alias on a nonexistent account → 404', async () => {
     const res = await api('POST', '/api/v2/accounts/99999/aliases', { alias_text: 'X' });
     expect(res.status).toBe(404);
   });
 
-  it('GET /accounts/resolve резолвит и не падает на неизвестном', async () => {
+  it('GET /accounts/resolve resolves and does not throw on an unknown account', async () => {
     const id = await createAccount();
     await api('POST', `/api/v2/accounts/${id}/aliases`, { alias_text: 'Visa *6125' });
 
@@ -280,7 +280,7 @@ describe('API алиасов счетов', () => {
     expect(bad.status).toBe(400);
   });
 
-  it('pending list + bind через API', async () => {
+  it('pending list + bind via the API', async () => {
     const id = await createAccount();
     const res = await api('POST', '/api/v2/accounts/resolve', { q: 'New Card' });
     expect(((await res.json()) as { pending: boolean }).pending).toBe(true);
@@ -291,7 +291,7 @@ describe('API алиасов счетов', () => {
 
     const bind = await api('POST', `/api/v2/accounts/pending/${pend.pending[0].id}/bind`, { account_id: id });
     expect(bind.status).toBe(201);
-    // Повторный bind → 404 (уже обработано).
+    // A repeated bind → 404 (already processed).
     const bind2 = await api('POST', `/api/v2/accounts/pending/${pend.pending[0].id}/bind`, { account_id: id });
     expect(bind2.status).toBe(404);
   });

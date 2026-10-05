@@ -1,10 +1,11 @@
-// Агрегация и расчёт данных для экрана «Аналитика» (S1-5b, issue #250, S1-5c, issue #251).
+// Aggregation and calculation of data for the Analytics screen (S1-5b, issue #250, S1-5c, issue #251).
 //
-// Выполняется на сервере, чтобы не передавать все строки операций на клиент.
-// Суммы в разных валютах пересчитываются в базовую с использованием
-// целочисленной арифметики курсов (makeConverter / rate_e9), без float.
-// Валюта без курса не ломает расчёт: операция пропускается, а код валюты
-// возвращается в missing_rates (поведение согласовано с S1-4, issue #198).
+// Runs on the server so that every operation row is not sent to the client.
+// Amounts in different currencies are converted into the base currency using
+// integer rate arithmetic (makeConverter / rate_e9), without float.
+// A currency without a rate does not break the calculation: the operation is
+// skipped, and the currency code is returned in missing_rates (behavior aligned
+// with S1-4, issue #198).
 import type { Converter } from './forecast/convert';
 import { minorBigIntToNumber } from '../shared/money';
 import { ValidationError } from './api-error';
@@ -148,11 +149,11 @@ export interface AnalyticsFilterOption {
 
 export interface AnalyticsSeriesPoint {
   ts: number;
-  /** Нетто: расход минус возврат (обратная совместимость). */
+  /** Net: expense minus refund (backward compatibility). */
   total_minor: number;
-  /** Абсолютный расход за точку (не нетто). */
+  /** Absolute expense for the point (not net). */
   expense_minor: number;
-  /** Абсолютный возврат за точку (не нетто, не минус). */
+  /** Absolute refund for the point (not net, not negative). */
   refund_minor: number;
 }
 
@@ -270,7 +271,7 @@ export function buildAnalytics(params: {
 }): AnalyticsResult {
   const { operations, converter, baseCurrency, missingRates, filters, recurringRules } = params;
 
-  // 1. Вычисляем доступные опции фильтров по ВСЕМ операциям периода (до фильтров cats/merchants/etc)
+  // 1. Compute the available filter options from ALL operations of the period (before the cats/merchants/etc filters)
   const catCounts = new Map<string, number>();
   const merchantCounts = new Map<string, number>();
   const accountsSet = new Set<string>();
@@ -299,7 +300,7 @@ export function buildAnalytics(params: {
   const accounts = Array.from(accountsSet).sort((a, b) => a.localeCompare(b, 'ru'));
   const currencies = Array.from(currenciesSet).sort();
 
-  // 2. Применяем фильтры
+  // 2. Apply filters
   const selectedCats = filters.cats && filters.cats.length ? new Set(filters.cats) : null;
   const selectedMerchants = filters.merchants && filters.merchants.length ? new Set(filters.merchants) : null;
   const selectedAccounts = filters.accounts && filters.accounts.length ? new Set(filters.accounts) : null;
@@ -318,7 +319,7 @@ export function buildAnalytics(params: {
     return true;
   });
 
-  // 3. Считаем итоги, динамику и агрегаты разрезов
+  // 3. Compute totals, the trend, and breakdown aggregates
   let totalSpentMinor = 0n;
   let totalIncomeMinor = 0n;
   const receiptKeys = new Set<string>();
@@ -337,7 +338,7 @@ export function buildAnalytics(params: {
     map.set(ts, (map.get(ts) ?? 0n) + delta);
   };
 
-  // Группы разрезов
+  // Breakdown groups
   const topExpenseMap = new Map<string, { value: bigint; count: number }>();
   const topIncomeMap = new Map<string, { value: bigint; count: number }>();
   const topRefundMap = new Map<string, { value: bigint; count: number }>();
@@ -348,7 +349,7 @@ export function buildAnalytics(params: {
   const recurringBreakdown = new Map<string, { value: bigint; count: number; receipts: Set<string> }>();
   const recurringDetails: AnalyticsRecurringDetail[] = [];
 
-  // Чеки / группированные операции
+  // Receipts / grouped operations
   interface ReceiptGroupBuilder {
     id: string;
     date: string;
@@ -367,17 +368,17 @@ export function buildAnalytics(params: {
 
     const absAmount = BigInt(Math.abs(op.amount_minor));
     const converted = converter(absAmount, op.account_currency, baseCurrency);
-    if (converted === null) continue; // валюта без курса осела в missingRates
+    if (converted === null) continue; // a currency without a rate landed in missingRates
 
     const rKey = op.receipt_id ? `receipt_${op.receipt_id}` : `manual_${op.date}_${op.account_id}_${op.store || 'nostore'}`;
     const [y, m, d] = op.date.split('-').map(Number);
     const dayTs = Date.UTC(y, m - 1, d);
     const dateObj = new Date(dayTs);
-    const dayOfWeek = (dateObj.getUTCDay() + 6) % 7; // Понедельник = 0
+    const dayOfWeek = (dateObj.getUTCDay() + 6) % 7; // Monday = 0
     const weekTs = Date.UTC(y, m - 1, d - dayOfWeek);
     const monthTs = Date.UTC(y, m - 1, 1);
 
-    // Добавление в receipt group
+    // Add to the receipt group
     let rGroup = receiptsMap.get(rKey);
     if (!rGroup) {
       rGroup = {
@@ -426,11 +427,11 @@ export function buildAnalytics(params: {
       addBucket(weekExpenseBuckets, weekTs, converted);
       addBucket(monthExpenseBuckets, monthTs, converted);
 
-      // Топ расходов
+      // Top expenses
       const curExp = topExpenseMap.get(op.item) ?? { value: 0n, count: 0 };
       topExpenseMap.set(op.item, { value: curExp.value + converted, count: curExp.count + 1 });
 
-      // Категории
+      // Categories
       if (op.category) {
         const curCat = catBreakdown.get(op.category) ?? { value: 0n, count: 0, receipts: new Set() };
         curCat.value += converted;
@@ -439,7 +440,7 @@ export function buildAnalytics(params: {
         catBreakdown.set(op.category, curCat);
       }
 
-      // Подкатегории
+      // Subcategories
       if (op.subcategory) {
         const subKey = op.subcategory;
         const curSub = subBreakdown.get(subKey) ?? { value: 0n, count: 0, receipts: new Set() };
@@ -449,7 +450,7 @@ export function buildAnalytics(params: {
         subBreakdown.set(subKey, curSub);
       }
 
-      // Магазины
+      // Merchants
       const mName = normMerchant(op.store);
       if (mName && mName !== '—') {
         const curM = merchantBreakdown.get(mName) ?? { value: 0n, count: 0, receipts: new Set() };
@@ -459,7 +460,7 @@ export function buildAnalytics(params: {
         merchantBreakdown.set(mName, curM);
       }
 
-      // Регулярные
+      // Recurring
       if (op.source === 'recurring') {
         const curRec = recurringBreakdown.get(op.item) ?? { value: 0n, count: 0, receipts: new Set() };
         curRec.value += converted;
@@ -481,7 +482,7 @@ export function buildAnalytics(params: {
         });
       }
     } else if (op.kind === 'refund') {
-      // Возврат уменьшает потраченную сумму
+      // A refund reduces the amount spent
       totalSpentMinor -= converted;
       addBucket(dayBuckets, dayTs, -converted);
       addBucket(weekBuckets, weekTs, -converted);
@@ -490,7 +491,7 @@ export function buildAnalytics(params: {
       addBucket(weekRefundBuckets, weekTs, converted);
       addBucket(monthRefundBuckets, monthTs, converted);
 
-      // Топ возвратов
+      // Top refunds
       const curRef = topRefundMap.get(op.item) ?? { value: 0n, count: 0 };
       topRefundMap.set(op.item, { value: curRef.value + converted, count: curRef.count + 1 });
 
@@ -519,7 +520,7 @@ export function buildAnalytics(params: {
     }
   }
 
-  // Сортировка и маппинг списков
+  // Sorting and mapping of lists
   const mapBreakdown = (
     map: Map<string, { value: bigint; count: number; receipts?: Set<string> }>,
   ): AnalyticsBreakdownItem[] =>
@@ -556,7 +557,7 @@ export function buildAnalytics(params: {
     }))
     .sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id));
 
-  // Число дней в периоде для расчёта «в день»
+  // Number of days in the period for the "per day" calculation
   let daysCount = 1;
   if (filters.start_date && filters.end_date) {
     const [y1, m1, d1] = filters.start_date.split('-').map(Number);
@@ -592,7 +593,7 @@ export function buildAnalytics(params: {
       }))
       .sort((a, b) => a.ts - b.ts);
 
-  // Расчёт планов и подписок
+  // Calculation of plans and subscriptions
   let plans: AnalyticsPlansSummary | undefined;
   if (recurringRules && recurringRules.length > 0) {
     let monthlySubs = 0n;
@@ -610,7 +611,7 @@ export function buildAnalytics(params: {
       const converted = converter(absVal, r.currency, baseCurrency);
       if (converted === null) continue;
 
-      // Нормализация в месяц
+      // Normalization to a month
       let monthlyEq = 0n;
       if (r.frequency === 'monthly') {
         monthlyEq = converted;

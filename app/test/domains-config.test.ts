@@ -15,12 +15,12 @@ describe('Domains & Environment Configuration (De-personalization, #509)', () =>
   };
 
   describe('isAllowedHost & Host Security (Anti-Spoofing)', () => {
-    it('разрешает канонический прод-домен и edge-хост', () => {
+    it('allows the canonical production domain and the edge host', () => {
       expect(isAllowedHost('app.example.com', 'app.example.com', 'app.example.com')).toBe(true);
       expect(isAllowedHost('app.example.com', 'any-edge.com', 'app.example.com')).toBe(true);
     });
 
-    it('разрешает канонические staging и dev preview-домены Cloudflare', () => {
+    it('allows the canonical Cloudflare staging and dev preview domains', () => {
       expect(
         isAllowedHost(
           'staging-money-flow.workers.dev',
@@ -37,12 +37,12 @@ describe('Domains & Environment Configuration (De-personalization, #509)', () =>
       ).toBe(true);
     });
 
-    it('разрешает localhost и 127.0.0.1 для локальной разработки', () => {
+    it('allows localhost and 127.0.0.1 for local development', () => {
       expect(isAllowedHost('localhost', 'localhost', 'app.example.com')).toBe(true);
       expect(isAllowedHost('127.0.0.1', '127.0.0.1', 'app.example.com')).toBe(true);
     });
 
-    it('БЛОКИРУЕТ попытки подделки хоста (evil.com, attacker.com)', () => {
+    it('BLOCKS host-spoofing attempts (evil.com, attacker.com)', () => {
       expect(isAllowedHost('evil.com', 'app.example.com', 'app.example.com')).toBe(false);
       expect(isAllowedHost('attacker.com', 'localhost', 'app.example.com')).toBe(false);
       expect(isAllowedHost('not-real-subdomain.com', 'staging-money-flow.workers.dev')).toBe(
@@ -50,7 +50,7 @@ describe('Domains & Environment Configuration (De-personalization, #509)', () =>
       );
     });
 
-    it('не считает весь *.workers.dev доверенным (#533)', () => {
+    it('does not treat all of *.workers.dev as trusted (#533)', () => {
       expect(
         isAllowedHost('evil.workers.dev', 'app.example.com', 'app.example.com'),
       ).toBe(false);
@@ -80,8 +80,8 @@ describe('Domains & Environment Configuration (De-personalization, #509)', () =>
     });
   });
 
-  describe('resolveRpID & resolveOrigin для 4 сред', () => {
-    it('1. Production: корректно определяет прод-домен', () => {
+  describe('resolveRpID & resolveOrigin for 4 environments', () => {
+    it('1. Production: correctly determines the production domain', () => {
       const c = {
         req: {
           url: 'https://app.example.com/api/auth/login/options',
@@ -93,7 +93,7 @@ describe('Domains & Environment Configuration (De-personalization, #509)', () =>
       expect(resolveOrigin(c)).toBe('https://app.example.com');
     });
 
-    it('2. Staging: корректно определяет staging preview origin и RP ID', () => {
+    it('2. Staging: correctly determines the staging preview origin and RP ID', () => {
       const c = {
         req: {
           url: 'https://staging-money-flow.workers.dev/api/auth/login/options',
@@ -113,7 +113,7 @@ describe('Domains & Environment Configuration (De-personalization, #509)', () =>
       expect(resolveOrigin(c)).toBe('https://staging-money-flow.workers.dev');
     });
 
-    it('3. Dev: корректно определяет dev preview origin и RP ID', () => {
+    it('3. Dev: correctly determines the dev preview origin and RP ID', () => {
       const c = {
         req: {
           url: 'https://dev-money-flow.workers.dev/api/auth/login/options',
@@ -133,7 +133,7 @@ describe('Domains & Environment Configuration (De-personalization, #509)', () =>
       expect(resolveOrigin(c)).toBe('https://dev-money-flow.workers.dev');
     });
 
-    it('4. Localhost: разрешает порт и выделяет чистый RP ID без порта', () => {
+    it('4. Localhost: allows a port and extracts a clean RP ID without the port', () => {
       const c = {
         req: {
           url: 'http://localhost:8787/api/auth/login/options',
@@ -153,7 +153,7 @@ describe('Domains & Environment Configuration (De-personalization, #509)', () =>
       expect(resolveOrigin(c)).toBe('http://localhost:8787');
     });
 
-    it('Защита от подделки: при попытке передать Origin: https://evil.com отбрасывает его и использует edge-хост', () => {
+    it('spoofing protection: when Origin: https://evil.com is passed, drops it and uses the edge host', () => {
       const c = {
         req: {
           url: 'https://app.example.com/api/auth/login/options',
@@ -167,7 +167,7 @@ describe('Domains & Environment Configuration (De-personalization, #509)', () =>
   });
 
   describe('CORS Whitelist & Preflight', () => {
-    it('разрешает доверенные домены и возвращает Access-Control-Allow-Origin', async () => {
+    it('allows trusted domains and returns Access-Control-Allow-Origin', async () => {
       const res = await app.request(
         'http://localhost:8787/api/auth/me',
         {
@@ -183,7 +183,7 @@ describe('Domains & Environment Configuration (De-personalization, #509)', () =>
       expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
     });
 
-    it('БЛОКИРУЕТ недоверенный origin (Access-Control-Allow-Origin не выставляется)', async () => {
+    it('BLOCKS an untrusted origin (Access-Control-Allow-Origin is not set)', async () => {
       const res = await app.request(
         'https://app.example.com/api/auth/me',
         {

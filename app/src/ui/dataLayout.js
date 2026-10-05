@@ -1,5 +1,5 @@
-// Управление порядком, видимостью и расположением блоков экрана «Данные».
-// Изолированное хранилище в localStorage под ключами mf_data_layout_v1 и mf_data_filters_v1.
+// Controls the order, visibility, and placement of blocks on the "Data" screen.
+// Isolated localStorage under the keys mf_data_layout_v1 and mf_data_filters_v1.
 import { readExpanded, writeExpanded } from './dataSections';
 
 export const DATA_STORAGE_KEY = 'mf_data_layout_v1';
@@ -89,7 +89,7 @@ export const DEFAULT_DATA_FILTERS = {
 };
 
 /**
- * Определяет реальную колонку блока (с учётом режима 'auto').
+ * Resolves a block's actual column (taking the 'auto' mode into account).
  */
 export function resolveDataBlockColumn(block) {
   if (!block) return 'full';
@@ -105,8 +105,8 @@ export function cloneConfig(config) {
 }
 
 /**
- * Загружает конфигурацию блоков экрана «Данные» из localStorage с валидацией,
- * фильтрацией неизвестных ID и дополнением недостающих блоков.
+ * Loads the "Data" screen block configuration from localStorage, with validation,
+ * filtering of unknown IDs, and filling in of missing blocks.
  */
 export function loadDataConfig() {
   if (typeof localStorage === 'undefined') {
@@ -143,7 +143,7 @@ export function loadDataConfig() {
       });
     }
 
-    // Добавляем недостающие блоки из конфигурации по умолчанию
+    // Add missing blocks from the default configuration
     for (const defItem of DEFAULT_DATA_CONFIG) {
       if (!seen.has(defItem.id)) {
         result.push({ ...defItem });
@@ -157,7 +157,7 @@ export function loadDataConfig() {
 }
 
 /**
- * Сохраняет конфигурацию экрана «Данные» в localStorage.
+ * Saves the "Data" screen configuration to localStorage.
  */
 export function saveDataConfig(config) {
   if (typeof localStorage === 'undefined' || !Array.isArray(config)) return;
@@ -171,7 +171,7 @@ export function saveDataConfig(config) {
 }
 
 /**
- * Сбрасывает конфигурацию экрана «Данные» к эталонному значению и очищает хранилище.
+ * Resets the "Data" screen configuration to the reference value and clears storage.
  */
 export function resetDataConfig() {
   if (typeof localStorage !== 'undefined') {
@@ -183,14 +183,14 @@ export function resetDataConfig() {
 }
 
 /**
- * Загружает фильтры и состояния блоков экрана «Данные» из localStorage.
+ * Loads filters and block states for the "Data" screen from localStorage.
  */
 export function loadDataFilters() {
   if (typeof localStorage === 'undefined') return { ...DEFAULT_DATA_FILTERS };
   try {
     const raw = localStorage.getItem(DATA_FILTERS_STORAGE_KEY);
     if (!raw) {
-      // Fallback на legacy хранилище раскрытых секций
+      // Fallback to the legacy store of expanded sections
       const legacyExpanded = readExpanded();
       if (Array.isArray(legacyExpanded) && legacyExpanded.length > 0) {
         return {
@@ -250,7 +250,7 @@ export function loadDataFilters() {
 }
 
 /**
- * Сохраняет фильтры и состояния блоков экрана «Данные» в localStorage.
+ * Saves filters and block states for the "Data" screen to localStorage.
  */
 export function saveDataFilters(filters) {
   if (typeof localStorage === 'undefined' || !filters) return;
@@ -270,7 +270,7 @@ export function saveDataFilters(filters) {
     };
     localStorage.setItem(DATA_FILTERS_STORAGE_KEY, JSON.stringify(payload));
 
-    // Синхронизируем с legacy хранилищем для совместимости с внешними читателями
+    // Sync with the legacy store for compatibility with external readers
     const openSections = [];
     if (payload.operationsOpen) openSections.push('operations');
     if (payload.receiptsOpen) openSections.push('receipts');
@@ -283,7 +283,7 @@ export function saveDataFilters(filters) {
 }
 
 /**
- * Сбрасывает сохранённые фильтры экрана «Данные» к значениям по умолчанию.
+ * Resets the saved "Data" screen filters to their default values.
  */
 export function resetDataFilters() {
   if (typeof localStorage !== 'undefined') {
@@ -295,7 +295,7 @@ export function resetDataFilters() {
 }
 
 /**
- * Перемещает блок вверх или вниз в списке.
+ * Moves a block up or down in the list.
  */
 export function moveBlock(config, index, direction) {
   if (!Array.isArray(config)) return [];
@@ -314,7 +314,7 @@ export function moveBlock(config, index, direction) {
 }
 
 /**
- * Перемещает блок из fromIndex в toIndex (drag-and-drop).
+ * Moves a block from fromIndex to toIndex (drag-and-drop).
  */
 export function reorderBlock(config, fromIndex, toIndex) {
   if (!Array.isArray(config)) return [];
@@ -330,7 +330,7 @@ export function reorderBlock(config, fromIndex, toIndex) {
 }
 
 /**
- * Переключает видимость блока.
+ * Toggles a block's visibility.
  */
 export function toggleBlockVisibility(config, id) {
   if (!Array.isArray(config)) return [];
@@ -338,7 +338,7 @@ export function toggleBlockVisibility(config, id) {
 }
 
 /**
- * Изменяет колонку размещения блока для широкого экрана.
+ * Changes a block's column placement for a wide screen.
  */
 export function setBlockColumn(config, id, column, blockDefs = DATA_BLOCK_DEFS) {
   const def = (blockDefs && blockDefs[id]) || DATA_BLOCK_DEFS[id];

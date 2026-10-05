@@ -1,6 +1,6 @@
-// CRUD API v2 (S1-2, issue #196) — счета, курсы валют, настройки.
-// Hono вызывается напрямую (app.request), без ASSETS-binding и без сети —
-// см. приём в vitest.config.ts / test/apply-migrations.ts.
+// CRUD API v2 (S1-2, issue #196) — accounts, FX rates, settings.
+// Hono is called directly (app.request), with no ASSETS binding and no network —
+// see the approach in vitest.config.ts / test/apply-migrations.ts.
 import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import app from '../src/worker/index';
@@ -13,16 +13,16 @@ const ISO_SECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 
 let cookie: string;
 
-// Валидная сессионная cookie не зависит от состояния БД — считаем один раз.
-// createSessionCookie использует только env.SESSION_SECRET (test/env.d.ts +
-// vitest.config.ts заводят его специально для этого файла).
+// A valid session cookie does not depend on DB state — compute it once.
+// createSessionCookie uses only env.SESSION_SECRET (test/env.d.ts +
+// vitest.config.ts set it up specifically for this file).
 beforeAll(async () => {
   const setCookie = await createSessionCookie(env as unknown as Env, false);
   cookie = setCookie.split(';')[0]!;
 });
 
-// Та же изоляция, что в test/schema.test.ts: обратный порядок ссылок.
-// Settings теперь пишутся через API, поэтому возвращаем оба ключа к дефолтам.
+// The same isolation as in test/schema.test.ts: reverse reference order.
+// Settings are now written through the API, so both keys are restored to their defaults.
 beforeEach(async () => {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM operation_fulfillment_links'),
@@ -54,9 +54,9 @@ async function api(method: string, path: string, body?: unknown, withCookie = tr
   return app.request(path, init, env as unknown as Env);
 }
 
-// owner и country подставляются дефолтом намеренно: они обязательны (#232), и
-// без них каждый вызов помощника проверял бы валидацию вместо своего сценария.
-// Тесты самой обязательности ходят в API напрямую, минуя этот помощник.
+// owner and country are filled in by default on purpose: they are required (#232), and
+// without them every helper call would test validation instead of its own scenario.
+// Tests of that requirement itself hit the API directly, bypassing this helper.
 async function createAccount(overrides: Record<string, unknown> = {}) {
   const res = await api('POST', '/api/v2/accounts', {
     name: 'Основной',
@@ -69,9 +69,9 @@ async function createAccount(overrides: Record<string, unknown> = {}) {
   return (await res.json()) as { account: Record<string, unknown> };
 }
 
-// Ссылка на счёт из плановых — то, что закрывает замок измерений. Прямая
-// вставка, а не через CRUD плановых (S1-3, issue #197): тесты замка не должны
-// зависеть от корректности нового API — они проверяют счета, а не операции.
+// A planned-item reference to an account is what closes the dimension lock. A direct
+// insert, not via planned-item CRUD (S1-3, issue #197): lock tests must not
+// depend on the new API being correct — they check accounts, not operations.
 async function referenceAccount(accountId: unknown) {
   await env.DB.prepare(
     `INSERT INTO planned_items (date, title, amount_minor, currency, account_id)
@@ -81,8 +81,8 @@ async function referenceAccount(accountId: unknown) {
     .run();
 }
 
-// Плановая/регулярная операция ЧЕРЕЗ новый API (S1-3, issue #197) — в отличие
-// от referenceAccount, эти хелперы проверяют сам CRUD, а не только замок счёта.
+// A planned/recurring item THROUGH the new API (S1-3, issue #197) — unlike
+// referenceAccount, these helpers test the CRUD itself, not only the account lock.
 async function createPlannedItem(accountId: unknown, overrides: Record<string, unknown> = {}) {
   const res = await api('POST', '/api/v2/planned-items', {
     date: '2026-09-01',
@@ -108,8 +108,8 @@ async function createRecurringItem(accountId: unknown, overrides: Record<string,
   return (await res.json()) as { recurring_item: Record<string, unknown> };
 }
 
-// Счёт обязателен, валюта не принимается вовсе (она у счёта), сумма — дельта
-// баланса: расход отрицателен (issue #200, решение владельца 2026-08-12).
+// An account is required, currency is not accepted at all (it belongs to the account), the amount is a balance
+// delta: an expense is negative (issue #200, owner's decision 2026-08-12).
 async function createOperation(accountId: unknown, overrides: Record<string, unknown> = {}) {
   const res = await api('POST', '/api/v2/operations', {
     date: '2026-08-10',
@@ -123,19 +123,19 @@ async function createOperation(accountId: unknown, overrides: Record<string, unk
   return (await res.json()) as { operation: Record<string, unknown> };
 }
 
-// Прямая вставка курса в обход API (#228: PUT для базовой валюты теперь
-// отклоняется на входе) — моделирует строку, заведённую до фикса или правкой
-// БД напрямую. Живёт на уровне модуля, а не внутри одного describe: тесты,
-// которым она нужна для setup, разбросаны по describe('fx-rates') и по
-// вложенным describe внутри describe('покрытие валют курсами (issue #193)').
+// A direct rate insert that bypasses the API (#228: PUT for the base currency is now
+// rejected at the door) — models a row created before the fix or by editing
+// the DB directly. It lives at module level, not inside a single describe: the tests
+// that need it for setup are scattered across describe('fx-rates') and across
+// nested describes inside describe('FX rate coverage of currencies (issue #193)').
 async function insertRate(code: string, rateE9: string, updatedAt = '2026-08-01T00:00:00Z') {
   await env.DB.prepare('INSERT INTO fx_rates (code, rate_e9, updated_at) VALUES (?, ?, ?)')
     .bind(code, rateE9, updatedAt)
     .run();
 }
 
-describe('guard: без сессии', () => {
-  it('любой роут /api/v2/* без cookie → 401', async () => {
+describe('guard: no session', () => {
+  it('any /api/v2/* route without a cookie → 401', async () => {
     for (const [method, path] of [
       ['GET', '/api/v2/accounts'],
       ['GET', '/api/v2/fx-rates'],
@@ -153,11 +153,11 @@ describe('guard: без сессии', () => {
 });
 
 describe('accounts', () => {
-  it('создание и чтение в списке', async () => {
+  it('create and read back in the list', async () => {
     const created = await createAccount({ name: 'Карта', currency: 'rsd', balance_minor: 12345 });
     expect(created.account).toMatchObject({
       name: 'Карта',
-      currency: 'RSD', // нормализовано в UPPER
+      currency: 'RSD', // normalized to UPPER
       balance_minor: 12345,
       sort: 0,
       archived: false,
@@ -171,50 +171,50 @@ describe('accounts', () => {
     expect(list.accounts[0]!.id).toBe(created.account.id);
   });
 
-  it('второй счёт без sort получает max(sort)+1', async () => {
+  it('a second account without sort gets max(sort)+1', async () => {
     await createAccount({ sort: 5 });
     const second = await createAccount({ name: 'Второй' });
     expect(second.account.sort).toBe(6);
   });
 
-  it('отклоняет пустое имя', async () => {
+  it('rejects an empty name', async () => {
     const res = await api('POST', '/api/v2/accounts', { name: '   ', currency: 'USD' });
     expect(res.status).toBe(400);
     expect(await errorOf(res)).toBeTypeOf('string');
   });
 
-  it('отклоняет валюту не из трёх букв', async () => {
+  it('rejects a currency that is not three letters', async () => {
     const res = await api('POST', '/api/v2/accounts', { name: 'X', currency: 'US' });
     expect(res.status).toBe(400);
   });
 
-  it('отклоняет дробный balance_minor', async () => {
+  it('rejects a fractional balance_minor', async () => {
     const res = await api('POST', '/api/v2/accounts', { name: 'X', currency: 'USD', balance_minor: 10.5 });
     expect(res.status).toBe(400);
   });
 
-  // Правило ROADMAP «Счёт имеет одного владельца, одну валюту и обязательную
-  // страну»: owner и country — такие же обязательные поля, как name и currency.
-  // Пустая строка и null тоже не проходят: «не указано» у этих полей нет.
+  // ROADMAP rule "An account has one owner, one currency, and a required
+  // country": owner and country are required fields just like name and currency.
+  // An empty string and null fail too: these fields have no "unset" state.
   it.each([
-    ['без owner', { name: 'X', currency: 'USD', country: 'SRB' }],
-    ['без country', { name: 'X', currency: 'USD', owner: 'Алекс' }],
-    ['owner пустой строкой', { name: 'X', currency: 'USD', owner: '   ', country: 'SRB' }],
-    ['country пустой строкой', { name: 'X', currency: 'USD', owner: 'Алекс', country: '' }],
-    ['owner как null', { name: 'X', currency: 'USD', owner: null, country: 'SRB' }],
-    ['country как null', { name: 'X', currency: 'USD', owner: 'Алекс', country: null }],
+    ['without owner', { name: 'X', currency: 'USD', country: 'SRB' }],
+    ['without country', { name: 'X', currency: 'USD', owner: 'Алекс' }],
+    ['owner as an empty string', { name: 'X', currency: 'USD', owner: '   ', country: 'SRB' }],
+    ['country as an empty string', { name: 'X', currency: 'USD', owner: 'Алекс', country: '' }],
+    ['owner as null', { name: 'X', currency: 'USD', owner: null, country: 'SRB' }],
+    ['country as null', { name: 'X', currency: 'USD', owner: 'Алекс', country: null }],
   ])('POST %s → 400', async (_label, body) => {
     const res = await api('POST', '/api/v2/accounts', body);
     expect(res.status).toBe(400);
     expect(await errorOf(res)).toBeTypeOf('string');
   });
 
-  it('POST с владельцем и страной сохраняет их как есть, банк остаётся необязательным', async () => {
+  it('POST with owner and country stores them as given, and bank stays optional', async () => {
     const created = await createAccount({ owner: '  Алекс  ', country: '  SRB  ' });
     expect(created.account).toMatchObject({ owner: 'Алекс', country: 'SRB', bank: null });
   });
 
-  it('PATCH не даёт стереть владельца или страну', async () => {
+  it('PATCH does not allow clearing the owner or the country', async () => {
     const created = await createAccount();
     for (const patch of [{ owner: '' }, { owner: null }, { country: '   ' }, { country: null }]) {
       const res = await api('PATCH', `/api/v2/accounts/${created.account.id}`, patch);
@@ -222,7 +222,7 @@ describe('accounts', () => {
     }
   });
 
-  it('PATCH меняет переданные поля и не трогает остальные', async () => {
+  it('PATCH changes the fields that were sent and leaves the rest alone', async () => {
     const created = await createAccount({ name: 'До', bank: 'Старый банк', currency: 'usd' });
     const res = await api('PATCH', `/api/v2/accounts/${created.account.id}`, { name: 'После', bank: 'Новый банк' });
     expect(res.status).toBe(200);
@@ -230,7 +230,7 @@ describe('accounts', () => {
     expect(body.account).toMatchObject({ name: 'После', bank: 'Новый банк', currency: 'USD' });
   });
 
-  it('PATCH с balance_minor переставляет balance_updated_at — даже при том же значении', async () => {
+  it('PATCH with balance_minor moves balance_updated_at — even when the value is unchanged', async () => {
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
@@ -248,10 +248,10 @@ describe('accounts', () => {
     }
   });
 
-  // Разрядность минорной единицы у валют разная, поэтому смена валюты без
-  // нового баланса тихо меняла бы сумму на порядки ($1500.00 = 150000 центов
-  // → ¥150 000). Сервер это отклоняет, чтобы клиент назвал сумму явно.
-  it('PATCH со сменой валюты без balance_minor → 400', async () => {
+  // Currencies have different minor-unit scales, so changing currency without
+  // a new balance would silently rescale the amount by orders of magnitude ($1500.00 = 150000 cents
+  // → ¥150 000). The server rejects that so the client must name the amount explicitly.
+  it('PATCH that changes currency without balance_minor → 400', async () => {
     const created = await createAccount({ currency: 'USD', balance_minor: 150000 });
     const res = await api('PATCH', `/api/v2/accounts/${created.account.id}`, { currency: 'JPY' });
     expect(res.status).toBe(400);
@@ -262,7 +262,7 @@ describe('accounts', () => {
     expect(list.accounts[0]).toMatchObject({ currency: 'USD', balance_minor: 150000 });
   });
 
-  it('PATCH со сменой валюты и балансом проходит', async () => {
+  it('PATCH that changes currency and includes a balance succeeds', async () => {
     const created = await createAccount({ currency: 'USD', balance_minor: 150000 });
     const res = await api('PATCH', `/api/v2/accounts/${created.account.id}`, {
       currency: 'JPY',
@@ -273,23 +273,23 @@ describe('accounts', () => {
     expect(body.account).toMatchObject({ currency: 'JPY', balance_minor: 1500 });
   });
 
-  it('PATCH с той же валютой баланса не требует', async () => {
+  it('PATCH with the same currency does not require a balance', async () => {
     const created = await createAccount({ currency: 'USD', name: 'До' });
-    // Форма правки шлёт валюту всегда, даже когда её не меняли, — этот путь
-    // не должен упираться в проверку выше.
+    // The edit form always sends currency, even when it was not changed — this path
+    // must not hit the check above.
     const res = await api('PATCH', `/api/v2/accounts/${created.account.id}`, { currency: 'usd', name: 'После' });
     expect(res.status).toBe(200);
   });
 
-  it('отклоняет sort за пределами точного целого — иначе INTEGER-колонка получит REAL', async () => {
+  it('rejects sort outside the exact-integer range — otherwise the INTEGER column would receive a REAL', async () => {
     const res = await api('POST', '/api/v2/accounts', { name: 'X', currency: 'USD', sort: 1e21 });
     expect(res.status).toBe(400);
   });
 
-  // MAX(sort)+1 для нового счёта считается без проверок, поэтому граница
-  // нужна на входе: иначе одно большое значение в таблице утащило бы
-  // следующий инкремент за предел точного целого.
-  it('отклоняет sort у самой границы точного целого', async () => {
+  // MAX(sort)+1 for a new account is computed without checks, so the bound
+  // is needed on input: otherwise one large value in the table would drag
+  // the next increment past the exact-integer limit.
+  it('rejects sort at the exact-integer boundary itself', async () => {
     const res = await api('POST', '/api/v2/accounts', {
       name: 'X',
       currency: 'USD',
@@ -298,18 +298,18 @@ describe('accounts', () => {
     expect(res.status).toBe(400);
   });
 
-  it('PATCH несуществующего счёта → 404', async () => {
+  it('PATCH of a missing account → 404', async () => {
     const res = await api('PATCH', '/api/v2/accounts/999999', { name: 'Кто-то' });
     expect(res.status).toBe(404);
   });
 
-  it('PATCH с пустым телом (без известных полей) → 400', async () => {
+  it('PATCH with an empty body (no known fields) → 400', async () => {
     const created = await createAccount();
     const res = await api('PATCH', `/api/v2/accounts/${created.account.id}`, {});
     expect(res.status).toBe(400);
   });
 
-  it('DELETE удаляет счёт: 204 и пропажа из списка', async () => {
+  it('DELETE removes the account: 204 and it disappears from the list', async () => {
     const created = await createAccount();
     const delRes = await api('DELETE', `/api/v2/accounts/${created.account.id}`);
     expect(delRes.status).toBe(204);
@@ -319,12 +319,12 @@ describe('accounts', () => {
     expect(list.accounts).toHaveLength(0);
   });
 
-  it('DELETE несуществующего счёта → 404', async () => {
+  it('DELETE of a missing account → 404', async () => {
     const res = await api('DELETE', '/api/v2/accounts/999999');
     expect(res.status).toBe(404);
   });
 
-  it('DELETE счёта, на который ссылается planned_items → 409, счёт на месте', async () => {
+  it('DELETE of an account referenced by planned_items → 409, and the account stays', async () => {
     const created = await createAccount();
     await referenceAccount(created.account.id);
 
@@ -338,13 +338,13 @@ describe('accounts', () => {
   });
 });
 
-// Единственный признак свежести баланса — `balance_updated_at`, и до этой
-// задачи переставить его можно было только изменив сумму. Отдельный роут даёт
-// сказать «сверился с банком, сумма та же», ничего не искажая.
-describe('подтверждение баланса (issue #223)', () => {
+// The only sign of balance freshness is `balance_updated_at`, and before this
+// task the only way to move it was to change the amount. A separate route lets
+// you say "checked with the bank, the amount is the same" without distorting anything.
+describe('balance confirmation (issue #223)', () => {
   const PATH = (id: unknown) => `/api/v2/accounts/${id}/confirm-balance`;
 
-  it('переставляет balance_updated_at и не трогает ничего больше', async () => {
+  it('moves balance_updated_at and touches nothing else', async () => {
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
@@ -357,9 +357,9 @@ describe('подтверждение баланса (issue #223)', () => {
       const body = (await res.json()) as { account: Record<string, unknown> };
 
       expect(body.account.balance_updated_at).toBe('2026-04-01T12:34:56Z');
-      // Всё остальное — побайтово прежнее. Сравнение целыми объектами, а не
-      // полем: подтверждение обязано быть безопасным целиком, и новая колонка
-      // счёта попадёт под эту проверку сама, без правки теста.
+      // Everything else is byte-for-byte the same. Compare whole objects, not
+      // one field: confirmation must be safe as a whole, and a new account
+      // column falls under this check on its own, without editing the test.
       expect({ ...body.account, balance_updated_at: null }).toEqual({
         ...created.account,
         balance_updated_at: null,
@@ -369,14 +369,14 @@ describe('подтверждение баланса (issue #223)', () => {
     }
   });
 
-  it('момент — с точностью до секунд, как везде в v2', async () => {
+  it('the timestamp has second precision, as everywhere else in v2', async () => {
     const created = await createAccount();
     const res = await api('POST', PATH(created.account.id));
     const body = (await res.json()) as { account: Record<string, unknown> };
     expect(body.account.balance_updated_at).toMatch(ISO_SECONDS);
   });
 
-  it('новое значение видно в списке, а не только в ответе', async () => {
+  it('the new value is visible in the list, not only in the response', async () => {
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
@@ -396,17 +396,17 @@ describe('подтверждение баланса (issue #223)', () => {
     }
   });
 
-  // Замок измерений (#232) сюда не распространяется: момент проверки — не
-  // измерение счёта. На счёте с операциями подтверждать баланс нужно тем более:
-  // именно такие счета и участвуют в прогнозе.
-  it('работает на счёте, занятом операцией, — замок измерений его не касается', async () => {
+  // The dimension lock (#232) does not apply here: the check timestamp is not
+  // an account dimension. Confirming the balance on an account with operations matters even more:
+  // those are the accounts that take part in the forecast.
+  it('works on an account occupied by an operation — the dimension lock does not apply to it', async () => {
     const created = await createAccount();
     await referenceAccount(created.account.id);
     const res = await api('POST', PATH(created.account.id));
     expect(res.status).toBe(200);
   });
 
-  it('работает на архивном счёте — деньги на нём никуда не делись', async () => {
+  it('works on an archived account — the money on it has not gone anywhere', async () => {
     const created = await createAccount({ balance_minor: 500 });
     expect((await api('PATCH', `/api/v2/accounts/${created.account.id}`, { archived: true })).status).toBe(200);
 
@@ -416,7 +416,7 @@ describe('подтверждение баланса (issue #223)', () => {
     expect(body.account).toMatchObject({ archived: true, balance_minor: 500 });
   });
 
-  it('несуществующий счёт → 404, ничего не создаётся', async () => {
+  it('a missing account → 404, and nothing is created', async () => {
     const res = await api('POST', PATH(999999));
     expect(res.status).toBe(404);
 
@@ -425,17 +425,17 @@ describe('подтверждение баланса (issue #223)', () => {
     expect(list.accounts).toHaveLength(0);
   });
 
-  it('нечисловой и дробный id → 404, а не 500', async () => {
+  it('a non-numeric id and a fractional id → 404, not 500', async () => {
     for (const raw of ['abc', '1.5']) {
       const res = await api('POST', PATH(raw));
       expect(res.status).toBe(404);
     }
   });
 
-  // Тело роут не читает вовсе — подтверждать нечего, кроме самого факта. Битый
-  // JSON не должен превращаться в 500: у клиента нет причин его слать, но и
-  // падать на нём эндпоинту незачем.
-  it('присланное тело игнорируется, битый JSON не даёт 500', async () => {
+  // The route does not read the body at all — there is nothing to confirm except the fact itself. Broken
+  // JSON must not turn into a 500: the client has no reason to send it, but the
+  // endpoint has no reason to crash on it either.
+  it('a submitted body is ignored, and broken JSON does not yield 500', async () => {
     const created = await createAccount({ balance_minor: 4242 });
     const res = await app.request(
       PATH(created.account.id),
@@ -447,7 +447,7 @@ describe('подтверждение баланса (issue #223)', () => {
     expect(body.account.balance_minor).toBe(4242);
   });
 
-  it('без сессии → 401 и отметка не двигается', async () => {
+  it('without a session → 401 and the timestamp does not move', async () => {
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
@@ -466,22 +466,22 @@ describe('подтверждение баланса (issue #223)', () => {
   });
 });
 
-// Правило ROADMAP: «После первой операции владелец, валюта, страна, банк и вид
-// счёта неизменяемы». Первой операцией здесь считается любая ссылка на счёт из
-// planned_items или recurring_items — тот же признак занятости, который уже
-// держит DELETE.
-describe('замок измерений счёта (issue #232)', () => {
+// ROADMAP rule: "After the first operation, the owner, currency, country, bank, and account
+// type are immutable". The first operation here means any reference to the account from
+// planned_items or recurring_items — the same occupancy signal that already
+// blocks DELETE.
+describe('account dimension lock (issue #232)', () => {
   const LOCKED: Array<[string, Record<string, unknown>]> = [
     ['owner', { owner: 'Другой' }],
     ['country', { country: 'USA' }],
     ['bank', { bank: 'Другой банк' }],
     ['type', { type: 'cash' }],
-    // Валюта идёт с балансом: без него запрос упёрся бы в 400 раньше замка, и
-    // тест доказывал бы не то, что нужно.
+    // Currency is sent with a balance: without it the request would hit 400 before the lock, and
+    // the test would prove the wrong thing.
     ['currency', { currency: 'EUR', balance_minor: 100 }],
   ];
 
-  it.each(LOCKED)('PATCH %s после появления ссылки → 409, значение не изменилось', async (field, patch) => {
+  it.each(LOCKED)('PATCH %s after a reference appears → 409, and the value is unchanged', async (field, patch) => {
     const { account } = await createAccount({ bank: 'Банк', type: 'bank' });
     await referenceAccount(account.id);
 
@@ -494,7 +494,7 @@ describe('замок измерений счёта (issue #232)', () => {
     expect(list.accounts[0]![field]).toBe(account[field]);
   });
 
-  it.each(LOCKED)('PATCH %s до первой ссылки по-прежнему проходит', async (field, patch) => {
+  it.each(LOCKED)('PATCH %s before the first reference still succeeds', async (field, patch) => {
     const { account } = await createAccount({ bank: 'Банк', type: 'bank' });
 
     const res = await api('PATCH', `/api/v2/accounts/${account.id}`, patch);
@@ -503,10 +503,10 @@ describe('замок измерений счёта (issue #232)', () => {
     expect(body.account[field]).not.toBe(account[field]);
   });
 
-  // Замок считает фактическое изменение, а не наличие поля в теле: форма правки
-  // шлёт все свои поля всегда, включая нетронутые. Иначе переименование счёта,
-  // на который уже сослались, отвечало бы 409.
-  it('PATCH с прежними значениями измерений после ссылки проходит', async () => {
+  // The lock counts an actual change, not the mere presence of a field in the body: the edit form
+  // always sends every field, including untouched ones. Otherwise renaming an account
+  // that is already referenced would return 409.
+  it('PATCH with the previous dimension values after a reference succeeds', async () => {
     const { account } = await createAccount({ bank: 'Банк', type: 'bank' });
     await referenceAccount(account.id);
 
@@ -516,14 +516,14 @@ describe('замок измерений счёта (issue #232)', () => {
       country: account.country,
       bank: account.bank,
       type: account.type,
-      currency: 'usd', // регистр другой, валюта та же — это не смена
+      currency: 'usd', // different case, same currency — this is not a change
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { account: Record<string, unknown> };
     expect(body.account).toMatchObject({ name: 'Переименован', currency: 'USD' });
   });
 
-  it('баланс, порядок и архив замок не трогает', async () => {
+  it('the lock does not touch balance, order, or archive', async () => {
     const { account } = await createAccount();
     await referenceAccount(account.id);
 
@@ -533,10 +533,10 @@ describe('замок измерений счёта (issue #232)', () => {
     }
   });
 
-  // Архив — признак строки, а не списание денег: остаток на счёте никуда не
-  // делся, разархивация стоит один PATCH. Правило исключения для архива не
-  // делает, и код тоже не делает.
-  it('архивация замок не снимает', async () => {
+  // Archive is a row flag, not a withdrawal of money: the balance on the account has not
+  // gone anywhere, and unarchiving costs one PATCH. The rule makes no exception
+  // for archive, and neither does the code.
+  it('archiving does not lift the lock', async () => {
     const { account } = await createAccount();
     await referenceAccount(account.id);
     expect((await api('PATCH', `/api/v2/accounts/${account.id}`, { archived: true })).status).toBe(200);
@@ -545,11 +545,11 @@ describe('замок измерений счёта (issue #232)', () => {
     expect(res.status).toBe(409);
   });
 
-  // Замок персональный: он про операции ИМЕННО этого счёта. Без этого теста
-  // условие `account_id = accounts.id` можно заменить на `account_id IS NOT
-  // NULL` — то есть запереть разом все счета в базе — и весь файл останется
-  // зелёным (проверено подменой SQL).
-  it('занятость одного счёта не запирает другой', async () => {
+  // The lock is per account: it is about operations on THIS account. Without this test
+  // the condition `account_id = accounts.id` could be replaced with `account_id IS NOT
+  // NULL` — that is, lock every account in the database at once — and the whole file would stay
+  // green (verified by swapping the SQL).
+  it('one account being occupied does not lock another', async () => {
     const locked = (await createAccount({ name: 'Занятый' })).account;
     const free = (await createAccount({ name: 'Свободный', sort: 1 })).account;
     await referenceAccount(locked.id);
@@ -561,16 +561,16 @@ describe('замок измерений счёта (issue #232)', () => {
     const body = (await res.json()) as { account: Record<string, unknown> };
     expect(body.account.owner).toBe('Другой');
 
-    // И у занятого владелец на месте — правку получил ровно тот счёт, что свободен.
+    // And the occupied account's owner is unchanged — the edit landed on exactly the free account.
     const listRes = await api('GET', '/api/v2/accounts');
     const list = (await listRes.json()) as { accounts: Array<Record<string, unknown>> };
     expect(list.accounts.find((a) => a.id === locked.id)!.owner).toBe(locked.owner);
   });
 
-  // Отказ замка — это отказ всему запросу, а не «применю что смогу». Иначе
-  // владелец, поправивший имя и страну одной формой, увидел бы 409 и половину
-  // сохранённых изменений.
-  it('на 409 не применяется ничего из того же тела', async () => {
+  // A lock rejection rejects the whole request, not "I will apply what I can". Otherwise
+  // an owner who corrected the name and the country in one form would see a 409 and half
+  // of the changes saved.
+  it('on 409 nothing from that same body is applied', async () => {
     const { account } = await createAccount({ balance_minor: 1000 });
     await referenceAccount(account.id);
 
@@ -593,10 +593,10 @@ describe('замок измерений счёта (issue #232)', () => {
     });
   });
 
-  // Замок терминален, а требование balance_minor при смене валюты — устранимо.
-  // Ответить сначала «добавьте balance_minor», а на послушный повторный запрос
-  // «менять поздно» — значит водить клиента по кругу.
-  it('смена валюты на занятом счёте отвечает 409, а не «передайте balance_minor»', async () => {
+  // The lock is terminal, while the balance_minor requirement on a currency change is fixable.
+  // Answering "add balance_minor" first, and then on the obedient retry
+  // "too late to change", would send the client in circles.
+  it('changing currency on an occupied account returns 409, not "pass balance_minor"', async () => {
     const { account } = await createAccount();
     await referenceAccount(account.id);
 
@@ -604,7 +604,7 @@ describe('замок измерений счёта (issue #232)', () => {
     expect(res.status).toBe(409);
   });
 
-  it('разархивация занятого счёта проходит — архив замок не касается в обе стороны', async () => {
+  it('unarchiving an occupied account succeeds — the lock does not touch archive in either direction', async () => {
     const { account } = await createAccount();
     await referenceAccount(account.id);
     expect((await api('PATCH', `/api/v2/accounts/${account.id}`, { archived: true })).status).toBe(200);
@@ -615,9 +615,9 @@ describe('замок измерений счёта (issue #232)', () => {
     expect(body.account.archived).toBe(false);
   });
 
-  // Единственная ветка, где сравнение идёт NULL против строки: банк не был
-  // указан, и его пытаются задать уже после первой операции.
-  it('банк из пустого в значение после ссылки → 409', async () => {
+  // The only branch where the comparison is NULL against a string: the bank was never
+  // set, and someone tries to set it after the first operation.
+  it('bank from empty to a value after a reference → 409', async () => {
     const { account } = await createAccount();
     expect(account.bank).toBeNull();
     await referenceAccount(account.id);
@@ -626,9 +626,9 @@ describe('замок измерений счёта (issue #232)', () => {
     expect(res.status).toBe(409);
   });
 
-  // Форма шлёт все поля всегда — «сохранить, ничего не изменив» должно
-  // отвечать так же, как сохранение с изменением, а не падать на пустом SET.
-  it('PATCH прежними значениями без единого изменения → 200 и строка нетронута', async () => {
+  // The form always sends every field — "save without changing anything" must
+  // respond the same way as a save that does change something, not fail on an empty SET.
+  it('PATCH with the previous values and not a single change → 200 and the row is untouched', async () => {
     const { account } = await createAccount({ bank: 'Банк', type: 'bank' });
     await referenceAccount(account.id);
 
@@ -645,12 +645,12 @@ describe('замок измерений счёта (issue #232)', () => {
     expect(body.account).toMatchObject(account);
   });
 
-  // Две проверки ниже смотрят на сам SQL, а не на код ответа, и это не
-  // прихоть: обе защиты замка снаружи невидимы. Их результат совпадает с
-  // результатом их отсутствия во всём, кроме гонки, а гонку этот стенд не
-  // воспроизводит — D1 в miniflare сериализует запросы. Без них строку с
-  // фильтром и guard в WHERE можно убрать, и весь файл останется зелёным
-  // (проверено подменой обеих).
+  // The two checks below look at the SQL itself, not the status code, and that is not
+  // a whim: both lock defenses are invisible from the outside. Their result matches
+  // the result of their absence in everything except a race, and this harness does not
+  // reproduce one — D1 in miniflare serializes requests. Without them, the line with
+  // the filter and the guard in WHERE can be removed, and the whole file stays green
+  // (verified by swapping both).
   async function sqlOf(run: () => Promise<unknown>): Promise<string[]> {
     const statements: string[] = [];
     const original = env.DB.prepare.bind(env.DB);
@@ -666,11 +666,11 @@ describe('замок измерений счёта (issue #232)', () => {
     return statements;
   }
 
-  // Запертое поле с прежним значением не должно попадать в SET вовсе: guard в
-  // WHERE добавляется только когда измерения реально меняются, поэтому такая
-  // запись прошла бы мимо замка и переписала бы колонку значением из снапшота,
-  // прочитанного до чужой параллельной правки.
-  it('прежние измерения в SET не попадают', async () => {
+  // A locked field kept at its previous value must not appear in SET at all: the guard in
+  // WHERE is added only when dimensions actually change, so such a
+  // write would slip past the lock and overwrite the column with the snapshot value
+  // read before someone else's concurrent edit.
+  it('previous dimensions do not appear in SET', async () => {
     const { account } = await createAccount({ bank: 'Банк', type: 'bank' });
 
     const statements = await sqlOf(() =>
@@ -691,9 +691,9 @@ describe('замок измерений счёта (issue #232)', () => {
     }
   });
 
-  // Вторая половина замка: условие занятости уходит в WHERE самого UPDATE,
-  // иначе между ранней проверкой и записью успевает влезть первая операция.
-  it('смена измерения добавляет условие занятости в сам UPDATE, а правка имени — нет', async () => {
+  // The other half of the lock: the occupancy condition goes into the WHERE of the UPDATE itself,
+  // otherwise the first operation can slip in between the early check and the write.
+  it('changing a dimension adds the occupancy condition to the UPDATE itself, and a name edit does not', async () => {
     const { account } = await createAccount();
 
     const withLock = await sqlOf(() =>
@@ -709,7 +709,7 @@ describe('замок измерений счёта (issue #232)', () => {
     expect(withoutLock.find((sql) => sql.startsWith('UPDATE accounts'))!).not.toContain('NOT EXISTS');
   });
 
-  it('ссылка из recurring_items закрывает замок так же, как плановая', async () => {
+  it('a reference from recurring_items closes the lock the same way a planned one does', async () => {
     const { account } = await createAccount();
     await env.DB.prepare(
       `INSERT INTO recurring_items (title, amount_minor, currency, account_id, frequency, next_due_date)
@@ -724,7 +724,7 @@ describe('замок измерений счёта (issue #232)', () => {
 });
 
 describe('fx-rates', () => {
-  it('PUT создаёт, повторный PUT обновляет и не плодит строк', async () => {
+  it('PUT creates, a repeat PUT updates, and it does not multiply rows', async () => {
     const first = await api('PUT', '/api/v2/fx-rates/rsd', { rate: '0.0092' });
     expect(first.status).toBe(200);
     const firstBody = (await first.json()) as { rate: Record<string, unknown> };
@@ -741,14 +741,14 @@ describe('fx-rates', () => {
     expect(list.rates).toHaveLength(1);
   });
 
-  it('целое значение форматируется без хвостовых нулей ("1" при rate_e9 = 1e9)', async () => {
+  it('an integer value is formatted without trailing zeros ("1" when rate_e9 = 1e9)', async () => {
     const res = await api('PUT', '/api/v2/fx-rates/eur', { rate: '1' });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { rate: Record<string, unknown> };
     expect(body.rate).toMatchObject({ code: 'EUR', rate_e9: 1_000_000_000, rate: '1' });
   });
 
-  it('принимает курс числом JSON, не только строкой', async () => {
+  it('accepts a rate as a JSON number, not only as a string', async () => {
     const res = await api('PUT', '/api/v2/fx-rates/rsd', { rate: 0.0092 });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { rate: Record<string, unknown> };
@@ -756,21 +756,21 @@ describe('fx-rates', () => {
   });
 
   it.each([
-    ['экспоненциальная запись', '1e-3'],
-    ['нулевой курс', '0'],
-    ['больше девяти знаков после точки', '0.0000000001'],
-    // Без верхней границы это значение переполнило бы 64-битный INTEGER
-    // SQLite и осело в базе как TEXT — CHECK (rate_e9 > 0) такую строку
-    // пропускает. Тест фиксирует, что отказ приходит на входе, а не порча
-    // данных на выходе (см. MAX_RATE_E9 в src/worker/api.ts).
-    ['курс за пределами точного целого', '99999999999.999999999'],
-  ])('отклоняет: %s (%s)', async (_label, rate) => {
+    ['exponential notation', '1e-3'],
+    ['a zero rate', '0'],
+    ['more than nine digits after the decimal point', '0.0000000001'],
+    // Without an upper bound this value would overflow SQLite's 64-bit INTEGER
+    // and land in the database as TEXT — CHECK (rate_e9 > 0) lets such a string
+    // through. The test pins down that the rejection happens on input, not as corruption
+    // of the data on the way out (see MAX_RATE_E9 in src/worker/api.ts).
+    ['a rate beyond the exact integer', '99999999999.999999999'],
+  ])('rejects: %s (%s)', async (_label, rate) => {
     const res = await api('PUT', '/api/v2/fx-rates/rub', { rate });
     expect(res.status).toBe(400);
     expect(await errorOf(res)).toBeTypeOf('string');
   });
 
-  it('принимает курс на самой границе точного целого', async () => {
+  it('accepts a rate right at the exact-integer boundary', async () => {
     const res = await api('PUT', '/api/v2/fx-rates/rub', { rate: '9007199.254740991' });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { rate: Record<string, unknown> };
@@ -778,7 +778,7 @@ describe('fx-rates', () => {
     expect(body.rate.rate).toBe('9007199.254740991');
   });
 
-  it('DELETE удаляет курс → 204', async () => {
+  it('DELETE removes the rate → 204', async () => {
     await api('PUT', '/api/v2/fx-rates/rsd', { rate: '0.0092' });
     const res = await api('DELETE', '/api/v2/fx-rates/rsd');
     expect(res.status).toBe(204);
@@ -788,15 +788,15 @@ describe('fx-rates', () => {
     expect(list.rates).toHaveLength(0);
   });
 
-  it('DELETE несуществующего курса → 404', async () => {
+  it('DELETE of a missing rate → 404', async () => {
     const res = await api('DELETE', '/api/v2/fx-rates/xyz');
     expect(res.status).toBe(404);
   });
 
-  // #228: курс базовой валюты — бессмыслица (1 USD = 1 USD при базовой USD),
-  // и расчётное ядро S1-4 им не воспользуется. Вход закрыт на PUT, строка не
-  // появляется вовсе — не только статус 400, но и отсутствие в GET.
-  it('PUT базовой валюты → 400, строка в fx_rates не появляется', async () => {
+  // #228: a rate for the base currency is nonsense (1 USD = 1 USD when the base is USD),
+  // and the S1-4 calculation core will not use it. Input is closed on PUT, and the row does
+  // not appear at all — not only status 400, but also absence from GET.
+  it('PUT of the base currency → 400, and no row appears in fx_rates', async () => {
     const res = await api('PUT', '/api/v2/fx-rates/USD', { rate: '1' });
     expect(res.status).toBe(400);
     expect(await errorOf(res)).toContain('USD');
@@ -806,17 +806,17 @@ describe('fx-rates', () => {
     expect(list.rates).toEqual([]);
   });
 
-  // normalizeCurrencyCodeParam верхний регистр применяет ДО сравнения с
-  // базовой валютой — нижний регистр в пути не должен эту проверку обойти.
-  it('PUT /fx-rates/usd (нижний регистр в пути) при базовой USD → 400', async () => {
+  // normalizeCurrencyCodeParam uppercases BEFORE comparing with
+  // the base currency — lowercase in the path must not bypass this check.
+  it('PUT /fx-rates/usd (lowercase in the path) when the base is USD → 400', async () => {
     const res = await api('PUT', '/api/v2/fx-rates/usd', { rate: '1' });
     expect(res.status).toBe(400);
   });
 
-  // Строка уже лежит в базе (заведена до фикса или правкой БД) — PUT её не
-  // трогает: сервер отклоняет запрос ещё до UPSERT, значение и updated_at
-  // остаются прежними.
-  it('уже лежащая в базе строка базовой валюты не перезаписывается PUT', async () => {
+  // The row is already in the database (created before the fix or by a direct DB edit) — PUT does
+  // not touch it: the server rejects the request before the UPSERT, so the value and updated_at
+  // stay as they were.
+  it('a base-currency row already in the database is not overwritten by PUT', async () => {
     await insertRate('USD', '1000000000', '2026-01-01T00:00:00Z');
 
     const res = await api('PUT', '/api/v2/fx-rates/usd', { rate: '2' });
@@ -829,14 +829,14 @@ describe('fx-rates', () => {
     ]);
   });
 
-  // Регрессия рядом с новым запретом: он касается только кода, совпавшего с
-  // базовой валютой, — остальные коды сохраняются как прежде.
-  it('небазовая валюта по-прежнему сохраняется PUT-ом', async () => {
+  // A regression next to the new ban: it applies only to the code that matches
+  // the base currency — the other codes are still saved as before.
+  it('a non-base currency is still saved by PUT', async () => {
     const res = await api('PUT', '/api/v2/fx-rates/rsd', { rate: '0.0092' });
     expect(res.status).toBe(200);
   });
 
-  it('смена базы между проверкой и UPSERT курса → 409 без устаревшей записи', async () => {
+  it('changing the base between the check and the rate UPSERT → 409 with no stale row', async () => {
     const realPrepare = env.DB.prepare.bind(env.DB);
     let baseChanged = false;
     const changeBaseOnce = async () => {
@@ -862,11 +862,11 @@ describe('fx-rates', () => {
     }) as never);
 
     try {
-      // Изначально базовая USD
+      // Initially the base is USD
       await realPrepare("UPDATE settings SET value = 'USD' WHERE key = 'base_currency'").run();
       const res = await api('PUT', '/api/v2/fx-rates/rsd', { rate: '0.92' });
       
-      // UPSERT прошёл успешно. Смена базы не помешала, так как база больше не проверяется.
+      // The UPSERT succeeded. Changing the base did not interfere, because the base is no longer checked.
       expect(res.status).toBe(200);
       const row = await realPrepare("SELECT COUNT(*) AS count FROM fx_rates WHERE code = 'RSD'").first<{
         count: number;
@@ -878,12 +878,12 @@ describe('fx-rates', () => {
   });
 });
 
-// Инвариант issue #193: у валюты, на которую в базе есть ссылка, должен быть
-// курс к базовой — иначе её суммы не пересчитать. Схемой это не выразить
-// (CHECK не видит другую таблицу, триггеров в v2 нет), поэтому держится API:
-// DELETE не даёт снять курс с валюты в ходу, а GET показывает те, где курса
-// всё-таки нет.
-describe('покрытие валют курсами (issue #193)', () => {
+// Invariant of issue #193: a currency that something in the database references must have
+// a rate to the base — otherwise its amounts cannot be converted. The schema cannot express this
+// (CHECK cannot see another table, and v2 has no triggers), so the API holds it:
+// DELETE will not remove the rate of a currency in use, and GET shows the ones that still
+// have no rate.
+describe('FX rate coverage of currencies (issue #193)', () => {
   async function fxState() {
     const res = await api('GET', '/api/v2/fx-rates');
     expect(res.status).toBe(200);
@@ -894,14 +894,14 @@ describe('покрытие валют курсами (issue #193)', () => {
     };
   }
 
-  // Плановые и регулярные ссылку на валюту дают своей колонкой — вставляем их
-  // напрямую там, где нужен только этот факт. Без таких вставок половина
-  // инварианта не проверялась бы вовсе: выбрасывание таблицы из
-  // CURRENCY_TABLES проходило бы полностью зелёным прогоном.
+  // Planned and recurring items reference a currency through their own column — insert them
+  // directly where only that fact is needed. Without those inserts, half
+  // of the invariant would not be tested at all: dropping a table from
+  // CURRENCY_TABLES would still pass a fully green run.
   //
-  // Операций здесь нет намеренно: своей валюты у них не осталось (0005), она
-  // берётся у счёта — и валюту «в ходу» держит тот же счёт, на который операция
-  // ссылается. Отдельный тест на это стоит ниже.
+  // Operations are absent here on purpose: they no longer have a currency of their own (0005); it
+  // comes from the account — and the currency "in use" is held by the same account the operation
+  // references. A separate test for that sits below.
 
   async function insertPlanned(currency: string, accountId: unknown) {
     await env.DB.prepare(
@@ -920,13 +920,13 @@ describe('покрытие валют курсами (issue #193)', () => {
       .run();
   }
 
-  it('на пустой базе: базовая валюта названа, валют без курса нет', async () => {
+  it('on an empty database: the base currency is named, and no currency lacks a rate', async () => {
     const state = await fxState();
     expect(state.base_currency).toBe('USD');
     expect(state.missing).toEqual([]);
   });
 
-  it('счёт в валюте без курса попадает в missing, курс его оттуда убирает', async () => {
+  it('an account in a currency without a rate lands in missing, and a rate removes it from there', async () => {
     await createAccount({ currency: 'RSD' });
     expect((await fxState()).missing).toEqual(['RSD']);
 
@@ -934,38 +934,38 @@ describe('покрытие валют курсами (issue #193)', () => {
     expect((await fxState()).missing).toEqual([]);
   });
 
-  it('базовая валюта в missing не попадает — курс к самой себе не нужен', async () => {
+  it('the base currency does not land in missing — a rate to itself is not required', async () => {
     await createAccount({ currency: 'USD' });
     expect((await fxState()).missing).toEqual([]);
   });
 
-  // Ровно сценарий из #193: архив не «отпускает» валюту. Деньги на счёте
-  // остались, разархивация — один PATCH, и пересчёт снова потребует курса.
-  it('архивный счёт держит свою валюту в missing наравне с активным', async () => {
+  // Exactly the scenario from #193: archive does not "release" the currency. The money on the account
+  // is still there, unarchiving is one PATCH, and conversion will need the rate again.
+  it('an archived account keeps its currency in missing just like an active one', async () => {
     const { account } = await createAccount({ currency: 'RSD' });
     const res = await api('PATCH', `/api/v2/accounts/${account.id}`, { archived: true });
     expect(res.status).toBe(200);
     expect((await fxState()).missing).toEqual(['RSD']);
   });
 
-  // Раньше здесь проверялось, что валюту в ходу даёт трата САМА, своей
-  // колонкой. С 0005 колонки нет: операция ссылается на счёт, и валюту держит
-  // он. Инвариант от этого не ослаб — операцию без счёта завести нельзя, —
-  // но держится он теперь через `accounts`, что тест и фиксирует.
-  it('валюту в ходу держит счёт операции, а не сама операция', async () => {
+  // This used to check that a spend itself supplies the currency in use, through its own
+  // column. Since 0005 there is no such column: the operation references an account, and that account
+  // holds the currency. The invariant is not weaker for it — an operation cannot be created without an account —
+  // but it is now held through `accounts`, which is what the test pins down.
+  it('the currency in use is held by the account of the operation, not by the operation itself', async () => {
     const { account } = await createAccount({ currency: 'RUB' });
     await createOperation(account.id);
     expect((await fxState()).missing).toEqual(['RUB']);
   });
 
-  it('missing отсортирован и без дублей', async () => {
+  it('missing is sorted and has no duplicates', async () => {
     await createAccount({ currency: 'RSD' });
     await createAccount({ name: 'Второй', currency: 'RSD' });
     await createAccount({ name: 'Третий', currency: 'EUR' });
     expect((await fxState()).missing).toEqual(['EUR', 'RSD']);
   });
 
-  it('DELETE курса валюты, которую занимает счёт → 409, курс остаётся', async () => {
+  it('DELETE of a rate for a currency an account occupies → 409, and the rate stays', async () => {
     await api('PUT', '/api/v2/fx-rates/rsd', { rate: '0.0092' });
     await createAccount({ currency: 'RSD' });
 
@@ -975,7 +975,7 @@ describe('покрытие валют курсами (issue #193)', () => {
     expect((await fxState()).rates).toHaveLength(1);
   });
 
-  it('DELETE курса валюты, которую занимает АРХИВНЫЙ счёт → тоже 409', async () => {
+  it('DELETE of a rate for a currency an ARCHIVED account occupies → 409 as well', async () => {
     await api('PUT', '/api/v2/fx-rates/rsd', { rate: '0.0092' });
     const { account } = await createAccount({ currency: 'RSD' });
     await api('PATCH', `/api/v2/accounts/${account.id}`, { archived: true });
@@ -984,7 +984,7 @@ describe('покрытие валют курсами (issue #193)', () => {
     expect(res.status).toBe(409);
   });
 
-  it('DELETE курса валюты, которую занимает счёт с операцией → 409', async () => {
+  it('DELETE of a rate for a currency occupied by an account that has an operation → 409', async () => {
     await api('PUT', '/api/v2/fx-rates/rub', { rate: '0.0127' });
     const { account } = await createAccount({ currency: 'RUB' });
     await createOperation(account.id);
@@ -993,22 +993,22 @@ describe('покрытие валют курсами (issue #193)', () => {
     expect(res.status).toBe(409);
   });
 
-  it('освободившуюся валюту удалить можно', async () => {
+  it('a currency that is no longer in use can be deleted', async () => {
     await api('PUT', '/api/v2/fx-rates/rsd', { rate: '0.0092' });
     const { account } = await createAccount({ currency: 'RSD' });
     expect((await api('DELETE', '/api/v2/fx-rates/rsd')).status).toBe(409);
 
-    // Счёт ушёл на другую валюту — держать курс больше нечему.
+    // The account moved to another currency — nothing is left to hold the rate.
     await api('PATCH', `/api/v2/accounts/${account.id}`, { currency: 'USD', balance_minor: 0 });
     expect((await api('DELETE', '/api/v2/fx-rates/rsd')).status).toBe(204);
   });
 
-  // Строка в fx_rates для базовой валюты — ошибка ввода: пересчёт её не
-  // использует. Если бы её держала та же проверка занятости, исправить эту
-  // ошибку было бы нельзя — счета в базовой валюте есть всегда.
-  it('курс базовой валюты удаляется, даже когда счета в ней есть', async () => {
-    // Setup через insertRate, а не PUT: с #228 PUT для базовой валюты
-    // отклоняется на входе — здесь моделируем строку, уже лежащую в базе.
+  // A row in fx_rates for the base currency is a data-entry error: conversion does not
+  // use it. If the same occupancy check held that row, this
+  // error could not be fixed — accounts in the base currency always exist.
+  it('the base-currency rate can be deleted even when accounts in that currency exist', async () => {
+    // Setup via insertRate, not PUT: since #228, PUT for the base currency
+    // is rejected at the door — here we model a row that is already in the database.
     await insertRate('USD', '1000000000');
     await createAccount({ currency: 'USD' });
 
@@ -1016,7 +1016,7 @@ describe('покрытие валют курсами (issue #193)', () => {
     expect(res.status).toBe(204);
   });
 
-  it('валюту в ходу даёт плановая операция', async () => {
+  it('a planned item supplies a currency in use', async () => {
     const { account } = await createAccount({ currency: 'USD' });
     await insertPlanned('CHF', account.id);
     expect((await fxState()).missing).toEqual(['CHF']);
@@ -1025,7 +1025,7 @@ describe('покрытие валют курсами (issue #193)', () => {
     expect((await api('DELETE', '/api/v2/fx-rates/chf')).status).toBe(409);
   });
 
-  it('валюту в ходу даёт регулярная операция', async () => {
+  it('a recurring item supplies a currency in use', async () => {
     const { account } = await createAccount({ currency: 'USD' });
     await insertRecurring('GBP', account.id);
     expect((await fxState()).missing).toEqual(['GBP']);
@@ -1034,12 +1034,12 @@ describe('покрытие валют курсами (issue #193)', () => {
     expect((await api('DELETE', '/api/v2/fx-rates/gbp')).status).toBe(409);
   });
 
-  // Список таблиц со ссылкой на валюту зашит в коде константой. Если в схеме
-  // появится ещё одна такая таблица, а константу не поправят, она молча
-  // выпадет из обеих проверок — и тест поймает это в момент правки схемы, а не
-  // в проде. PRAGMA table_info в D1 недоступна (SQLITE_AUTH), поэтому наличие
-  // колонки выясняется пробным SELECT.
-  it('CURRENCY_TABLES перечисляет все таблицы схемы с колонкой currency', async () => {
+  // The list of tables that reference a currency is hardcoded as a constant. If the schema
+  // gains another such table and the constant is not updated, that table silently
+  // drops out of both checks — and the test catches that when the schema changes, not
+  // in production. PRAGMA table_info is unavailable in D1 (SQLITE_AUTH), so whether
+  // the column exists is discovered with a probe SELECT.
+  it('CURRENCY_TABLES lists every schema table that has a currency column', async () => {
     const { results } = await env.DB.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name NOT LIKE 'd1_%'",
     ).all<{ name: string }>();
@@ -1050,30 +1050,30 @@ describe('покрытие валют курсами (issue #193)', () => {
         await env.DB.prepare(`SELECT currency FROM ${name} LIMIT 0`).all();
         withCurrency.push(name);
       } catch (e) {
-        // Глотаем ТОЛЬКО «нет такой колонки». Безусловный catch дал бы
-        // ложно-зелёный: таблица с currency, чей пробный SELECT упал по любой
-        // другой причине, молча выпала бы из сверки — то есть тест пропустил
-        // бы ровно то, ради чего написан.
+        // Swallow ONLY "no such column". An unconditional catch would yield
+        // a false green: a table with currency whose probe SELECT failed for any
+        // other reason would silently drop out of the comparison — the test would miss
+        // exactly the thing it was written to catch.
         if (!(e instanceof Error) || !/no such column/i.test(e.message)) throw e;
       }
     }
     expect(withCurrency.sort()).toEqual([...CURRENCY_TABLES].sort());
   });
 
-  it('DELETE отдаёт 404, а не 409, когда валюта в ходу, но строки курса нет', async () => {
+  it('DELETE returns 404, not 409, when the currency is in use but there is no rate row', async () => {
     await createAccount({ currency: 'RSD' });
     const res = await api('DELETE', '/api/v2/fx-rates/rsd');
     expect(res.status).toBe(404);
   });
 
-  describe('базовая валюта читается из settings', () => {
+  describe('the base currency is read from settings', () => {
     async function setBase(value: string | null) {
       if (value === null) await env.DB.prepare("DELETE FROM settings WHERE key = 'base_currency'").run();
       else await env.DB.prepare("UPDATE settings SET value = ? WHERE key = 'base_currency'").bind(value).run();
     }
 
 
-    it('не зашита константой: при EUR без курса остаётся EUR', async () => {
+    it('it is not hardcoded: with EUR and no rate, it stays EUR', async () => {
       await setBase('EUR');
       await createAccount({ currency: 'EUR' });
       await createAccount({ name: 'Долларовый', currency: 'USD' });
@@ -1082,27 +1082,27 @@ describe('покрытие валют курсами (issue #193)', () => {
       expect(state.missing).toEqual(['EUR']);
     });
 
-    // Нормализация живёт в двух формах — на JS (`readBaseCurrency`, отвечает
-    // за GET и PUT) и на SQL (внутри условия DELETE). Разойтись они не должны,
-    // и проверять это обязан КАЖДЫЙ запрос: тест только на GET проходил бы и
-    // тогда, когда DELETE считает базовой совсем другую валюту — проверено
-    // мутацией.
-    it('нормализуется: регистр и пробелы в settings значения не меняют', async () => {
+    // Normalization lives in two forms — in JS (`readBaseCurrency`, which serves
+    // GET and PUT) and in SQL (inside the DELETE condition). They must not diverge,
+    // and EVERY request has to be checked: a GET-only test would still pass
+    // when DELETE treats an entirely different currency as the base — verified
+    // by mutation.
+    it('it is normalized: case and spaces in settings do not change the value', async () => {
       await setBase('  eur  ');
-      // Вход для USD теперь отклонён (USD — глобальный якорь)
+      // Input for USD is now rejected (USD is the global anchor)
       await insertRate('USD', '1000000000');
       await createAccount({ currency: 'EUR' });
       await createAccount({ name: 'Долларовый', currency: 'USD' });
 
       const state = await fxState();
       expect(state.base_currency).toBe('EUR');
-      expect(state.missing).toEqual(['EUR']); // EUR нужен курс к USD!
+      expect(state.missing).toEqual(['EUR']); // EUR needs a rate to USD!
 
       expect((await api('DELETE', '/api/v2/fx-rates/usd')).status).toBe(204);
     });
 
 
-    it('отсутствующая строка settings — тоже непригодное значение', async () => {
+    it('a missing settings row is an unusable value too', async () => {
       await setBase(null);
       await createAccount({ currency: 'EUR' });
       await createAccount({ name: 'Долларовый', currency: 'USD' });
@@ -1111,42 +1111,42 @@ describe('покрытие валют курсами (issue #193)', () => {
       expect(state.missing).toEqual(['EUR']);
     });
 
-    it('курс USD удаляется и когда база не USD', async () => {
+    it('the USD rate can be deleted even when the base is not USD', async () => {
       await setBase('EUR');
       await insertRate('USD', '1000000000');
       await createAccount({ currency: 'USD' });
       expect((await api('DELETE', '/api/v2/fx-rates/usd')).status).toBe(204);
     });
 
-    // Смена базовой валюты — отдельный вопрос issue #228: запрет и послабления
-    // следуют за ТЕКУЩИМ значением settings, а не застревают на валюте, которая
-    // была базовой на момент вставки строки.
-    it('смена базовой валюты больше не влияет на запрет курсов (всегда запрещен только USD)', async () => {
-      // Пока USD базовая, у неё может лежать курс, заведённый до фикса или
-      // правкой БД (insertRate) — на пересчёт он не влияет, и DELETE его
-      // убирает.
+    // Changing the base currency is a separate question in issue #228: the ban and the allowances
+    // follow the CURRENT settings value, rather than sticking to the currency that
+    // was the base when the row was inserted.
+    it('changing the base currency no longer affects the rate ban (only USD is always forbidden)', async () => {
+      // While USD is the base, it may hold a rate created before the fix or
+      // by a direct DB edit (insertRate) — it does not affect conversion, and DELETE
+      // removes it.
       await insertRate('USD', '1000000000');
       await createAccount({ currency: 'USD' });
       expect((await api('DELETE', '/api/v2/fx-rates/usd')).status).toBe(204);
 
       await setBase('EUR');
 
-      // USD больше не базовая, но она все еще якорь: курса у неё нет, счёт в ней живой → НЕТ в missing.
+      // USD is no longer the base, but it is still the anchor: it has no rate, and a live account in it → NOT in missing.
       expect((await fxState()).missing).toEqual([]);
 
-      // Вход для USD всегда закрыт.
+      // Input for USD is always closed.
       expect((await api('PUT', '/api/v2/fx-rates/usd', { rate: '1.05' })).status).toBe(400);
 
-      // Вход для EUR открыт, хотя она теперь базовая для отображения.
+      // Input for EUR is open, even though it is now the display base.
       expect((await api('PUT', '/api/v2/fx-rates/eur', { rate: '1' })).status).toBe(200);
     });
 
-    // Вторая половина того же вопроса из issue #228: новая базовая валюта
-    // могла обзавестись курсом ещё когда была обычной. Такая строка становится
-    // ошибочной задним числом, и её судьба — та же, что у заведённой руками:
-    // GET её показывает (иначе владелец не узнает о ней), PUT её не обновляет,
-    // DELETE убирает даже при живых счетах в этой валюте.
-    it('курс валюты отображения (если она в использовании) удалить нельзя, так как она не якорь (USD)', async () => {
+    // The other half of that same question from issue #228: the new base currency
+    // may have picked up a rate back when it was an ordinary currency. Such a row becomes
+    // erroneous after the fact, and its fate is the same as one entered by hand:
+    // GET shows it (otherwise the owner would never learn it is there), PUT does not update it,
+    // DELETE removes it even while accounts in that currency are live.
+    it('a display-currency rate cannot be deleted while that currency is in use, because it is not the anchor (USD)', async () => {
       await insertRate('EUR', '1080000000');
       await createAccount({ currency: 'EUR' });
       await setBase('EUR');
@@ -1155,14 +1155,14 @@ describe('покрытие валют курсами (issue #193)', () => {
       expect(state.base_currency).toBe('EUR');
       expect(state.rates).toEqual([expect.objectContaining({ code: 'EUR', rate: '1.08' })]);
       
-      // Пересчёт через USD требует курса EUR!
-      // Значит курс EUR не попадает в missing, потому что он ЕСТЬ!
+      // Conversion through USD requires the EUR rate!
+      // So the EUR rate does not land in missing, because it EXISTS!
       expect(state.missing).toEqual([]);
 
-      // Вход для EUR открыт! Мы можем обновлять её курс, так как она не USD.
+      // Input for EUR is open! We can update its rate, because it is not USD.
       expect((await api('PUT', '/api/v2/fx-rates/eur', { rate: '1.09' })).status).toBe(200);
 
-      // Удалить её нельзя, так как счета в EUR требуют курса к якорю (USD)!
+      // It cannot be deleted, because accounts in EUR require a rate to the anchor (USD)!
       expect((await api('DELETE', '/api/v2/fx-rates/eur')).status).toBe(409);
       expect((await fxState()).missing).toEqual([]);
     });
@@ -1170,7 +1170,7 @@ describe('покрытие валют курсами (issue #193)', () => {
 });
 
 describe('planned_items (issue #197)', () => {
-  it('создание и чтение: валюта по умолчанию берётся из счёта', async () => {
+  it('create and read: the default currency comes from the account', async () => {
     const { account } = await createAccount({ currency: 'RSD' });
     const created = await createPlannedItem(account.id);
     expect(created.planned_item).toMatchObject({
@@ -1192,17 +1192,17 @@ describe('planned_items (issue #197)', () => {
     expect(stored?.revision).toMatch(/^[0-9a-f]{32}$/);
   });
 
-  it('явная валюта принимается как есть, совпадать с валютой счёта не обязана', async () => {
+  it('an explicit currency is accepted as given and does not have to match the account currency', async () => {
     const { account } = await createAccount({ currency: 'USD' });
     const created = await createPlannedItem(account.id, { currency: 'eur' });
     expect(created.planned_item.currency).toBe('EUR');
   });
 
   it.each([
-    ['без date', { title: 'X', amount_minor: -100 }],
-    ['без title', { date: '2026-09-01', amount_minor: -100 }],
-    ['без amount_minor', { date: '2026-09-01', title: 'X' }],
-    ['без account_id', { date: '2026-09-01', title: 'X', amount_minor: -100 }],
+    ['without date', { title: 'X', amount_minor: -100 }],
+    ['without title', { date: '2026-09-01', amount_minor: -100 }],
+    ['without amount_minor', { date: '2026-09-01', title: 'X' }],
+    ['without account_id', { date: '2026-09-01', title: 'X', amount_minor: -100 }],
   ])('POST %s → 400', async (_label, body) => {
     const res = await api('POST', '/api/v2/planned-items', body);
     expect(res.status).toBe(400);
@@ -1220,7 +1220,7 @@ describe('planned_items (issue #197)', () => {
     expect(res.status).toBe(400);
   });
 
-  it('несуществующий account_id → 400, а не 500 от FK', async () => {
+  it('a missing account_id → 400, not a 500 from the FK', async () => {
     const res = await api('POST', '/api/v2/planned-items', {
       date: '2026-09-01',
       title: 'X',
@@ -1231,7 +1231,7 @@ describe('planned_items (issue #197)', () => {
     expect((await errorBody(res)).code).toBe('ACCOUNT_NOT_FOUND');
   });
 
-  it('несуществующая календарная дата (2026-02-30) → 400', async () => {
+  it('a calendar date that does not exist (2026-02-30) → 400', async () => {
     const { account } = await createAccount();
     const res = await api('POST', '/api/v2/planned-items', {
       date: '2026-02-30',
@@ -1242,7 +1242,7 @@ describe('planned_items (issue #197)', () => {
     expect(res.status).toBe(400);
   });
 
-  it('архивный счёт разрешён — архив не запрет на операции', async () => {
+  it('an archived account is allowed — archive is not a ban on operations', async () => {
     const { account } = await createAccount();
     await api('PATCH', `/api/v2/accounts/${account.id}`, { archived: true });
     const res = await api('POST', '/api/v2/planned-items', {
@@ -1254,7 +1254,7 @@ describe('planned_items (issue #197)', () => {
     expect(res.status).toBe(201);
   });
 
-  it('PATCH меняет переданное подмножество полей', async () => {
+  it('PATCH changes the subset of fields that was sent', async () => {
     const { account } = await createAccount();
     const created = await createPlannedItem(account.id, { title: 'До' });
     const res = await api('PATCH', `/api/v2/planned-items/${created.planned_item.id}`, {
@@ -1266,19 +1266,19 @@ describe('planned_items (issue #197)', () => {
     expect(body.planned_item).toMatchObject({ title: 'После', done: true, amount_minor: -1000 });
   });
 
-  it('PATCH без известных полей → 400', async () => {
+  it('PATCH with no known fields → 400', async () => {
     const { account } = await createAccount();
     const created = await createPlannedItem(account.id);
     const res = await api('PATCH', `/api/v2/planned-items/${created.planned_item.id}`, { unknown: 1 });
     expect(res.status).toBe(400);
   });
 
-  it('PATCH несуществующей записи → 404', async () => {
+  it('PATCH of a missing record → 404', async () => {
     const res = await api('PATCH', '/api/v2/planned-items/999999', { title: 'X' });
     expect(res.status).toBe(404);
   });
 
-  it('PATCH со сменой валюты без amount_minor → 400, с amount_minor → 200', async () => {
+  it('PATCH that changes currency without amount_minor → 400, with amount_minor → 200', async () => {
     const { account } = await createAccount({ currency: 'USD' });
     const created = await createPlannedItem(account.id, { currency: 'USD', amount_minor: -1500 });
 
@@ -1295,7 +1295,7 @@ describe('planned_items (issue #197)', () => {
     expect(body.planned_item).toMatchObject({ currency: 'JPY', amount_minor: -1500 });
   });
 
-  it('PATCH со сменой account_id валюту не переопределяет', async () => {
+  it('PATCH that changes account_id does not override the currency', async () => {
     const first = await createAccount({ currency: 'USD', name: 'Первый' });
     const second = await createAccount({ currency: 'RSD', name: 'Второй' });
     const created = await createPlannedItem(first.account.id, { currency: 'USD' });
@@ -1308,14 +1308,14 @@ describe('planned_items (issue #197)', () => {
     expect(body.planned_item).toMatchObject({ account_id: second.account.id, currency: 'USD' });
   });
 
-  it('PATCH с несуществующим account_id → 400', async () => {
+  it('PATCH with a missing account_id → 400', async () => {
     const { account } = await createAccount();
     const created = await createPlannedItem(account.id);
     const res = await api('PATCH', `/api/v2/planned-items/${created.planned_item.id}`, { account_id: 999999 });
     expect(res.status).toBe(400);
   });
 
-  it('DELETE удаляет: 204 и пропажа из списка, 404 на повторном удалении', async () => {
+  it('DELETE removes it: 204 and it disappears from the list, 404 on a second delete', async () => {
     const { account } = await createAccount();
     const created = await createPlannedItem(account.id);
 
@@ -1330,7 +1330,7 @@ describe('planned_items (issue #197)', () => {
     expect(again.status).toBe(404);
   });
 
-  it('GET сортирует: done ASC, date ASC, id ASC', async () => {
+  it('GET sorts by done ASC, date ASC, id ASC', async () => {
     const { account } = await createAccount();
     const c = await createPlannedItem(account.id, { title: 'C', date: '2026-09-01', done: true });
     const a = await createPlannedItem(account.id, { title: 'A', date: '2026-09-05' });
@@ -1341,9 +1341,9 @@ describe('planned_items (issue #197)', () => {
     expect(list.planned_items.map((p) => p.id)).toEqual([b.planned_item.id, a.planned_item.id, c.planned_item.id]);
   });
 
-  // Плановая операция, созданная ЧЕРЕЗ CRUD, закрывает замок измерений счёта
-  // (issue #232) так же, как прямая вставка, — и блокирует удаление счёта.
-  it('плановая операция через API закрывает замок измерений счёта и блокирует его удаление', async () => {
+  // A planned item created THROUGH CRUD closes the account dimension lock
+  // (issue #232) the same way a direct insert does — and blocks deleting the account.
+  it('a planned item created through the API closes the account dimension lock and blocks deleting the account', async () => {
     const { account } = await createAccount();
     await createPlannedItem(account.id);
 
@@ -1356,7 +1356,7 @@ describe('planned_items (issue #197)', () => {
 });
 
 describe('recurring_items (issue #197)', () => {
-  it('создание и чтение: валюта по умолчанию берётся из счёта', async () => {
+  it('create and read: the default currency comes from the account', async () => {
     const { account } = await createAccount({ currency: 'RSD' });
     const created = await createRecurringItem(account.id);
     expect(created.recurring_item).toMatchObject({
@@ -1383,18 +1383,18 @@ describe('recurring_items (issue #197)', () => {
     expect(stored?.revision).toMatch(/^[0-9a-f]{32}$/);
   });
 
-  it('явная валюта принимается как есть', async () => {
+  it('an explicit currency is accepted as given', async () => {
     const { account } = await createAccount({ currency: 'USD' });
     const created = await createRecurringItem(account.id, { currency: 'eur' });
     expect(created.recurring_item.currency).toBe('EUR');
   });
 
   it.each([
-    ['без title', { amount_minor: -100, frequency: 'daily', next_due_date: '2026-09-01' }],
-    ['без amount_minor', { title: 'X', frequency: 'daily', next_due_date: '2026-09-01' }],
-    ['без account_id — вставится валидатором', { title: 'X', amount_minor: -100, frequency: 'daily', next_due_date: '2026-09-01' }],
-    ['без frequency', { title: 'X', amount_minor: -100, next_due_date: '2026-09-01' }],
-    ['без next_due_date', { title: 'X', amount_minor: -100, frequency: 'daily' }],
+    ['without title', { amount_minor: -100, frequency: 'daily', next_due_date: '2026-09-01' }],
+    ['without amount_minor', { title: 'X', frequency: 'daily', next_due_date: '2026-09-01' }],
+    ['without account_id — the validator inserts it', { title: 'X', amount_minor: -100, frequency: 'daily', next_due_date: '2026-09-01' }],
+    ['without frequency', { title: 'X', amount_minor: -100, next_due_date: '2026-09-01' }],
+    ['without next_due_date', { title: 'X', amount_minor: -100, frequency: 'daily' }],
   ])('POST %s → 400', async (_label, body) => {
     const res = await api('POST', '/api/v2/recurring-items', body);
     expect(res.status).toBe(400);
@@ -1413,7 +1413,7 @@ describe('recurring_items (issue #197)', () => {
     expect(res.status).toBe(400);
   });
 
-  it('несуществующий account_id → 400', async () => {
+  it('a missing account_id → 400', async () => {
     const res = await api('POST', '/api/v2/recurring-items', {
       title: 'X',
       amount_minor: -100,
@@ -1425,7 +1425,7 @@ describe('recurring_items (issue #197)', () => {
     expect((await errorBody(res)).code).toBe('ACCOUNT_NOT_FOUND');
   });
 
-  it('несуществующая календарная дата (2026-02-30) → 400', async () => {
+  it('a calendar date that does not exist (2026-02-30) → 400', async () => {
     const { account } = await createAccount();
     const res = await api('POST', '/api/v2/recurring-items', {
       title: 'X',
@@ -1440,7 +1440,7 @@ describe('recurring_items (issue #197)', () => {
   it.each([
     ['0', 0],
     ['366', 366],
-  ])('interval_count = %s вне границ 1..365 → 400', async (_label, interval_count) => {
+  ])('interval_count = %s outside the bounds 1..365 → 400', async (_label, interval_count) => {
     const { account } = await createAccount();
     const res = await api('POST', '/api/v2/recurring-items', {
       title: 'X',
@@ -1453,14 +1453,14 @@ describe('recurring_items (issue #197)', () => {
     expect(res.status).toBe(400);
   });
 
-  it.each([[1], [365]])('interval_count = %s на границе принимается', async (interval_count) => {
+  it.each([[1], [365]])('interval_count = %s on the boundary is accepted', async (interval_count) => {
     const { account } = await createAccount();
     const created = await createRecurringItem(account.id, { interval_count });
     expect(created.recurring_item.interval_count).toBe(interval_count);
   });
 
-  describe('якоря правила', () => {
-    it('daily/weekly: day_of_month и month_of_year обязаны быть NULL', async () => {
+  describe('rule anchors', () => {
+    it('daily/weekly: day_of_month and month_of_year must be NULL', async () => {
       const { account } = await createAccount();
       for (const frequency of ['daily', 'weekly']) {
         const created = await createRecurringItem(account.id, { frequency });
@@ -1468,7 +1468,7 @@ describe('recurring_items (issue #197)', () => {
       }
     });
 
-    it.each(['daily', 'weekly'])('%s: непустой day_of_month → 400', async (frequency) => {
+    it.each(['daily', 'weekly'])('%s: a non-empty day_of_month → 400', async (frequency) => {
       const { account } = await createAccount();
       const res = await api('POST', '/api/v2/recurring-items', {
         title: 'X',
@@ -1481,7 +1481,7 @@ describe('recurring_items (issue #197)', () => {
       expect(res.status).toBe(400);
     });
 
-    it.each(['daily', 'weekly'])('%s: непустой month_of_year → 400', async (frequency) => {
+    it.each(['daily', 'weekly'])('%s: a non-empty month_of_year → 400', async (frequency) => {
       const { account } = await createAccount();
       const res = await api('POST', '/api/v2/recurring-items', {
         title: 'X',
@@ -1494,13 +1494,13 @@ describe('recurring_items (issue #197)', () => {
       expect(res.status).toBe(400);
     });
 
-    it('monthly: day_of_month не передали — выводится из дня next_due_date', async () => {
+    it('monthly: day_of_month was not sent — it is derived from the day of next_due_date', async () => {
       const { account } = await createAccount();
       const created = await createRecurringItem(account.id, { frequency: 'monthly', next_due_date: '2026-09-15' });
       expect(created.recurring_item).toMatchObject({ day_of_month: 15, month_of_year: null });
     });
 
-    it('monthly: явный day_of_month используется как есть', async () => {
+    it('monthly: an explicit day_of_month is used as given', async () => {
       const { account } = await createAccount();
       const created = await createRecurringItem(account.id, {
         frequency: 'monthly',
@@ -1510,7 +1510,7 @@ describe('recurring_items (issue #197)', () => {
       expect(created.recurring_item.day_of_month).toBe(28);
     });
 
-    it('monthly: непустой month_of_year → 400', async () => {
+    it('monthly: a non-empty month_of_year → 400', async () => {
       const { account } = await createAccount();
       const res = await api('POST', '/api/v2/recurring-items', {
         title: 'X',
@@ -1523,7 +1523,7 @@ describe('recurring_items (issue #197)', () => {
       expect(res.status).toBe(400);
     });
 
-    it('yearly: day_of_month — явный или из дня next_due_date, month_of_year производный', async () => {
+    it('yearly: day_of_month is explicit or taken from the day of next_due_date, and month_of_year is derived', async () => {
       const { account } = await createAccount();
       const withoutDay = await createRecurringItem(account.id, { frequency: 'yearly', next_due_date: '2026-08-10' });
       expect(withoutDay.recurring_item).toMatchObject({ day_of_month: 10, month_of_year: 8 });
@@ -1536,7 +1536,7 @@ describe('recurring_items (issue #197)', () => {
       expect(withDay.recurring_item).toMatchObject({ day_of_month: 29, month_of_year: 8 });
     });
 
-    it('yearly: явный month_of_year, совпадающий с датой, принимается', async () => {
+    it('yearly: an explicit month_of_year that matches the date is accepted', async () => {
       const { account } = await createAccount();
       const created = await createRecurringItem(account.id, {
         frequency: 'yearly',
@@ -1546,7 +1546,7 @@ describe('recurring_items (issue #197)', () => {
       expect(created.recurring_item.month_of_year).toBe(8);
     });
 
-    it('yearly: явный month_of_year, не совпадающий с месяцем next_due_date, → 400', async () => {
+    it('yearly: an explicit month_of_year that does not match the month of next_due_date → 400', async () => {
       const { account } = await createAccount();
       const res = await api('POST', '/api/v2/recurring-items', {
         title: 'X',
@@ -1562,7 +1562,7 @@ describe('recurring_items (issue #197)', () => {
   });
 
   describe('end_date', () => {
-    it('end_date, равный next_due_date, валиден (ровно один платёж)', async () => {
+    it('an end_date equal to next_due_date is valid (exactly one payment)', async () => {
       const { account } = await createAccount();
       const created = await createRecurringItem(account.id, {
         next_due_date: '2026-09-01',
@@ -1571,7 +1571,7 @@ describe('recurring_items (issue #197)', () => {
       expect(created.recurring_item.end_date).toBe('2026-09-01');
     });
 
-    it('end_date раньше next_due_date → 400', async () => {
+    it('end_date earlier than next_due_date → 400', async () => {
       const { account } = await createAccount();
       const res = await api('POST', '/api/v2/recurring-items', {
         title: 'X',
@@ -1584,27 +1584,27 @@ describe('recurring_items (issue #197)', () => {
       expect(res.status).toBe(400);
     });
 
-    it('end_date не передан или null → null', async () => {
+    it('end_date omitted or null → null', async () => {
       const { account } = await createAccount();
       const created = await createRecurringItem(account.id, { end_date: null });
       expect(created.recurring_item.end_date).toBeNull();
     });
   });
 
-  it('active по умолчанию true, явный false принимается', async () => {
+  it('active defaults to true, and an explicit false is accepted', async () => {
     const { account } = await createAccount();
     const created = await createRecurringItem(account.id, { active: false });
     expect(created.recurring_item.active).toBe(false);
   });
 
-  it('PATCH без известных полей → 400, несуществующей записи → 404', async () => {
+  it('PATCH with no known fields → 400, and PATCH of a missing record → 404', async () => {
     const { account } = await createAccount();
     const created = await createRecurringItem(account.id);
     expect((await api('PATCH', `/api/v2/recurring-items/${created.recurring_item.id}`, { unknown: 1 })).status).toBe(400);
     expect((await api('PATCH', '/api/v2/recurring-items/999999', { title: 'X' })).status).toBe(404);
   });
 
-  it('PATCH меняет переданное подмножество независимых полей', async () => {
+  it('PATCH changes the sent subset of independent fields', async () => {
     const { account } = await createAccount();
     const created = await createRecurringItem(account.id, { title: 'До' });
     const res = await api('PATCH', `/api/v2/recurring-items/${created.recurring_item.id}`, { title: 'После', category: 'Связь' });
@@ -1613,7 +1613,7 @@ describe('recurring_items (issue #197)', () => {
     expect(body.recurring_item).toMatchObject({ title: 'После', category: 'Связь', frequency: 'daily' });
   });
 
-  it('PATCH со сменой валюты без amount_minor → 400, с amount_minor → 200', async () => {
+  it('PATCH that changes currency without amount_minor → 400, with amount_minor → 200', async () => {
     const { account } = await createAccount({ currency: 'USD' });
     const created = await createRecurringItem(account.id, { currency: 'USD', amount_minor: -1500 });
 
@@ -1630,7 +1630,7 @@ describe('recurring_items (issue #197)', () => {
     expect(body.recurring_item).toMatchObject({ currency: 'JPY', amount_minor: -1500 });
   });
 
-  it('PATCH со сменой account_id валюту не переопределяет', async () => {
+  it('PATCH that changes account_id does not override the currency', async () => {
     const first = await createAccount({ currency: 'USD', name: 'Первый' });
     const second = await createAccount({ currency: 'RSD', name: 'Второй' });
     const created = await createRecurringItem(first.account.id, { currency: 'USD' });
@@ -1643,15 +1643,15 @@ describe('recurring_items (issue #197)', () => {
     expect(body.recurring_item).toMatchObject({ account_id: second.account.id, currency: 'USD' });
   });
 
-  it('PATCH с несуществующим account_id → 400', async () => {
+  it('PATCH with a missing account_id → 400', async () => {
     const { account } = await createAccount();
     const created = await createRecurringItem(account.id);
     const res = await api('PATCH', `/api/v2/recurring-items/${created.recurring_item.id}`, { account_id: 999999 });
     expect(res.status).toBe(400);
   });
 
-  describe('PATCH считает правило целиком', () => {
-    it('смена frequency с monthly на daily сама обнуляет якоря', async () => {
+  describe('PATCH evaluates the rule as a whole', () => {
+    it('changing frequency from monthly to daily clears the anchors by itself', async () => {
       const { account } = await createAccount();
       const created = await createRecurringItem(account.id, {
         frequency: 'monthly',
@@ -1665,7 +1665,7 @@ describe('recurring_items (issue #197)', () => {
       expect(body.recurring_item).toMatchObject({ frequency: 'daily', day_of_month: null, month_of_year: null });
     });
 
-    it('смена frequency с yearly на weekly сама обнуляет якоря', async () => {
+    it('changing frequency from yearly to weekly clears the anchors by itself', async () => {
       const { account } = await createAccount();
       const created = await createRecurringItem(account.id, { frequency: 'yearly', next_due_date: '2026-08-10' });
 
@@ -1675,7 +1675,7 @@ describe('recurring_items (issue #197)', () => {
       expect(body.recurring_item).toMatchObject({ frequency: 'weekly', day_of_month: null, month_of_year: null });
     });
 
-    it('смена frequency на monthly без якорей в строке выводит day_of_month из next_due_date', async () => {
+    it('changing frequency to monthly when the row has no anchors derives day_of_month from next_due_date', async () => {
       const { account } = await createAccount();
       const created = await createRecurringItem(account.id, { frequency: 'daily', next_due_date: '2026-09-20' });
 
@@ -1685,7 +1685,7 @@ describe('recurring_items (issue #197)', () => {
       expect(body.recurring_item).toMatchObject({ frequency: 'monthly', day_of_month: 20, month_of_year: null });
     });
 
-    it('перенос next_due_date годового правила в другой месяц переносит month_of_year за собой', async () => {
+    it('moving next_due_date of a yearly rule into another month carries month_of_year along', async () => {
       const { account } = await createAccount();
       const created = await createRecurringItem(account.id, { frequency: 'yearly', next_due_date: '2026-08-10' });
       expect(created.recurring_item).toMatchObject({ day_of_month: 10, month_of_year: 8 });
@@ -1698,7 +1698,7 @@ describe('recurring_items (issue #197)', () => {
       expect(body.recurring_item).toMatchObject({ next_due_date: '2027-11-10', day_of_month: 10, month_of_year: 11 });
     });
 
-    it('перенос next_due_date месячного правила НЕ трогает day_of_month', async () => {
+    it('moving next_due_date of a monthly rule does NOT touch day_of_month', async () => {
       const { account } = await createAccount();
       const created = await createRecurringItem(account.id, {
         frequency: 'monthly',
@@ -1714,14 +1714,14 @@ describe('recurring_items (issue #197)', () => {
       expect(body.recurring_item).toMatchObject({ next_due_date: '2026-02-20', day_of_month: 5 });
     });
 
-    it('PATCH day_of_month на daily/weekly отдельным запросом → 400', async () => {
+    it('PATCH of day_of_month on daily/weekly as its own request → 400', async () => {
       const { account } = await createAccount();
       const created = await createRecurringItem(account.id, { frequency: 'daily' });
       const res = await api('PATCH', `/api/v2/recurring-items/${created.recurring_item.id}`, { day_of_month: 10 });
       expect(res.status).toBe(400);
     });
 
-    it('PATCH month_of_year на monthly отдельным запросом → 400', async () => {
+    it('PATCH of month_of_year on monthly as its own request → 400', async () => {
       const { account } = await createAccount();
       const created = await createRecurringItem(account.id, {
         frequency: 'monthly',
@@ -1731,7 +1731,7 @@ describe('recurring_items (issue #197)', () => {
       expect(res.status).toBe(400);
     });
 
-    it('PATCH month_of_year годового правила, не совпадающего с новым next_due_date, → 400; совпадающего — 200', async () => {
+    it('PATCH month_of_year of a yearly rule that does not match the new next_due_date → 400; a matching one → 200', async () => {
       const { account } = await createAccount();
       const created = await createRecurringItem(account.id, { frequency: 'yearly', next_due_date: '2026-08-10' });
 
@@ -1748,11 +1748,11 @@ describe('recurring_items (issue #197)', () => {
       expect(accepted.status).toBe(200);
     });
 
-    // Ровно то, что шлёт форма экрана «Регулярные»: она отправляет правило
-    // целиком, включая day_of_month, при каждом сохранении. Два случая, и оба
-    // обязаны работать — иначе поменять день правила через UI будет нечем
-    // (перенос next_due_date его намеренно не двигает, тест выше).
-    it('явный day_of_month в PATCH меняет само правило, а прижатый день переживает правку соседних полей', async () => {
+    // Exactly what the "Recurring" screen form sends: it submits the rule
+    // as a whole, including day_of_month, on every save. Two cases, and both
+    // must work — otherwise there is no way to change the day of the rule through the UI
+    // (moving next_due_date deliberately does not move it; see the test above).
+    it('an explicit day_of_month in PATCH changes the rule itself, and a pinned day survives edits of neighboring fields', async () => {
       const { account } = await createAccount();
       const created = await createRecurringItem(account.id, {
         frequency: 'monthly',
@@ -1761,7 +1761,7 @@ describe('recurring_items (issue #197)', () => {
       });
       const id = created.recurring_item.id;
 
-      // Форма сохраняет название, послав правило целиком с прежним днём.
+      // The form saves the title, sending the whole rule with the previous day.
       const untouched = await api('PATCH', `/api/v2/recurring-items/${id}`, {
         title: 'Кредит',
         frequency: 'monthly',
@@ -1773,14 +1773,14 @@ describe('recurring_items (issue #197)', () => {
       expect(((await untouched.json()) as { recurring_item: Record<string, unknown> }).recurring_item)
         .toMatchObject({ title: 'Кредит', day_of_month: 31, next_due_date: '2026-02-28' });
 
-      // А теперь владелец действительно переносит правило на 20-е число.
+      // And now the owner really does move the rule to the 20th.
       const moved = await api('PATCH', `/api/v2/recurring-items/${id}`, { day_of_month: 20 });
       expect(moved.status).toBe(200);
       expect(((await moved.json()) as { recurring_item: Record<string, unknown> }).recurring_item)
         .toMatchObject({ day_of_month: 20, next_due_date: '2026-02-28' });
     });
 
-    it('явный day_of_month: null на monthly/yearly → 400 (якорь обязателен)', async () => {
+    it('an explicit day_of_month: null on monthly/yearly → 400 (the anchor is required)', async () => {
       const { account } = await createAccount();
       const created = await createRecurringItem(account.id, {
         frequency: 'monthly',
@@ -1791,8 +1791,8 @@ describe('recurring_items (issue #197)', () => {
     });
   });
 
-  describe('end_date и next_due_date двигаются одним запросом', () => {
-    it('next_due_date позже действующего end_date отдельным PATCH → 400', async () => {
+  describe('end_date and next_due_date move in a single request', () => {
+    it('next_due_date later than the current end_date, sent as its own PATCH → 400', async () => {
       const { account } = await createAccount();
       const created = await createRecurringItem(account.id, {
         next_due_date: '2026-01-01',
@@ -1805,7 +1805,7 @@ describe('recurring_items (issue #197)', () => {
       expect(res.status).toBe(400);
     });
 
-    it('next_due_date и end_date одним PATCH — проходит', async () => {
+    it('next_due_date and end_date in one PATCH — succeeds', async () => {
       const { account } = await createAccount();
       const created = await createRecurringItem(account.id, {
         next_due_date: '2026-01-01',
@@ -1821,7 +1821,7 @@ describe('recurring_items (issue #197)', () => {
       expect(body.recurring_item).toMatchObject({ next_due_date: '2026-07-01', end_date: '2026-09-01' });
     });
 
-    it('PATCH end_date: null снимает срок', async () => {
+    it('PATCH end_date: null clears the end date', async () => {
       const { account } = await createAccount();
       const created = await createRecurringItem(account.id, { end_date: '2026-12-01' });
 
@@ -1832,7 +1832,7 @@ describe('recurring_items (issue #197)', () => {
     });
   });
 
-  it('DELETE удаляет: 204 и пропажа из списка, 404 на повторном удалении', async () => {
+  it('DELETE removes it: 204 and it disappears from the list, 404 on a second delete', async () => {
     const { account } = await createAccount();
     const created = await createRecurringItem(account.id);
 
@@ -1847,7 +1847,7 @@ describe('recurring_items (issue #197)', () => {
     expect(again.status).toBe(404);
   });
 
-  it('GET сортирует: active DESC, next_due_date ASC, id ASC', async () => {
+  it('GET sorts by active DESC, next_due_date ASC, id ASC', async () => {
     const { account } = await createAccount();
     const inactive = await createRecurringItem(account.id, { title: 'Неактивная', next_due_date: '2026-01-01', active: false });
     const late = await createRecurringItem(account.id, { title: 'Поздняя', next_due_date: '2026-09-05' });
@@ -1862,9 +1862,9 @@ describe('recurring_items (issue #197)', () => {
     ]);
   });
 
-  // Регулярная операция, созданная ЧЕРЕЗ CRUD, закрывает замок измерений счёта
-  // (issue #232) так же, как прямая вставка, — и блокирует удаление счёта.
-  it('регулярная операция через API закрывает замок измерений счёта и блокирует его удаление', async () => {
+  // A recurring item created THROUGH CRUD closes the account dimension lock
+  // (issue #232) the same way a direct insert does — and blocks deleting the account.
+  it('a recurring item created through the API closes the account dimension lock and blocks deleting the account', async () => {
     const { account } = await createAccount();
     await createRecurringItem(account.id);
 
@@ -1876,7 +1876,7 @@ describe('recurring_items (issue #197)', () => {
   });
 
   describe('close-period and skip-period (issue #280)', () => {
-    it('close-period с дефолтными параметрами: создаёт операцию source=recurring, двигает баланс и сдвигает next_due_date', async () => {
+    it('close-period with default parameters: creates an operation with source=recurring, moves the balance, and shifts next_due_date', async () => {
       const { account } = await createAccount({ balance_minor: 100000, currency: 'RSD' });
       const { recurring_item: item } = await createRecurringItem(account.id, {
         title: 'Аренда',
@@ -1895,7 +1895,7 @@ describe('recurring_items (issue #197)', () => {
         operation: Record<string, unknown>;
       };
 
-      // 1. Операция создана
+      // 1. The operation was created
       expect(data.operation).toMatchObject({
         date: '2026-08-15',
         account_id: account.id,
@@ -1910,16 +1910,16 @@ describe('recurring_items (issue #197)', () => {
         recurring_item_id: item.id,
       });
 
-      // 2. Баланс счёта уменьшился
+      // 2. The account balance went down
       const accRes = await api('GET', '/api/v2/accounts');
       const { accounts } = (await accRes.json()) as { accounts: Array<{ id: number; balance_minor: number }> };
       expect(accounts.find((a) => a.id === account.id)!.balance_minor).toBe(60000);
 
-      // 3. Якорь сдвинут на 15 сентября
+      // 3. The anchor moved to 15 September
       expect(data.recurring_item.next_due_date).toBe('2026-09-15');
       expect(data.recurring_item.active).toBe(true);
 
-      // 4. Операция видна в общем списке операций
+      // 4. The operation shows up in the general operations list
       const opListRes = await api('GET', '/api/v2/operations');
       const opList = (await opListRes.json()) as { operations: Array<{ id: number; source: string; recurring_item_id: number }> };
       expect(opList.operations).toHaveLength(1);
@@ -1927,7 +1927,7 @@ describe('recurring_items (issue #197)', () => {
       expect(opList.operations[0].recurring_item_id).toBe(item.id);
     });
 
-    it('close-period с переопределением суммы (коммуналка), даты, категории и подкатегории', async () => {
+    it('close-period overriding the amount (utilities), date, category, and subcategory', async () => {
       const { account } = await createAccount({ balance_minor: 50000, currency: 'RSD' });
       const { recurring_item: item } = await createRecurringItem(account.id, {
         title: 'Коммуналка',
@@ -1939,7 +1939,7 @@ describe('recurring_items (issue #197)', () => {
         category: 'Жильё',
       });
 
-      // В августе счёт за коммуналку пришёл на 9 450 RSD
+      // In August the utilities bill came in at 9 450 RSD
       const res = await api('POST', `/api/v2/recurring-items/${item.id}/close-period`, {
         date: '2026-08-19',
         amount_minor: -9450,
@@ -1962,19 +1962,19 @@ describe('recurring_items (issue #197)', () => {
         recurring_item_id: item.id,
       });
 
-      // Баланс счёта изменился ровно на фактическую сумму
+      // The account balance changed by exactly the actual amount
       const accRes = await api('GET', '/api/v2/accounts');
       const { accounts } = (await accRes.json()) as { accounts: Array<{ id: number; balance_minor: number }> };
       expect(accounts.find((a) => a.id === account.id)!.balance_minor).toBe(40550);
 
-      // Якорь правила сдвинулся на 20 сентября, сумма правила осталась -8000
+      // The rule anchor moved to 20 September, and the rule amount stayed -8000
       expect(data.recurring_item.next_due_date).toBe('2026-09-20');
       expect(data.recurring_item.amount_minor).toBe(-8000);
     });
 
-    it('close-period на правиле с end_date: закрытие последнего периода деактивирует правило (active = false)', async () => {
+    it('close-period on a rule with end_date: closing the last period deactivates the rule (active = false)', async () => {
       const { account } = await createAccount({ balance_minor: 100000, currency: 'RSD' });
-      // Кредит/рассрочка на 2 платежа: 2026-08-15 и 2026-09-15 (end_date: 2026-09-15)
+      // A loan/installment plan of 2 payments: 2026-08-15 and 2026-09-15 (end_date: 2026-09-15)
       const { recurring_item: item } = await createRecurringItem(account.id, {
         title: 'Рассрочка',
         amount_minor: -15000,
@@ -1985,21 +1985,21 @@ describe('recurring_items (issue #197)', () => {
         end_date: '2026-09-15',
       });
 
-      // 1-й платёж
+      // 1st payment
       const res1 = await api('POST', `/api/v2/recurring-items/${item.id}/close-period`, {});
       expect(res1.status).toBe(201);
       const data1 = (await res1.json()) as { recurring_item: Record<string, unknown> };
       expect(data1.recurring_item.next_due_date).toBe('2026-09-15');
       expect(data1.recurring_item.active).toBe(true);
 
-      // 2-й (последний) платёж
+      // 2nd (last) payment
       const res2 = await api('POST', `/api/v2/recurring-items/${item.id}/close-period`, {});
       expect(res2.status).toBe(201);
       const data2 = (await res2.json()) as { recurring_item: Record<string, unknown> };
       expect(data2.recurring_item.active).toBe(false);
     });
 
-    it('skip-period сдвигает якорь без создания операции и без изменения баланса', async () => {
+    it('skip-period shifts the anchor without creating an operation and without changing the balance', async () => {
       const { account } = await createAccount({ balance_minor: 50000, currency: 'RSD' });
       const { recurring_item: item } = await createRecurringItem(account.id, {
         title: 'Фитнес',
@@ -2035,18 +2035,18 @@ describe('recurring_items (issue #197)', () => {
         }],
       });
 
-      // Операций нет
+      // No operations
       const opListRes = await api('GET', '/api/v2/operations');
       const opList = (await opListRes.json()) as { operations: unknown[] };
       expect(opList.operations).toHaveLength(0);
 
-      // Баланс не изменился
+      // The balance did not change
       const accRes = await api('GET', '/api/v2/accounts');
       const { accounts } = (await accRes.json()) as { accounts: Array<{ id: number; balance_minor: number }> };
       expect(accounts.find((a) => a.id === account.id)!.balance_minor).toBe(50000);
     });
 
-    it('close-period и skip-period не меняют неактивное правило', async () => {
+    it('close-period and skip-period do not change an inactive rule', async () => {
       const { account } = await createAccount({ balance_minor: 50000, currency: 'RSD' });
       const { recurring_item: item } = await createRecurringItem(account.id, {
         title: 'Архивная подписка',
@@ -2063,7 +2063,7 @@ describe('recurring_items (issue #197)', () => {
       expect((await env.DB.prepare('SELECT balance_minor FROM accounts WHERE id = ?').bind(account.id).first<{ balance_minor: number }>())?.balance_minor).toBe(50000);
     });
 
-    it('skip-period на последнем периоде с end_date деактивирует правило', async () => {
+    it('skip-period on the last period that has an end_date deactivates the rule', async () => {
       const { account } = await createAccount({ balance_minor: 50000, currency: 'RSD' });
       const { recurring_item: item } = await createRecurringItem(account.id, {
         title: 'Подписка',
@@ -2081,7 +2081,7 @@ describe('recurring_items (issue #197)', () => {
       expect(data.recurring_item.active).toBe(false);
     });
 
-    it('provider CAS не закрывает следующий период повторно по snapshot предыдущего', async () => {
+    it('provider CAS does not close the next period again from the previous period snapshot', async () => {
       const { account } = await createAccount({ balance_minor: 100000, currency: 'RSD' });
       const { recurring_item: item } = await createRecurringItem(account.id, {
         title: 'Подписка', amount_minor: -4000, currency: 'RSD', frequency: 'monthly',
@@ -2111,7 +2111,7 @@ describe('recurring_items (issue #197)', () => {
       expect(balance?.balance_minor).toBe(96000);
     });
 
-    it('provider CAS не пропускает другой recurring-период по устаревшему snapshot', async () => {
+    it('provider CAS does not skip a different recurring period from a stale snapshot', async () => {
       const { account } = await createAccount({ balance_minor: 50000, currency: 'RSD' });
       const { recurring_item: item } = await createRecurringItem(account.id, {
         title: 'Фитнес', amount_minor: -5000, currency: 'RSD', frequency: 'monthly',
@@ -2133,7 +2133,7 @@ describe('recurring_items (issue #197)', () => {
       expect((await env.DB.prepare('SELECT balance_minor FROM accounts WHERE id = ?').bind(account.id).first<{ balance_minor: number }>())?.balance_minor).toBe(50000);
     });
 
-    it('валидация close-period: 404 если нет правила, 400 при несовпадении валют или невалидных данных', async () => {
+    it('close-period validation: 404 when the rule is missing, 400 on a currency mismatch or invalid data', async () => {
       expect((await api('POST', '/api/v2/recurring-items/999999/close-period', {})).status).toBe(404);
       expect((await api('POST', '/api/v2/recurring-items/abc/close-period', {})).status).toBe(404);
 
@@ -2148,19 +2148,19 @@ describe('recurring_items (issue #197)', () => {
         next_due_date: '2026-08-01',
       });
 
-      // Перенос на счёт с другой валютой без совпадения валюты
+      // Move onto an account in another currency without a matching currency
       const currencyMismatch = await api('POST', `/api/v2/recurring-items/${item.id}/close-period`, {
         account_id: accountEur.id,
       });
       expect(currencyMismatch.status).toBe(400);
 
-      // Невалидная сумма 0
+      // Invalid amount of 0
       const zeroAmount = await api('POST', `/api/v2/recurring-items/${item.id}/close-period`, {
         amount_minor: 0,
       });
       expect(zeroAmount.status).toBe(400);
 
-      // Подкатегория без категории
+      // A subcategory without a category
       const subWithoutCat = await api('POST', `/api/v2/recurring-items/${item.id}/close-period`, {
         category: null,
         subcategory: 'Тест',
@@ -2169,8 +2169,8 @@ describe('recurring_items (issue #197)', () => {
     });
   });
 
-  describe('интеграция закрытия периода регулярного с прогнозом (issue #280 + #279)', () => {
-    it('закрытие периода убирает просроченный долг из прогноза, списывает баланс и оставляет будущий горизонт полным', async () => {
+  describe('integration of closing a recurring period with the forecast (issue #280 + #279)', () => {
+    it('closing a period removes the overdue debt from the forecast, debits the balance, and leaves the future horizon complete', async () => {
       vi.useFakeTimers();
       try {
         vi.setSystemTime(new Date('2026-08-09T12:00:00Z'));
@@ -2178,7 +2178,7 @@ describe('recurring_items (issue #197)', () => {
         await api('PUT', '/api/v2/fx-rates/RSD', { rate: 1 });
         await api('PUT', '/api/v2/settings/base_currency', { value: 'RSD' });
 
-        // Создаём правило, у которого next_due_date был вчера (2026-08-08 при asOf 2026-08-09)
+        // Create a rule whose next_due_date was yesterday (2026-08-08 when asOf is 2026-08-09)
         const { recurring_item: item } = await createRecurringItem(account.id, {
           title: 'Аренда',
           amount_minor: -40000,
@@ -2188,31 +2188,31 @@ describe('recurring_items (issue #197)', () => {
           next_due_date: '2026-08-08',
         });
 
-        // До закрытия: прогноз видит долг -40 000 в ближайший день
+        // Before closing: the forecast sees a debt of -40 000 on the nearest day
         const f1 = await (await api('GET', '/api/v2/forecast')).json() as {
           series: Array<{ date: string; overall_minor: number }>;
         };
-        // Стартовый баланс 100 000, но в день 0 (2026-08-09) из-за просроченной аренды баланс 60 000
+        // Starting balance 100 000, but on day 0 (2026-08-09) overdue rent brings the balance to 60 000
         expect(f1.series[0].overall_minor).toBe(60000);
 
-        // Закрываем период (факт оплаты 8 августа на -40 000)
+        // Close the period (actual payment on 8 August for -40 000)
         const closeRes = await api('POST', `/api/v2/recurring-items/${item.id}/close-period`, {});
         expect(closeRes.status).toBe(201);
 
-        // После закрытия:
-        // 1. Реальный баланс счёта стал 60 000
+        // After closing:
+        // 1. The real account balance became 60 000
         const accRes = await api('GET', '/api/v2/accounts');
         const { accounts } = (await accRes.json()) as { accounts: Array<{ id: number; balance_minor: number }> };
         expect(accounts.find((a) => a.id === account.id)!.balance_minor).toBe(60000);
 
-        // 2. Прогноз стартует от 60 000 и НЕ дублирует списание 8 августа (оно уже в балансе)
+        // 2. The forecast starts from 60 000 and does NOT duplicate the 8 August debit (it is already in the balance)
         const f2 = await (await api('GET', '/api/v2/forecast')).json() as {
           series: Array<{ date: string; overall_minor: number }>;
         };
-        // В день 0 (2026-08-09) баланс остаётся 60 000, а не 20 000 (долг больше не висит)
+        // On day 0 (2026-08-09) the balance stays 60 000, not 20 000 (the debt is no longer outstanding)
         expect(f2.series[0].overall_minor).toBe(60000);
 
-        // 3. Следующий платёж 8 сентября спишет ещё -40 000 (баланс станет 20 000)
+        // 3. The next payment on 8 September deducts another -40 000 (the balance becomes 20 000)
         const sep8Point = f2.series.find((p) => p.date === '2026-09-08');
         expect(sep8Point).toBeDefined();
         expect(sep8Point!.overall_minor).toBe(20000);
@@ -2230,7 +2230,7 @@ describe('operations (issue #200)', () => {
     return ((await res.json()) as { operations: Record<string, unknown>[] }).operations;
   }
 
-  /** Баланс счёта читаем через API, а не из БД: проверяем наблюдаемое поведение. */
+  /** Read the account balance through the API, not from the DB: we check observable behavior. */
   async function balanceOf(accountId: unknown): Promise<number> {
     const res = await api('GET', '/api/v2/accounts');
     const { accounts } = (await res.json()) as { accounts: Record<string, unknown>[] };
@@ -2242,7 +2242,7 @@ describe('operations (issue #200)', () => {
     return account;
   }
 
-  it('создание: счёт, вид, подкатегория; валюта приходит от счёта, происхождение ручное', async () => {
+  it('create: account, kind, subcategory; currency comes from the account, and the origin is manual', async () => {
     const account = await accountWithBalance(100000, { currency: 'RSD' });
     const { operation } = await createOperation(account.id, {
       store: 'Maxi',
@@ -2268,9 +2268,9 @@ describe('operations (issue #200)', () => {
     expect(await listOperations()).toEqual([operation]);
   });
 
-  // Главное новое поведение задачи: сумма операции правит баланс счёта при
-  // сохранении (решение владельца 2026-08-12).
-  it('расход уменьшает баланс счёта, доход увеличивает, возврат возвращает', async () => {
+  // The main new behavior of this task: the operation amount adjusts the account balance when
+  // it is saved (owner's decision 2026-08-12).
+  it('an expense decreases the account balance, income increases it, and a refund puts it back', async () => {
     const account = await accountWithBalance(100000);
 
     await createOperation(account.id, { amount_minor: -25000 });
@@ -2283,10 +2283,10 @@ describe('operations (issue #200)', () => {
     expect(await balanceOf(account.id)).toBe(579999);
   });
 
-  // Отметка «сверился с банком» (issue #223) от нашей коррекции не двигается:
-  // посчитанная нами сумма сверкой не является, и гасить ею напоминание
-  // «пора сверить» значило бы врать ровно там, где расхождение и копится.
-  it('коррекция баланса не переставляет balance_updated_at', async () => {
+  // The "checked with the bank" mark (issue #223) does not move because of our adjustment:
+  // an amount we computed is not a reconciliation, and using it to clear the
+  // "time to reconcile" reminder would lie exactly where the discrepancy accumulates.
+  it('a balance adjustment does not move balance_updated_at', async () => {
     const account = await accountWithBalance(100000);
     const before = (await (await api('GET', '/api/v2/accounts')).json()) as { accounts: Record<string, unknown>[] };
     const stampBefore = before.accounts[0]!.balance_updated_at;
@@ -2298,7 +2298,7 @@ describe('operations (issue #200)', () => {
     expect(after.accounts[0]!.balance_minor).toBe(75000);
   });
 
-  it('список свежими сверху, позиции одного дня — позже введённая выше', async () => {
+  it('the list is newest first, and same-day rows put the later entry above', async () => {
     const account = await accountWithBalance(1000000);
     await createOperation(account.id, { date: '2026-08-01', item: 'Старая' });
     await createOperation(account.id, { date: '2026-08-10', item: 'Первая того дня' });
@@ -2307,7 +2307,7 @@ describe('operations (issue #200)', () => {
     expect((await listOperations()).map((o) => o.item)).toEqual(['Вторая того дня', 'Первая того дня', 'Старая']);
   });
 
-  it('валюта в ответе — валюта счёта, у каждой операции своя по её счёту', async () => {
+  it('the currency in the response is the account currency, and each operation takes its own from its account', async () => {
     const rsd = await accountWithBalance(0, { currency: 'RSD' });
     const eur = await accountWithBalance(0, { name: 'Евровый', currency: 'EUR' });
     await createOperation(rsd.id, { item: 'Кофе' });
@@ -2317,15 +2317,15 @@ describe('operations (issue #200)', () => {
     expect(byItem).toEqual({ Кофе: 'RSD', Подписка: 'EUR' });
   });
 
-  it('валюту от клиента не принимает вовсе — поле неизвестное', async () => {
+  it('a currency from the client is not accepted at all — the field is unknown', async () => {
     const account = await accountWithBalance(0, { currency: 'RSD' });
     const { operation } = await createOperation(account.id, { currency: 'JPY' });
     expect(operation.currency).toBe('RSD');
   });
 
-  // Знак — дельта баланса, и вид с ним обязан совпадать. Молча исправлять знак
-  // нельзя: клиент ошибся в одном из двух полей, и в каком именно — неизвестно.
-  it('отклоняет расход с плюсом и доход с минусом', async () => {
+  // The sign is the balance delta, and the kind must agree with it. Silently fixing the sign
+  // is not allowed: the client got one of the two fields wrong, and it is not known which.
+  it('rejects an expense with a plus and income with a minus', async () => {
     const account = await accountWithBalance(100000);
 
     const plus = await api('POST', '/api/v2/operations', {
@@ -2344,7 +2344,7 @@ describe('operations (issue #200)', () => {
     expect(await balanceOf(account.id)).toBe(100000);
   });
 
-  it('отклоняет неизвестный вид операции', async () => {
+  it('rejects an unknown operation kind', async () => {
     const account = await accountWithBalance(0);
     const res = await api('POST', '/api/v2/operations', {
       date: '2026-08-10', account_id: account.id, kind: 'transfer', item: 'Перевод', amount_minor: -350,
@@ -2353,7 +2353,7 @@ describe('operations (issue #200)', () => {
     expect(await errorOf(res)).toContain('kind');
   });
 
-  it('отклоняет подкатегорию без категории — и на создании, и на правке', async () => {
+  it('rejects a subcategory without a category — both on create and on edit', async () => {
     const account = await accountWithBalance(0);
     const res = await api('POST', '/api/v2/operations', {
       date: '2026-08-10', account_id: account.id, kind: 'expense', item: 'Огурцы',
@@ -2367,7 +2367,7 @@ describe('operations (issue #200)', () => {
     expect(cleared.status).toBe(400);
   });
 
-  it('отклоняет операцию без счёта и с несуществующим счётом', async () => {
+  it('rejects an operation with no account and with a missing account', async () => {
     const noAccount = await api('POST', '/api/v2/operations', {
       date: '2026-08-10', kind: 'expense', item: 'Кофе', amount_minor: -350,
     });
@@ -2381,7 +2381,7 @@ describe('operations (issue #200)', () => {
     expect((await errorBody(missing)).code).toBe('ACCOUNT_NOT_FOUND');
   });
 
-  it('отклоняет нулевую и дробную сумму, несуществующую дату и пустое название', async () => {
+  it('rejects a zero amount, a fractional amount, a date that does not exist, and an empty name', async () => {
     const account = await accountWithBalance(100000);
     const bad = async (body: Record<string, unknown>) =>
       (await api('POST', '/api/v2/operations', {
@@ -2396,11 +2396,11 @@ describe('operations (issue #200)', () => {
     expect(await balanceOf(account.id)).toBe(100000);
   });
 
-  // Требование issue #200 — отказ раньше CHECK'а operations_source_matches_receipt.
-  // Сеть безопасности из схемы при этом мнимая: INSERT пишет NULL и 'manual'
-  // литералами, до CHECK'а присланное значение не доходит. Снимут проверку —
-  // будет не 500, а тихий 201 с пустой ссылкой на чек, и `toEqual([])` ловит это.
-  it('receipt_id и source через ручной ввод не принимаются', async () => {
+  // Requirement of issue #200 — reject before the operations_source_matches_receipt CHECK.
+  // The schema safety net is illusory here: the INSERT writes NULL and 'manual'
+  // as literals, so the submitted value never reaches the CHECK. Drop the check —
+  // and the result is not a 500 but a quiet 201 with an empty receipt link, and `toEqual([])` catches that.
+  it('receipt_id and source are not accepted through manual entry', async () => {
     const account = await accountWithBalance(0);
     const withReceipt = await api('POST', '/api/v2/operations', {
       date: '2026-08-10', account_id: account.id, kind: 'expense', item: 'Кофе', amount_minor: -350, receipt_id: 1,
@@ -2416,7 +2416,7 @@ describe('operations (issue #200)', () => {
     expect(await listOperations()).toEqual([]);
   });
 
-  it('PATCH меняет переданные поля и не трогает происхождение', async () => {
+  it('PATCH changes the fields that were sent and does not touch the origin', async () => {
     const account = await accountWithBalance(100000);
     const { operation } = await createOperation(account.id, { store: 'Maxi' });
 
@@ -2430,7 +2430,7 @@ describe('operations (issue #200)', () => {
     });
   });
 
-  it('принимает comment, receipt_url и fiscal_receipt_id при создании и правке; javascript: отклоняет', async () => {
+  it('accepts comment, receipt_url, and fiscal_receipt_id on create and on edit; rejects javascript:', async () => {
     const account = await accountWithBalance(100000);
     const purs = 'https://suf.purs.gov.rs/v/?vl=' + 'A'.repeat(200);
     const { operation } = await createOperation(account.id, {
@@ -2477,9 +2477,9 @@ describe('operations (issue #200)', () => {
     expect((await errorBody(tooLong)).code).toBe('INVALID_FISCAL_RECEIPT_ID');
   });
 
-  // Без этого исправленная опечатка (350 вместо 3500) оставила бы счёт кривым
-  // навсегда: одна операция уже применена, а её правка прошла бы мимо баланса.
-  it('PATCH суммы правит баланс ровно на разницу', async () => {
+  // Without this, a corrected typo (350 instead of 3500) would leave the account wrong
+  // forever: one operation is already applied, and editing it would have skipped the balance.
+  it('PATCH of the amount adjusts the balance by exactly the difference', async () => {
     const account = await accountWithBalance(100000);
     const { operation } = await createOperation(account.id, { amount_minor: -35000 });
     expect(await balanceOf(account.id)).toBe(65000);
@@ -2489,7 +2489,7 @@ describe('operations (issue #200)', () => {
     expect(await balanceOf(account.id)).toBe(96500);
   });
 
-  it('PATCH со сменой счёта снимает со старого и кладёт на новый', async () => {
+  it('PATCH that changes the account takes the amount off the old one and puts it on the new one', async () => {
     const from = await accountWithBalance(100000);
     const to = await accountWithBalance(50000, { name: 'Второй' });
     const { operation } = await createOperation(from.id, { amount_minor: -25000 });
@@ -2501,12 +2501,12 @@ describe('operations (issue #200)', () => {
     expect(await balanceOf(to.id)).toBe(25000);
   });
 
-  // Своей валюты у операции нет, поэтому смена счёта — это смена валюты, и
-  // сумму надо назвать заново. Без этой проверки перенос «1 500,00 RSD» на
-  // долларовый счёт отвечал 200 и оставлял amount_minor как есть: динары молча
-  // становились долларами, не изменившись ни в одной колонке. Замок измерений
-  // (#232) этот путь не закрывает — он запрещает менять валюту У СЧЁТА.
-  it('PATCH со сменой счёта на другую валюту без суммы → 400, ничего не тронуто', async () => {
+  // An operation has no currency of its own, so changing the account changes the currency, and
+  // the amount has to be named again. Without this check, moving "1 500,00 RSD" onto
+  // a dollar account returned 200 and left amount_minor as-is: dinars silently
+  // became dollars without a single column changing. The dimension lock
+  // (#232) does not close this path — it forbids changing the currency OF THE ACCOUNT.
+  it('PATCH that moves to an account in another currency without an amount → 400, and nothing is touched', async () => {
     const rsd = await accountWithBalance(0, { currency: 'RSD' });
     const usd = await accountWithBalance(0, { name: 'Долларовый', currency: 'USD' });
     const { operation } = await createOperation(rsd.id, { amount_minor: -150000 });
@@ -2522,7 +2522,7 @@ describe('operations (issue #200)', () => {
     expect(await balanceOf(usd.id)).toBe(0);
   });
 
-  it('PATCH со сменой счёта на другую валюту и суммой проходит', async () => {
+  it('PATCH that moves to an account in another currency and includes an amount succeeds', async () => {
     const rsd = await accountWithBalance(0, { currency: 'RSD' });
     const usd = await accountWithBalance(0, { name: 'Долларовый', currency: 'USD' });
     const { operation } = await createOperation(rsd.id, { amount_minor: -150000 });
@@ -2533,9 +2533,9 @@ describe('operations (issue #200)', () => {
     expect(await balanceOf(usd.id)).toBe(-1500);
   });
 
-  // Счета одной валюты переносом ничего не переоценивают — требовать сумму там
-  // значило бы мешать обычному «списал не с той карты».
-  it('PATCH со сменой счёта той же валюты суммы не требует', async () => {
+  // Accounts in the same currency do not revalue anything when money is moved — requiring an amount there
+  // would get in the way of an ordinary "charged the wrong card".
+  it('PATCH that moves to an account of the same currency does not require an amount', async () => {
     const from = await accountWithBalance(0, { currency: 'RSD' });
     const to = await accountWithBalance(0, { name: 'Второй динаровый', currency: 'RSD' });
     const { operation } = await createOperation(from.id, { amount_minor: -150000 });
@@ -2544,7 +2544,7 @@ describe('operations (issue #200)', () => {
     expect(await balanceOf(to.id)).toBe(-150000);
   });
 
-  it('PATCH со сменой счёта отдаёт валюту НОВОГО счёта', async () => {
+  it('PATCH that changes the account returns the currency of the NEW account', async () => {
     const rsd = await accountWithBalance(0, { currency: 'RSD' });
     const eur = await accountWithBalance(0, { name: 'Евровый', currency: 'EUR' });
     const { operation } = await createOperation(rsd.id);
@@ -2553,9 +2553,9 @@ describe('operations (issue #200)', () => {
     expect(((await res.json()) as { operation: Record<string, unknown> }).operation.currency).toBe('EUR');
   });
 
-  // Правило считается на эффективной строке: смена одного лишь вида на расходе
-  // с отрицательной суммой обязана дать внятный 400, а не упереться в CHECK.
-  it('PATCH вида без суммы, ломающий знак, → 400 и баланс не тронут', async () => {
+  // The rule is evaluated on the effective row: changing only the kind of an expense
+  // with a negative amount must produce a clear 400, not run into the CHECK.
+  it('PATCH of kind without an amount that breaks the sign → 400, and the balance is untouched', async () => {
     const account = await accountWithBalance(100000);
     const { operation } = await createOperation(account.id, { amount_minor: -35000 });
 
@@ -2565,7 +2565,7 @@ describe('operations (issue #200)', () => {
     expect(await balanceOf(account.id)).toBe(65000);
   });
 
-  it('PATCH вида вместе с суммой проходит и правит баланс', async () => {
+  it('PATCH of kind together with an amount succeeds and adjusts the balance', async () => {
     const account = await accountWithBalance(100000);
     const { operation } = await createOperation(account.id, { amount_minor: -35000 });
 
@@ -2574,7 +2574,7 @@ describe('operations (issue #200)', () => {
     expect(await balanceOf(account.id)).toBe(135000);
   });
 
-  it('PATCH прежними значениями → 200, строка и баланс нетронуты', async () => {
+  it('PATCH with the previous values → 200, and the row and the balance are untouched', async () => {
     const account = await accountWithBalance(100000);
     const { operation } = await createOperation(account.id);
 
@@ -2584,7 +2584,7 @@ describe('operations (issue #200)', () => {
     expect(await balanceOf(account.id)).toBe(99650);
   });
 
-  it('PATCH не принимает receipt_id и source, пустое тело → 400', async () => {
+  it('PATCH does not accept receipt_id or source, and an empty body → 400', async () => {
     const account = await accountWithBalance(0);
     const { operation } = await createOperation(account.id);
 
@@ -2593,7 +2593,7 @@ describe('operations (issue #200)', () => {
     expect((await api('PATCH', `/api/v2/operations/${operation.id}`, { nonsense: 1 })).status).toBe(400);
   });
 
-  it('DELETE возвращает сумму на баланс', async () => {
+  it('DELETE returns the amount onto the balance', async () => {
     const account = await accountWithBalance(100000);
     const { operation } = await createOperation(account.id, { amount_minor: -25000 });
     expect(await balanceOf(account.id)).toBe(75000);
@@ -2604,23 +2604,23 @@ describe('operations (issue #200)', () => {
     expect(await listOperations()).toEqual([]);
   });
 
-  it('PATCH и DELETE несуществующей операции → 404, нечисловой id тоже', async () => {
+  it('PATCH and DELETE of a missing operation → 404, and a non-numeric id does too', async () => {
     expect((await api('PATCH', '/api/v2/operations/999', { item: 'Чай' })).status).toBe(404);
     expect((await api('DELETE', '/api/v2/operations/999')).status).toBe(404);
     expect((await api('PATCH', '/api/v2/operations/abc', { item: 'Чай' })).status).toBe(404);
     expect((await api('DELETE', '/api/v2/operations/1.5')).status).toBe(404);
   });
 
-  it('DELETE несуществующей операции баланс не трогает', async () => {
+  it('DELETE of a missing operation does not touch the balance', async () => {
     const account = await accountWithBalance(100000);
     await api('DELETE', '/api/v2/operations/999');
     expect(await balanceOf(account.id)).toBe(100000);
   });
 
-  // Замок измерений (#232) операциями закрывается так же, как плановыми, и это
-  // не симметрия ради симметрии: валюта операции не хранится, а берётся у счёта
-  // — смена валюты счёта переписала бы смысл каждой суммы на нём.
-  it('операция закрывает замок измерений счёта и запрещает его удаление', async () => {
+  // The dimension lock (#232) is closed by operations the same way it is by planned items, and this
+  // is not symmetry for its own sake: an operation currency is not stored, it is taken from the account
+  // — changing the account currency would rewrite the meaning of every amount on it.
+  it('an operation closes the account dimension lock and forbids deleting the account', async () => {
     const account = await accountWithBalance(100000, { currency: 'RSD' });
     await createOperation(account.id);
 
@@ -2631,18 +2631,18 @@ describe('operations (issue #200)', () => {
     expect(deleted.status).toBe(409);
   });
 
-  // Инвариант, который обязан держаться при любых гонках: баланс счёта равен
-  // «стартовый + сумма всех операций на нём». Прежняя редакция считала дельту
-  // на JS от прочитанного снимка — и два параллельных PATCH давали lost update:
-  // ответы 200 у обоих, баланс 55000 вместо 70000. Живые подзапросы в batch'е
-  // это закрывают: что бы ни успел сделать сосед, снимается и применяется то,
-  // что реально лежит в строке.
-  it('два параллельных PATCH не расходят баланс с историей', async () => {
+  // An invariant that must hold through any race: the account balance equals
+  // "starting balance + the sum of every operation on it". The previous version computed the delta
+  // in JS from a snapshot it had read — and two parallel PATCHes produced a lost update:
+  // both answered 200, and the balance was 55000 instead of 70000. Live subqueries in the batch
+  // close this: whatever the neighbor managed to do, what gets removed and applied is
+  // whatever actually sits in the row.
+  it('two parallel PATCHes do not let the balance diverge from the history', async () => {
     const account = await accountWithBalance(100000);
     const id = (await createOperation(account.id, { amount_minor: -25000 })).operation.id as number;
     expect(await balanceOf(account.id)).toBe(75000);
 
-    // Соседний PATCH влезает ровно между нашим SELECT и нашим batch'ем.
+    // A neighboring PATCH slips in exactly between our SELECT and our batch.
     const realBatch = env.DB.batch.bind(env.DB);
     const spy = vi.spyOn(env.DB, 'batch').mockImplementation((async (statements: unknown) => {
       spy.mockRestore();
@@ -2658,9 +2658,9 @@ describe('operations (issue #200)', () => {
     expect(await balanceOf(account.id)).toBe(100000 + stored);
   });
 
-  // Тот же инвариант, но гонка увозит операцию на другой счёт: прежняя редакция
-  // снимала сумму со счёта из своего снимка и оставляла оба счёта кривыми.
-  it('правка суммы против параллельного переноса счёта не ломает инвариант', async () => {
+  // The same invariant, but the race moves the operation to another account: the previous version
+  // took the amount off the account from its own snapshot and left both accounts wrong.
+  it('editing the amount against a parallel account move does not break the invariant', async () => {
     const a = await accountWithBalance(100000);
     const b = await accountWithBalance(100000, { name: 'Второй' });
     const id = (await createOperation(a.id, { amount_minor: -25000 })).operation.id as number;
@@ -2676,22 +2676,22 @@ describe('operations (issue #200)', () => {
 
     const stored = (await listOperations())[0]!;
     const [balanceA, balanceB] = [await balanceOf(a.id), await balanceOf(b.id)];
-    // Операция ровно одна — её вклад обязан лежать ровно на одном счёте.
+    // There is exactly one operation — its contribution must sit on exactly one account.
     expect(stored.account_id === a.id ? [balanceA, balanceB] : [balanceB, balanceA]).toEqual([
       100000 + (stored.amount_minor as number),
       100000,
     ]);
   });
 
-  // Вся коррекция баланса стоит на том, что batch у D1 — одна транзакция.
-  // Утверждение проверяем прямо: если второй statement падает, первый не
-  // остаётся применённым.
-  it('batch D1 атомарен — на этом стоит вся коррекция баланса', async () => {
+  // The whole balance correction rests on a D1 batch being a single transaction.
+  // Check the claim directly: if the second statement fails, the first must not
+  // remain applied.
+  it('a D1 batch is atomic — the whole balance correction rests on that', async () => {
     const account = await accountWithBalance(100000);
     await expect(
       env.DB.batch([
         env.DB.prepare('UPDATE accounts SET balance_minor = balance_minor - 25000 WHERE id = ?').bind(account.id),
-        // Нарушает operations_sign_matches_kind — расход с положительной суммой.
+        // Violates operations_sign_matches_kind — an expense with a positive amount.
         env.DB.prepare(
           `INSERT INTO operations (date, account_id, kind, item, amount_minor, source)
            VALUES ('2026-08-10', ?, 'expense', 'Кофе', 350, 'manual')`,
@@ -2704,7 +2704,7 @@ describe('operations (issue #200)', () => {
 });
 
 describe('settings', () => {
-  it('отдаёт значения по умолчанию из миграции строками', async () => {
+  it('returns the migration default values as strings', async () => {
     const res = await api('GET', '/api/v2/settings');
     expect(res.status).toBe(200);
     const body = (await res.json()) as { settings: Record<string, string> };
@@ -2715,7 +2715,7 @@ describe('settings', () => {
   });
 
   describe('PUT /settings/base_currency', () => {
-    it('нормализует валидный ISO 4217 код, сохраняет его и отражает после обновления', async () => {
+    it('normalizes a valid ISO 4217 code, saves it, and reflects it after the update', async () => {
       const threshold = await api('PUT', '/api/v2/settings/low_balance_threshold_minor', { value: 12345 });
       expect(threshold.status).toBe(200);
 
@@ -2738,11 +2738,11 @@ describe('settings', () => {
     });
 
     it.each([
-      ['не-строку', 123],
-      ['код из 2 букв', 'EU'],
-      ['код с цифрами', 'EU1'],
-      ['несуществующий трёхбуквенный код', 'ZZZ'],
-    ])('отвергает %s и не меняет настройку', async (_label, value) => {
+      ['a non-string', 123],
+      ['a 2-letter code', 'EU'],
+      ['a code with digits', 'EU1'],
+      ['a three-letter code that does not exist', 'ZZZ'],
+    ])('rejects %s and does not change the setting', async (_label, value) => {
       const res = await api('PUT', '/api/v2/settings/base_currency', { value });
       expect(res.status).toBe(400);
       expect(await errorOf(res)).toBeTypeOf('string');
@@ -2752,7 +2752,7 @@ describe('settings', () => {
       expect(body.settings.base_currency).toBe('USD');
     });
 
-    it('повторное сохранение той же базы не удаляет актуальные fx_rates', async () => {
+    it('saving the same base again does not delete the current fx_rates', async () => {
       await api('PUT', '/api/v2/fx-rates/EUR', { rate: '0.92' });
 
       const res = await api('PUT', '/api/v2/settings/base_currency', { value: ' usd ' });
@@ -2762,15 +2762,15 @@ describe('settings', () => {
       expect(rates.rates).toHaveLength(1);
     });
 
-    it('смена базы НЕ удаляет fx_rates (курсы баз-независимы)', async () => {
-      // Заводим курс для небазовой валюты при текущей базе USD.
+    it('changing the base does NOT delete fx_rates (rates are independent of the base)', async () => {
+      // Create a rate for a non-base currency while the current base is USD.
       await api('PUT', '/api/v2/fx-rates/EUR', { rate: '0.92' });
       const before = (await (await api('GET', '/api/v2/fx-rates')).json()) as { rates: unknown[] };
       expect(before.rates.length).toBeGreaterThan(0);
 
-      // Меняем базу — курсы хранятся как usd_per_unit и не зависят от базы,
-      // поэтому должны остаться нетронутыми (регрессия ALE-9: раньше
-      // смена базы стирала все курсы).
+      // Change the base — rates are stored as usd_per_unit and do not depend on the base,
+      // so they must stay untouched (regression ALE-9: previously
+      // changing the base wiped every rate).
       const res = await api('PUT', '/api/v2/settings/base_currency', { value: 'EUR' });
       expect(res.status).toBe(200);
 
@@ -2780,12 +2780,12 @@ describe('settings', () => {
   });
 });
 
-// Строку операции могут удалить из другой вкладки ровно между тем, как PATCH её
-// прочитал, и тем, как записал: транзакции на запрос в v2 нет. Без ветки на
-// пустой RETURNING обработчик разыменовывал бы null и отдавал 500 с текстом
-// внутренней ошибки — гонка воспроизводится подменой prepare на самом UPDATE,
-// потому что иначе её не поймать детерминированно.
-describe('гонка: строку удалили между чтением и записью PATCH', () => {
+// An operation row can be deleted from another tab exactly between the PATCH
+// read and the PATCH write: v2 has no per-request transaction. Without a branch for
+// an empty RETURNING, the handler would dereference null and return a 500 with the text
+// of an internal error — the race is reproduced by swapping prepare on the UPDATE itself,
+// because otherwise it cannot be caught deterministically.
+describe('race: the row was deleted between the PATCH read and the PATCH write', () => {
   function deleteRowBeforeUpdate(table: string, id: number) {
     const realPrepare = env.DB.prepare.bind(env.DB);
     const spy = vi.spyOn(env.DB, 'prepare').mockImplementation(((sql: string) => {
@@ -2806,7 +2806,7 @@ describe('гонка: строку удалили между чтением и �
     return spy;
   }
 
-  it('плановая операция → 404, а не 500', async () => {
+  it('a planned item → 404, not 500', async () => {
     const { account } = await createAccount();
     const id = (await createPlannedItem(account.id, {})).planned_item.id as number;
     const spy = deleteRowBeforeUpdate('planned_items', id);
@@ -2819,7 +2819,7 @@ describe('гонка: строку удалили между чтением и �
     }
   });
 
-  it('регулярная операция → 404, а не 500', async () => {
+  it('a recurring item → 404, not 500', async () => {
     const { account } = await createAccount();
     const id = (await createRecurringItem(account.id, {})).recurring_item.id as number;
     const spy = deleteRowBeforeUpdate('recurring_items', id);
@@ -2832,12 +2832,12 @@ describe('гонка: строку удалили между чтением и �
     }
   });
 
-  // У операции цена этой гонки выше, чем у плановой: вместе с правкой строки
-  // тем же batch'ем идёт коррекция баланса. Проверяем обе половины — 404 вместо
-  // 500 И нетронутый баланс: дельта в batch'е условная (`balanceDeltaStatement`),
-  // иначе баланс уехал бы вслед за операцией, которой уже нет.
-  // Правка операции идёт одним `batch`'ем (строка + баланс), поэтому подмена
-  // `prepare` тут не годится — окно открываем перед самим batch'ем.
+  // For an operation the cost of this race is higher than for a planned item: the same batch
+  // that edits the row also corrects the balance. Check both halves — a 404 instead of
+  // a 500 AND an untouched balance: the delta in the batch is conditional (`balanceDeltaStatement`),
+  // otherwise the balance would move along with an operation that is already gone.
+  // An operation edit is a single `batch` (row + balance), so swapping
+  // `prepare` does not fit here — open the window in front of the batch itself.
   function deleteRowBeforeBatch(id: number) {
     const realBatch = env.DB.batch.bind(env.DB);
     return vi.spyOn(env.DB, 'batch').mockImplementation((async (statements: unknown) => {
@@ -2846,7 +2846,7 @@ describe('гонка: строку удалили между чтением и �
     }) as never);
   }
 
-  it('операция → 404, а не 500, и баланс не уезжает', async () => {
+  it('an operation → 404, not 500, and the balance does not drift', async () => {
     const { account } = await createAccount({ balance_minor: 100000 });
     const id = (await createOperation(account.id, { amount_minor: -25000 })).operation.id as number;
     const spy = deleteRowBeforeBatch(id);
@@ -2861,8 +2861,8 @@ describe('гонка: строку удалили между чтением и �
     const { accounts } = (await (await api('GET', '/api/v2/accounts')).json()) as {
       accounts: Record<string, unknown>[];
     };
-    // 100000 - 25000 от создания; удаление строки в обход API баланс не правит,
-    // поэтому здесь ожидается ровно состояние после создания, без следов патча.
+    // 100000 - 25000 from creation; deleting the row outside the API does not adjust the balance,
+    // so the expected state here is exactly the post-creation state, with no trace of the patch.
     expect(accounts[0]!.balance_minor).toBe(75000);
   });
 });
@@ -3359,7 +3359,7 @@ describe('MF-21 existing-operation fulfillment', () => {
   });
 });
 
-describe('planned_items → операция (issue #267)', () => {
+describe('planned_items → operation (issue #267)', () => {
   async function listOperations() {
     const res = await api('GET', '/api/v2/operations');
     expect(res.status).toBe(200);
@@ -3378,7 +3378,7 @@ describe('planned_items → операция (issue #267)', () => {
     return accounts.find((a) => a.id === accountId)!.balance_updated_at;
   }
 
-  it('отметка «выполнено» создаёт операцию и двигает баланс', async () => {
+  it('marking done creates an operation and moves the balance', async () => {
     const { account } = await createAccount({ currency: 'USD', balance_minor: 100000 });
     const created = await createPlannedItem(account.id, {
       title: 'Аренда',
@@ -3411,7 +3411,7 @@ describe('planned_items → операция (issue #267)', () => {
     expect(await stampOf(account.id)).toBe(stamp);
   });
 
-  it('повторная отметка не плодит вторую операцию и не двигает баланс ещё раз', async () => {
+  it('marking done again does not spawn a second operation and does not move the balance again', async () => {
     const { account } = await createAccount({ balance_minor: 100000 });
     const created = await createPlannedItem(account.id, { amount_minor: -25000 });
     await api('PATCH', `/api/v2/planned-items/${created.planned_item.id}`, { done: true });
@@ -3421,7 +3421,7 @@ describe('planned_items → операция (issue #267)', () => {
     expect(await balanceOf(account.id)).toBe(75000);
   });
 
-  it('создание сразу с done: true ведёт себя как отметка', async () => {
+  it('creating already with done: true behaves like marking done', async () => {
     const { account } = await createAccount({ currency: 'RSD', balance_minor: 50000 });
     const created = await createPlannedItem(account.id, {
       title: 'Зарплата',
@@ -3442,7 +3442,7 @@ describe('planned_items → операция (issue #267)', () => {
     expect(await balanceOf(account.id)).toBe(170000);
   });
 
-  it('снятие галочки удаляет порождённую операцию и возвращает живую сумму', async () => {
+  it('clearing the checkbox deletes the spawned operation and returns the live amount', async () => {
     const { account } = await createAccount({ balance_minor: 100000 });
     const created = await createPlannedItem(account.id, { amount_minor: -25000, title: 'Аренда' });
     await api('PATCH', `/api/v2/planned-items/${created.planned_item.id}`, { done: true });
@@ -3459,7 +3459,7 @@ describe('planned_items → операция (issue #267)', () => {
     expect(await balanceOf(account.id)).toBe(100000);
   });
 
-  it('отказывается отмечать выполненным, если валюта плановой не равна валюте счёта', async () => {
+  it('refuses to mark done when the planned-item currency does not equal the account currency', async () => {
     const { account } = await createAccount({ currency: 'USD', balance_minor: 100000 });
     const created = await createPlannedItem(account.id, { currency: 'EUR', amount_minor: -25000 });
     const res = await api('PATCH', `/api/v2/planned-items/${created.planned_item.id}`, { done: true });
@@ -3471,7 +3471,7 @@ describe('planned_items → операция (issue #267)', () => {
     expect(((await planned.json()) as { planned_items: Array<{ done: boolean }> }).planned_items[0]!.done).toBe(false);
   });
 
-  it('удаление плановой оставляет операцию — факт переживает план', async () => {
+  it('deleting the planned item leaves the operation — the fact outlives the plan', async () => {
     const { account } = await createAccount({ balance_minor: 100000 });
     const created = await createPlannedItem(account.id, { amount_minor: -25000, done: true });
     const del = await api('DELETE', `/api/v2/planned-items/${created.planned_item.id}`);
@@ -3482,7 +3482,7 @@ describe('planned_items → операция (issue #267)', () => {
     expect(await balanceOf(account.id)).toBe(75000);
   });
 
-  it('ручной ввод не принимает planned_item_id', async () => {
+  it('manual entry does not accept planned_item_id', async () => {
     const { account } = await createAccount({ balance_minor: 0 });
     const res = await api('POST', '/api/v2/operations', {
       date: '2026-08-10',
@@ -3497,7 +3497,7 @@ describe('planned_items → операция (issue #267)', () => {
     expect(await listOperations()).toEqual([]);
   });
 
-  it('повторный done: true лечит старую галочку без операции', async () => {
+  it('a repeat done: true repairs an old checkbox that has no operation', async () => {
     const { account } = await createAccount({ balance_minor: 100000 });
     const created = await createPlannedItem(account.id, { amount_minor: -25000, title: 'Аренда' });
     await env.DB.prepare('UPDATE planned_items SET done = 1 WHERE id = ?')
@@ -3517,10 +3517,10 @@ describe('planned_items → операция (issue #267)', () => {
     expect(await balanceOf(account.id)).toBe(75000);
   });
 
-  it('правка названия выполненной плановой без операции не материализует факт (#282)', async () => {
+  it('editing the title of a completed planned item that has no operation does not materialize the fact (#282)', async () => {
     const { account } = await createAccount({ currency: 'EUR', balance_minor: 100000 });
     const created = await createPlannedItem(account.id, { currency: 'EUR', amount_minor: -25000, title: 'Аренда' });
-    // Старая галочка без операции
+    // An old checkbox with no operation
     await env.DB.prepare("UPDATE planned_items SET done = 1, currency = 'USD' WHERE id = ?")
       .bind(created.planned_item.id)
       .run();
@@ -3532,7 +3532,7 @@ describe('planned_items → операция (issue #267)', () => {
     expect(await balanceOf(account.id)).toBe(100000);
   });
 
-  it('удаление порождённой операции снимает done у плановой и возвращает баланс', async () => {
+  it('deleting the spawned operation clears done on the planned item and restores the balance', async () => {
     const { account } = await createAccount({ balance_minor: 100000 });
     const created = await createPlannedItem(account.id, { amount_minor: -25000, title: 'Аренда', done: true });
     const opId = (await listOperations())[0]!.id;
@@ -3546,7 +3546,7 @@ describe('planned_items → операция (issue #267)', () => {
     expect(((await planned.json()) as { planned_items: Array<{ done: boolean }> }).planned_items[0]!.done).toBe(false);
   });
 
-  it('гонка с уже вставленной чужой операцией отвечает 409 и не переписывает план или баланс', async () => {
+  it('a race with an operation someone else already inserted returns 409 and does not rewrite the plan or the balance', async () => {
     const { account } = await createAccount({ balance_minor: 100000 });
     const created = await createPlannedItem(account.id, { amount_minor: -25000, title: 'Аренда' });
     const spy = vi.spyOn(env.DB, 'batch').mockImplementation(async () => {
@@ -3572,7 +3572,7 @@ describe('planned_items → операция (issue #267)', () => {
     expect(plan).toMatchObject({ done: false, title: 'Аренда' });
   });
 
-  it('конкурентные done=true с разными данными оставляют plan, operation и balance согласованными', async () => {
+  it('concurrent done=true with different data leave plan, operation, and balance consistent', async () => {
     const { account } = await createAccount({ balance_minor: 100000 });
     const created = await createPlannedItem(account.id, { amount_minor: -25000, title: 'Исходный план' });
 
@@ -3607,7 +3607,7 @@ describe('planned_items → операция (issue #267)', () => {
   });
 });
 
-describe('API v2: переводы между счетами (/api/v2/transfers)', () => {
+describe('API v2: transfers between accounts (/api/v2/transfers)', () => {
   async function listOperations() {
     const res = await api('GET', '/api/v2/operations');
     expect(res.status).toBe(200);
@@ -3620,7 +3620,7 @@ describe('API v2: переводы между счетами (/api/v2/transfers)
     return accounts.find((a) => a.id === accountId)!.balance_minor as number;
   }
 
-  it('создаёт перевод между счетами в одной валюте и атомарно двигает балансы', async () => {
+  it('creates a transfer between accounts in the same currency and moves both balances atomically', async () => {
     const { account: from } = await createAccount({ name: 'Карта', currency: 'RSD', balance_minor: 100000 });
     const { account: to } = await createAccount({ name: 'Наличные', currency: 'RSD', balance_minor: 20000 });
 
@@ -3665,7 +3665,7 @@ describe('API v2: переводы между счетами (/api/v2/transfers)
     expect(ops).toHaveLength(2);
   });
 
-  it('создаёт перевод между счетами в разных валютах (конвертация)', async () => {
+  it('creates a transfer between accounts in different currencies (conversion)', async () => {
     const { account: usd } = await createAccount({ name: 'USD счет', currency: 'USD', balance_minor: 100000 });
     const { account: rsd } = await createAccount({ name: 'RSD счет', currency: 'RSD', balance_minor: 0 });
 
@@ -3698,7 +3698,7 @@ describe('API v2: переводы между счетами (/api/v2/transfers)
     expect(await balanceOf(rsd.id)).toBe(1080000);
   });
 
-  it('отклоняет перевод на тот же счёт', async () => {
+  it('rejects a transfer to the same account', async () => {
     const { account } = await createAccount({ balance_minor: 50000 });
     const res = await api('POST', '/api/v2/transfers', {
       date: '2026-08-15',
@@ -3711,7 +3711,7 @@ describe('API v2: переводы между счетами (/api/v2/transfers)
     expect((await errorBody(res)).code).toBe('ACCOUNTS_MUST_DIFFER');
   });
 
-  it('отклоняет перевод с нулевой суммой или на несуществующий счёт', async () => {
+  it('rejects a transfer with a zero amount or to a missing account', async () => {
     const { account } = await createAccount({ balance_minor: 50000 });
     const zeroRes = await api('POST', '/api/v2/transfers', {
       date: '2026-08-15',
@@ -3733,7 +3733,7 @@ describe('API v2: переводы между счетами (/api/v2/transfers)
     expect((await errorBody(missingRes)).code).toBe('TO_ACCOUNT_NOT_FOUND');
   });
 
-  it('отклоняет создание transfer_out/transfer_in напрямую через POST /operations', async () => {
+  it('rejects creating transfer_out/transfer_in directly through POST /operations', async () => {
     const { account } = await createAccount({ balance_minor: 50000 });
     const res = await api('POST', '/api/v2/operations', {
       date: '2026-08-15',
@@ -3746,7 +3746,7 @@ describe('API v2: переводы между счетами (/api/v2/transfers)
     expect((await errorBody(res)).code).toBe('TRANSFER_VIA_OPERATIONS_FORBIDDEN');
   });
 
-  it('удаление через DELETE /api/v2/transfers/:id удаляет обе операции и возвращает оба баланса', async () => {
+  it('delete via DELETE /api/v2/transfers/:id removes both operations and restores both balances', async () => {
     const { account: from } = await createAccount({ balance_minor: 100000 });
     const { account: to } = await createAccount({ balance_minor: 20000 });
 
@@ -3770,7 +3770,7 @@ describe('API v2: переводы между счетами (/api/v2/transfers)
     expect(await listOperations()).toEqual([]);
   });
 
-  it('удаление одной ноги перевода через DELETE /api/v2/operations/:id удаляет весь перевод и возвращает оба баланса', async () => {
+  it('deleting one leg of a transfer via DELETE /api/v2/operations/:id removes the whole transfer and restores both balances', async () => {
     const { account: from } = await createAccount({ balance_minor: 100000 });
     const { account: to } = await createAccount({ balance_minor: 20000 });
 
@@ -3793,7 +3793,7 @@ describe('API v2: переводы между счетами (/api/v2/transfers)
     expect(await listOperations()).toEqual([]);
   });
 
-  it('запрещает менять сумму, счёт или вид у операции перевода через PATCH /operations/:id', async () => {
+  it('forbids changing the amount, account, or kind of a transfer operation via PATCH /operations/:id', async () => {
     const { account: from } = await createAccount({ balance_minor: 100000 });
     const { account: to } = await createAccount({ balance_minor: 20000 });
 
@@ -3818,13 +3818,13 @@ describe('API v2: переводы между счетами (/api/v2/transfers)
     const patchKind = await api('PATCH', `/api/v2/operations/${transfer.from_operation.id}`, { kind: 'expense' });
     expect(patchKind.status).toBe(400);
 
-    // Но разрешает менять описание (item) или дату
+    // But it does allow changing the description (item) or the date
     const patchItem = await api('PATCH', `/api/v2/operations/${transfer.from_operation.id}`, { item: 'Новое описание' });
     expect(patchItem.status).toBe(200);
     expect(((await patchItem.json()) as { operation: { item: string } }).operation.item).toBe('Новое описание');
   });
 
-  it('PUT /transfers/:id меняет обе суммы и корректно пересчитывает балансы (#401)', async () => {
+  it('PUT /transfers/:id changes both amounts and recalculates the balances correctly (#401)', async () => {
     const from = (await createAccount({ balance_minor: 100000, currency: 'RSD', name: 'Списание' })).account;
     const to = (await createAccount({ balance_minor: 50000, currency: 'RSD', name: 'Зачисление' })).account;
     const createRes = await api('POST', '/api/v2/transfers', {
@@ -3840,7 +3840,7 @@ describe('API v2: переводы между счетами (/api/v2/transfers)
     expect(await balanceOf(from.id)).toBe(85000);
     expect(await balanceOf(to.id)).toBe(65000);
 
-    // Исправляем сумму зачисления с 15000 на 9925.12 (как на живом чеке обмена).
+    // Correct the incoming amount from 15000 to 9925.12 (as on a real exchange receipt).
     const putRes = await api('PUT', `/api/v2/transfers/${transfer.id}`, {
       date: '2026-08-15',
       from_account_id: from.id,
@@ -3855,12 +3855,12 @@ describe('API v2: переводы между счетами (/api/v2/transfers)
     expect(body.transfer.from_operation.amount_minor).toBe(-15000);
     expect(body.transfer.to_operation.amount_minor).toBe(992512);
 
-    // Балансы: списание -15000 (не изменилось), зачисление стало +992512.
+    // Balances: the debit stayed -15000 (unchanged), the credit became +992512.
     expect(await balanceOf(from.id)).toBe(85000);
     expect(await balanceOf(to.id)).toBe(50000 + 992512);
   });
 
-  it('PUT /transfers/:id отклоняет нулевую сумму и не портит баланс', async () => {
+  it('PUT /transfers/:id rejects a zero amount and does not corrupt the balance', async () => {
     const from = (await createAccount({ balance_minor: 100000, currency: 'RSD', name: 'Списание' })).account;
     const to = (await createAccount({ balance_minor: 0, currency: 'RSD', name: 'Зачисление' })).account;
     const createRes = await api('POST', '/api/v2/transfers', {
@@ -3874,12 +3874,12 @@ describe('API v2: переводы между счетами (/api/v2/transfers)
       from_amount_minor: 0, to_amount_minor: 1000,
     });
     expect(bad.status).toBe(400);
-    // Балансы не тронуты.
+    // Balances were not touched.
     expect(await balanceOf(from.id)).toBe(99000);
     expect(await balanceOf(to.id)).toBe(1000);
   });
 
-  it('PUT /transfers/:id отклоняет смену валюты без явной новой суммы', async () => {
+  it('PUT /transfers/:id rejects a currency change without an explicit new amount', async () => {
     const from = (await createAccount({ balance_minor: 100000, currency: 'RSD', name: 'Списание' })).account;
     const to = (await createAccount({ balance_minor: 0, currency: 'RSD', name: 'Зачисление' })).account;
     const usd = (await createAccount({ balance_minor: 0, currency: 'USD', name: 'USD' })).account;
@@ -3889,7 +3889,7 @@ describe('API v2: переводы между счетами (/api/v2/transfers)
     });
     const { transfer } = (await createRes.json()) as { transfer: { id: number } };
 
-    // Перенос зачисления на USD-счёт без to_amount_minor в новой валюте.
+    // Move the credit onto a USD account without to_amount_minor in the new currency.
     const bad = await api('PUT', `/api/v2/transfers/${transfer.id}`, {
       date: '2026-08-15', from_account_id: from.id, to_account_id: usd.id,
       from_amount_minor: 1000,
@@ -3898,7 +3898,7 @@ describe('API v2: переводы между счетами (/api/v2/transfers)
     expect((await errorBody(bad)).code).toBe('TRANSFER_TO_CURRENCY_CHANGE_REQUIRES_AMOUNT');
   });
 
-  it('PUT /transfers/:id реджектит несуществующий перевод → 404', async () => {
+  it('PUT /transfers/:id rejects a missing transfer → 404', async () => {
     const res = await api('PUT', '/api/v2/transfers/999999', {
       date: '2026-08-15', from_account_id: 1, to_account_id: 2,
       from_amount_minor: 100, to_amount_minor: 100,

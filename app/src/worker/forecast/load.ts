@@ -1,6 +1,7 @@
-// Загрузка данных прогноза из D1 (issue #198, S1-4). Единственное место, где
-// движок прогноза говорит с базой — buildForecast (build.ts) сам D1 не видит
-// вовсе, это принципиально: ядро тестируется без базы, вся I/O здесь.
+// Loading forecast data from D1 (issue #198, S1-4). The only place where the
+// forecast engine talks to the database — buildForecast (build.ts) does not
+// see D1 at all, and that is deliberate: the core is tested without a
+// database, and all I/O lives here.
 import { expandRecurringRule, type RecurringRule } from './recurrence';
 import { addDays } from './dates';
 import { normalizeIso4217CurrencyCode } from '../../shared/currency';
@@ -32,14 +33,15 @@ export interface ScheduledPayment extends ForecastFlow {
 }
 
 /**
- * Счета для прогноза. Архивные исключены: архив в v2 — признак строки,
- * «убрать из списка», а не списание денег (тот же принцип, что у
- * `currenciesInUse` в api.ts) — но прогноз проецирует БУДУЩЕЕ конкретного
- * набора счетов на экране, и архивный в этот набор не входит. У справочника
- * валют (`currenciesInUse`) другая задача — не терять курс, которым архивный
- * счёт всё ещё может воспользоваться после разархивации, — поэтому там учёт
- * архивных верен, а здесь был бы ошибкой: прогноз рисовал бы баланс счёта,
- * которого владелец на экране не видит.
+ * Accounts for the forecast. Archived ones are excluded: archive in v2 is a
+ * row flag, "hide from the list", not a write-off of money (the same principle
+ * as `currenciesInUse` in api.ts) — but the forecast projects the FUTURE of a
+ * specific set of accounts on screen, and an archived account is not in that
+ * set. The currency directory (`currenciesInUse`) has a different job — not
+ * to lose a rate an archived account may still use after it is unarchived —
+ * so counting archived accounts is correct there and would be a mistake here:
+ * the forecast would draw the balance of an account the owner does not see
+ * on screen.
  */
 export async function loadAccounts(db: D1Database): Promise<ForecastAccount[]> {
   const { results } = await db
@@ -51,16 +53,16 @@ export async function loadAccounts(db: D1Database): Promise<ForecastAccount[]> {
   return results;
 }
 
-/** code -> rate_e9, как хранится в fx_rates (migrations/0001_initial_schema.sql). */
+/** code -> rate_e9, as stored in fx_rates (migrations/0001_initial_schema.sql). */
 export async function loadRates(db: D1Database): Promise<Map<string, number>> {
   const { results } = await db.prepare('SELECT code, rate_e9 FROM fx_rates').all<{ code: string; rate_e9: number }>();
   return new Map(results.map((r) => [r.code, r.rate_e9]));
 }
 
-// low_balance_threshold_minor хранится строкой (settings — key/value, шапка
-// 0001_initial_schema.sql); формат — неотрицательное целое, тот же, что
-// принимает PUT /settings/:key (api.ts). Мусор в базе (ручная правка, будущая
-// миграция) не должен ронять /forecast — сводим к дефолту 0.
+// low_balance_threshold_minor is stored as a string (settings is key/value, the
+// header of 0001_initial_schema.sql); the format is a non-negative integer, the
+// same one PUT /settings/:key accepts (api.ts). Garbage in the database (a
+// manual edit, a future migration) must not take down /forecast — fall back to 0.
 function normalizeThresholdMinor(raw: string | undefined): number | null {
   if (raw === undefined || !/^\d+$/.test(raw)) return null;
   const value = Number(raw);
@@ -68,10 +70,10 @@ function normalizeThresholdMinor(raw: string | undefined): number | null {
 }
 
 /**
- * Настройки прогноза. Отсутствие ключа или непригодное значение не роняют
- * эндпоинт — базовая валюта дефолтится в 'USD', порог в 0 (тот же дефолт, что
- * задаёт сама миграция 0001, но здесь это ЗАЩИТА на случай, если строку
- * settings когда-нибудь удалят или испортят, а не расчёт на дефолт).
+ * Forecast settings. A missing key or an unusable value does not take down
+ * the endpoint — the base currency defaults to 'USD', the threshold to 0 (the
+ * same default migration 0001 itself sets, but here this is a GUARD in case the
+ * settings row is someday deleted or corrupted, not a reliance on the default).
  */
 export async function loadForecastSettings(
   db: D1Database,
@@ -81,7 +83,7 @@ export async function loadForecastSettings(
     .all<{ key: string; value: string }>();
   const raw = new Map(results.map((r) => [r.key, r.value]));
   return {
-    // Нормализация общая с `readBaseCurrency` в api.ts — см. shared/currency.ts.
+    // Normalization is shared with `readBaseCurrency` in api.ts — see shared/currency.ts.
     baseCurrency: normalizeIso4217CurrencyCode(raw.get('base_currency')) ?? 'USD',
     lowBalanceThresholdMinor: normalizeThresholdMinor(raw.get('low_balance_threshold_minor')) ?? 0,
   };
@@ -115,13 +117,14 @@ interface RecurringFlowRow {
  * Payment dates are never taken from the projected cash-flow dates.
  * Each output has its own horizon; source rows cover the larger one.
  *
- * Просроченные регулярные платежи (`next_due_date <= asOfDate`):
- * В отличие от плановых (где отметка «выполнено» создаёт операцию по #267),
- * регулярные платежи не должны молча исчезать в полночь срока (#279).
- * Если срок наступил, а операция ещё не создана, все наступившие периоды
- * проецируются единой суммой (overdueCount × amount_minor) на ближайший
- * день прогнозного ряда (addDays(asOfDate, 1)). Последующие даты расписания
- * на горизонте до limitDate остаются на своих местах.
+ * Overdue recurring payments (`next_due_date <= asOfDate`):
+ * Unlike planned items (where the "done" mark creates an operation per #267),
+ * recurring payments must not silently disappear at midnight on the due date
+ * (#279). If the due date has arrived and the operation has not been created
+ * yet, every elapsed period is projected as a single amount
+ * (overdueCount × amount_minor) onto the nearest day of the forecast series
+ * (addDays(asOfDate, 1)). Later schedule dates on the horizon up to limitDate
+ * stay in their own places.
  */
 export async function loadFlowsAndPayments(
   db: D1Database,
@@ -233,9 +236,9 @@ export async function loadFlowsAndPayments(
     }
   }
 
-  // Детерминированный порядок: дата, затем вид (алфавитно 'planned' <
-  // 'recurring'), затем id источника — иначе порядок внутри одной даты
-  // зависел бы от порядка ответа D1, который ничем не гарантирован.
+  // Deterministic order: date, then kind (alphabetically 'planned' <
+  // 'recurring'), then source id — otherwise the order within one date would
+  // depend on the D1 response order, which nothing guarantees.
   const compare = (a: ForecastFlow, b: ForecastFlow) => {
     if (a.date !== b.date) return a.date < b.date ? -1 : 1;
     if (a.kind !== b.kind) return a.kind < b.kind ? -1 : 1;

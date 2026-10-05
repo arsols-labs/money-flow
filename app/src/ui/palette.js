@@ -1,35 +1,35 @@
-// Единая денежная шкала цвета: «плохо → тревожно → хорошо».
+// A single money color scale: "bad → uneasy → good".
 //
-// До неё цвет суммы был трёхступенчатым (`tone-safe` / `tone-warning` /
-// `tone-danger`) и назначался вручную в каждом месте по своему условию —
-// поэтому «Cash Flow −1 ¢» и «Cash Flow −9 000 €» выглядели одинаково
-// тревожно, а два соседних экрана красили одно и то же число по-разному.
-// Здесь одна функция на всё приложение: доля 0…1 → цвет.
+// Before it, an amount's color was three steps (`tone-safe` / `tone-warning` /
+// `tone-danger`) and was assigned by hand in each place by its own condition —
+// so "Cash Flow −1 ¢" and "Cash Flow −9 000 €" looked equally
+// uneasy, and two neighboring screens colored the same number differently.
+// Here one function covers the whole app: a share 0…1 → a color.
 //
-// ВАЖНО для контраста. Шкала смешивает ТОЛЬКО три токена палитры
-// (`--danger`, `--warning`, `--safe`), и смешивает их в sRGB. Контраст всей
-// шкалы — не рассуждение, а измерение: test/ui-palette.test.ts считает смесь
-// так же, как браузер, и прогоняет 201 точку шкалы на обоих фонах в обеих
-// темах, требуя AA 4.5:1. Середина между двумя проходящими AA цветами AA не
-// гарантирует сама по себе, поэтому проверка именно сплошная.
-// Отсюда правило: в шкалу нельзя подмешивать ничего, кроме этих трёх
-// токенов. Нужен новый оттенок — сначала токен с проверенным контрастом.
+// IMPORTANT for contrast. The scale mixes ONLY three palette tokens
+// (`--danger`, `--warning`, `--safe`), and mixes them in sRGB. Contrast of the whole
+// scale is not an argument, it is a measurement: test/ui-palette.test.ts computes the mix
+// the same way the browser does, and runs 201 points of the scale on both backgrounds in both
+// themes, requiring AA 4.5:1. The midpoint between two colors that pass AA does not
+// pass AA by itself, so the check is continuous.
+// Hence the rule: nothing but these three
+// tokens may be mixed into the scale. A new shade needs a token with checked contrast first.
 //
-// Почему `color-mix()`, а не готовый hex: токены переопределяются светлой
-// темой, и смесь обязана переезжать вместе с ними. Посчитанный в JS hex
-// застыл бы в цвете той темы, которая была активна в момент рендера.
+// Why `color-mix()`, not a ready hex: the tokens are overridden by the light
+// theme, and the mix must move with them. A hex computed in JS
+// would freeze in the color of whichever theme was active at render time.
 
-/** Зажать значение в [0, 1] — «доли» приходят из данных и бывают любыми. */
+/** Clamp a value into [0, 1] — "shares" come from data and can be anything. */
 function clamp01(x) {
   return Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0;
 }
 
 /**
- * Точка непрерывной шкалы: 0 — `--danger`, 0.5 — `--warning`, 1 — `--safe`.
+ * A point on the continuous scale: 0 is `--danger`, 0.5 is `--warning`, 1 is `--safe`.
  *
- * Возвращается строка `color-mix()`, а не hex (см. шапку файла). Ровные
- * концы отдаются чистым токеном: `color-mix(... 100%, ...)` браузеры считают
- * верно, но в devtools и в тестах читаемее видеть `var(--safe)`.
+ * Returns a `color-mix()` string, not a hex (see the file header). Exact
+ * ends are returned as the pure token: browsers compute `color-mix(... 100%, ...)`
+ * correctly, but `var(--safe)` is easier to read in devtools and in tests.
  */
 export function moneyScaleColor(ratio) {
   const r = clamp01(ratio);
@@ -45,15 +45,15 @@ export function moneyScaleColor(ratio) {
 }
 
 /**
- * Сумма → доля шкалы относительно порога «низкого баланса» (настройка
- * «Прогноз / Порог низкого баланса» в разделе «Данные»).
+ * Amount → a scale share relative to the "low balance" threshold (the
+ * "Forecast / Low balance threshold" setting in the "Data" section).
  *
- * Ноль и минус — красный конец шкалы: это прямое требование владельца
- * («Ноли или минус это красная палитра»). Порог — «уже спокойно», то есть
- * зелёный конец; между ними шкала идёт плавно через оранжевый.
+ * Zero and negative are the red end of the scale: that is a direct requirement
+ * ("Zero or a minus is the red palette"). The threshold is "already calm", that is
+ * the green end; between them the scale runs smoothly through orange.
  *
- * Порог, равный нулю, — вырожденный случай (делить не на что): владелец
- * снял предупреждение, и единственный оставшийся сигнал — знак суммы.
+ * A threshold of zero is a degenerate case (there is nothing to divide by): the warning
+ * was turned off, and the only signal left is the sign of the amount.
  */
 export function balanceRatio(amountMinor, thresholdMinor) {
   if (!thresholdMinor || thresholdMinor <= 0) return amountMinor > 0 ? 1 : 0;
@@ -61,22 +61,22 @@ export function balanceRatio(amountMinor, thresholdMinor) {
   return clamp01(amountMinor / thresholdMinor);
 }
 
-/** Готовый цвет суммы по порогу — `balanceRatio` + `moneyScaleColor`. */
+/** Ready color of an amount by threshold — `balanceRatio` + `moneyScaleColor`. */
 export function balanceColor(amountMinor, thresholdMinor) {
   return moneyScaleColor(balanceRatio(amountMinor, thresholdMinor));
 }
 
 /**
- * Доля шкалы для суммы, у которой порога нет, — «сколько эта сумма занимает
- * от самой крупной в том же списке».
+ * Scale share for an amount that has no threshold — "how much of the largest
+ * amount in the same list this amount takes up".
  *
- * Знак решает половину шкалы, величина — положение внутри половины:
- * расход тем краснее, чем он крупнее относительно максимума списка; доход
- * тем зеленее. Ровный ноль — середина шкалы, а не красный конец: в списке
- * трат ноль означает «ничего не потрачено», это не тревога.
+ * The sign picks the half of the scale, the magnitude picks the position inside that half:
+ * an expense is redder the larger it is relative to the list maximum; income is
+ * greener. An exact zero is the middle of the scale, not the red end: in a list of
+ * spending, zero means "nothing was spent", which is not an alarm.
  *
- * Такое сравнение «внутри своего списка» и нужно «Аналитике»: абсолютной
- * шкалы у категории трат нет, значима только её доля от крупнейшей.
+ * This "within its own list" comparison is what "Analytics" needs: a spending category has no absolute
+ * scale, only its share of the largest one matters.
  */
 export function relativeRatio(valueMinor, maxAbsMinor) {
   if (!maxAbsMinor) return 0.5;
@@ -85,42 +85,42 @@ export function relativeRatio(valueMinor, maxAbsMinor) {
   return valueMinor > 0 ? 0.5 + share / 2 : 0.5 - share / 2;
 }
 
-/** Готовый цвет для сумм без порога — `relativeRatio` + `moneyScaleColor`. */
+/** Ready color for amounts with no threshold — `relativeRatio` + `moneyScaleColor`. */
 export function relativeColor(valueMinor, maxAbsMinor) {
   return moneyScaleColor(relativeRatio(valueMinor, maxAbsMinor));
 }
 
 /**
- * Расходная шкала: 0 — ничего не потрачено (спокойно, зелёный конец),
- * максимум списка — краснее всего. Отдельно от `relativeRatio`, потому что
- * у расходов знак не несёт смысла — все они одного знака, и красить их по
- * знаку значило бы покрасить весь список одинаково.
+ * Spending scale: 0 means nothing was spent (calm, the green end),
+ * the list maximum is the reddest. Separate from `relativeRatio`, because
+ * the sign carries no meaning for expenses — they all have the same sign, and coloring them by
+ * sign would paint the whole list the same.
  */
 export function spendRatio(valueMinor, maxAbsMinor) {
   if (!maxAbsMinor) return 1;
   return 1 - clamp01(Math.abs(valueMinor) / maxAbsMinor);
 }
 
-/** Готовый цвет для расходной шкалы. */
+/** Ready color for the spending scale. */
 export function spendColor(valueMinor, maxAbsMinor) {
   return moneyScaleColor(spendRatio(valueMinor, maxAbsMinor));
 }
 
 // ---------------------------------------------------------------------------
-// Интенсивность: не цвет, а «насколько громко» показан элемент.
+// Intensity: not a color, but "how loudly" an element is shown.
 // ---------------------------------------------------------------------------
 
 /**
- * Доля → непрерывная «громкость» в [min, 1] по кубическому корню.
+ * Share → a continuous "loudness" in [min, 1] by cube root.
  *
- * Корень, а не сама доля: в реальных данных распределения длиннохвостые
- * (один счёт на 80 % денег, десяток по проценту), и на линейной шкале весь
- * хвост схлопывается в одну неразличимую ступень. Корень растягивает низ
- * шкалы, оставляя порядок величин читаемым.
+ * The root, not the share itself: real distributions are long-tailed
+ * (one account holds 80% of the money, a dozen hold a percent each), and on a linear scale the whole
+ * tail collapses into one indistinguishable step. The root stretches the low
+ * end of the scale while keeping the order of magnitude readable.
  *
- * Нижняя граница ненулевая: элемент с долей 0.001 должен быть тише
- * остальных, но остаться видимым — «невидимый» и «тихий» это разные
- * сообщения, а второе здесь и требуется.
+ * The lower bound is non-zero: an element with a share of 0.001 should be quieter
+ * than the rest, but stay visible — "invisible" and "quiet" are different
+ * messages, and the second one is what is required here.
  */
 export function emphasis(share, min = 0.35) {
   const s = clamp01(share);
@@ -128,16 +128,16 @@ export function emphasis(share, min = 0.35) {
 }
 
 /**
- * Фон элемента, «громкость» которого пропорциональна доле: подложка из
- * акцентного токена, разведённая до долей процента.
+ * Background of an element whose "loudness" is proportional to its share: a wash of
+ * the accent token, diluted down to fractions of a percent.
  *
- * Разводится именно ФОН, а не текст: текст остаётся на обычных токенах и
- * потому держит контраст в обеих темах при любой громкости. Прозрачность на
- * тексте (`opacity`) уронила бы его ниже AA — тот же запрет уже записан для
- * архивных строк в styles.css.
+ * What gets diluted is the BACKGROUND, not the text: the text stays on the ordinary tokens and
+ * so holds contrast in both themes at any loudness. Transparency on
+ * the text (`opacity`) would drop it below AA — the same ban is already written for
+ * archived rows in styles.css.
  *
- * `maxAlpha` держится небольшим сознательно: подложка — подсказка «здесь
- * больше», а не заливка. Верхняя граница проверяется в test/ui-palette.test.ts.
+ * `maxAlpha` is kept small on purpose: the wash is a hint that "there is
+ * more here", not a fill. The upper bound is checked in test/ui-palette.test.ts.
  */
 export function emphasisTint(share, token = '--text', maxAlpha = 0.1) {
   const alpha = emphasis(share, 0) * maxAlpha;
@@ -145,11 +145,11 @@ export function emphasisTint(share, token = '--text', maxAlpha = 0.1) {
 }
 
 /**
- * Рамка той же громкости: от `--border` (тихо) к `--text-faint` (громко).
+ * A border of the same loudness: from `--border` (quiet) to `--text-faint` (loud).
  *
- * Смешивается с непрозрачным токеном, а не с `transparent`: рамка обязана
- * оставаться видимой на любом фоне, а полупрозрачная на карточке и на
- * подложке карточки выглядела бы по-разному.
+ * Mixed with an opaque token, not with `transparent`: the border must
+ * stay visible on any background, and a translucent one would look different on a card and on
+ * a card's wash.
  */
 export function emphasisBorder(share) {
   const p = (emphasis(share, 0) * 70).toFixed(1);
@@ -157,12 +157,12 @@ export function emphasisBorder(share) {
 }
 
 /**
- * Цвет подписи той же громкости: от `--text-muted` к `--text`.
+ * Label color of the same loudness: from `--text-muted` to `--text`.
  *
- * Смешиваются два текстовых токена, а не гасится прозрачность: оба конца
- * проходят AA на всех фонах приложения, а вся шкала между ними промеряется
- * в test/ui-palette.test.ts. Прозрачность же роняет контраст тем сильнее,
- * чем тише элемент, — то есть ровно там, где текст и так мелкий.
+ * Two text tokens are mixed, rather than fading opacity: both ends
+ * pass AA on every background in the app, and the whole scale between them is measured
+ * in test/ui-palette.test.ts. Opacity drops contrast more
+ * the quieter the element is — exactly where the text is already small.
  */
 export function emphasisText(share) {
   const p = (emphasis(share, 0) * 100).toFixed(1);

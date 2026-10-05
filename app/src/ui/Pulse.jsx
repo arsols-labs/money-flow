@@ -1,8 +1,8 @@
-// «Пульс» — главный экран v2: net worth, прогноз, ближайшие платежи, счета.
-// Порт app/src/ui/Pulse.jsx на контракт /api/v2/forecast (issue #198): сервер
-// уже отдаёт суммы в базовой валюте (overall_minor, by_country, *_base_minor),
-// поэтому в отличие от v1 клиенту не нужно самому пересчитывать по курсам —
-// только minor→major для отображения (см. forecast.js).
+// "Pulse" — the main v2 screen: net worth, forecast, upcoming payments, accounts.
+// A port of app/src/ui/Pulse.jsx onto the /api/v2/forecast contract (issue #198): the server
+// already returns amounts in the base currency (overall_minor, by_country, *_base_minor),
+// so unlike v1 the client does not have to convert by rates itself —
+// only minor→major for display (see forecast.js).
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -42,10 +42,10 @@ import DashboardSettingsModal from './DashboardSettingsModal';
 import i18n from './i18n';
 import { intlLocale } from './language';
 
-// chartData() отдаёт точки уже в МАЙОРНЫХ единицах (toMajor из forecast.js).
-// Подписи оси и min-маркер — formatMajorCompact: группировка тысяч обязательна,
-// центы можно опустить. Нельзя срезать дробь regex'ом `[.,]\d+` — в en-US это
-// съедает разряд тысяч (`$17,521.60` → `$17.60`, issue #582).
+// chartData() returns points already in MAJOR units (toMajor from forecast.js).
+// Axis labels and the min marker use formatMajorCompact: thousands grouping is required,
+// cents may be dropped. The fraction must not be cut with a `[.,]\d+` regex — in en-US that
+// eats the thousands place (`$17,521.60` → `$17.60`, issue #582).
 
 const FORECAST_PERIODS = [
   { key: 'month', days: 30 },
@@ -62,11 +62,11 @@ const FORECAST_PERIOD_LABEL_KEYS = {
 };
 
 /**
- * Единый взаимоисключающий выбор для «Пульса».
+ * A single mutually exclusive choice for "Pulse".
  *
- * Варианты остаются видимыми, а на узком экране прокручивается только эта
- * полоса. `aria-pressed` дублирует активную подложку для скринридера; обычные
- * кнопки сохраняют нативную клавиатурную активацию Enter/Space.
+ * The options stay visible, and on a narrow screen only this
+ * strip scrolls. `aria-pressed` repeats the active wash for a screen reader; ordinary
+ * buttons keep native keyboard activation with Enter/Space.
  */
 export function PulseSegmentedControl({ options, value, onChange, ariaLabel, disabled = false, className = '' }) {
   useTranslation();
@@ -96,17 +96,17 @@ export function PulseSegmentedControl({ options, value, onChange, ariaLabel, dis
   );
 }
 
-// Принимает и "YYYY-MM-DD" (даты контракта), и числовой ts из chartData()
-// (уже посчитан через parseDateOnly, повторно прогонять через него нельзя —
-// нативный конструктор Date от числа миллисекунд ничего не сдвигает).
+// Accepts both "YYYY-MM-DD" (contract dates) and a numeric ts from chartData()
+// (already computed via parseDateOnly; it must not be run through that again —
+// the native Date constructor does not shift a millisecond count).
 //
-// Год дописывается, когда он не текущий, и это не украшательство: горизонт
-// прогноза — 365 дней, поэтому «минимум 12 авг.» сплошь и рядом означает 12
-// августа СЛЕДУЮЩЕГО года, а выглядит как сегодня. Ровно на этом владелец и
-// споткнулся: строка «уже в минусе · минимум -59,78 $ 12 авг.» на счёте, где
-// сегодня -0,38 $, читалась как ошибка расчёта, хотя это верная сумма через
-// двенадцать месяцев (issue #256). Условие «не текущий год» — то же, что уже
-// применяет formatRelativeDate в money.js.
+// The year is appended when it is not the current one, and that is not decoration: the forecast
+// horizon is 365 days, so "minimum 12 Aug" very often means 12
+// August of the NEXT year, while it looks like today. That is exactly where this was
+// tripped over: the line "already negative · minimum -59.78 $ 12 Aug" on an account where
+// today is -0.38 $ was read as a calculation error, although it is the correct amount twelve
+// months out (issue #256). The "not the current year" condition is the same one
+// formatRelativeDate already applies in money.js.
 function shortDate(value) {
   const d = typeof value === 'string' ? parseDateOnly(value) : new Date(value);
   if (Number.isNaN(d.getTime())) return i18n.t('common.unavailablePlaceholder');
@@ -163,12 +163,12 @@ function ForecastChart({ data, baseCurrency, seriesItems }) {
     <div>
       <div className="chart-box">
         <ResponsiveContainer>
-          {/* left: 0, а не −20 как в v1: там подпись оси — узкая «$7,500»
-              (en-US, символ слева), у нас — «7 500 $» в ru-RU, символ справа и
-              неразрывный пробел в разрядах. Отрицательный отступ вместе с
-              width: 62 срезал у неё первый знак. Правое поле — под ПОСЛЕДНЮЮ
-              подпись оси X: на периоде «Год» она содержит год («12 авг. 2027 г.»,
-              issue #256) и при отступе 8 упиралась в край. */}
+          {/* left: 0, not −20 as in v1: there the axis label is a narrow "$7,500"
+              (en-US, symbol on the left); here it is "7 500 $" in ru-RU, symbol on the right and
+              a non-breaking space in the groups. A negative offset together with
+              width: 62 clipped its first character. The right margin is for the LAST
+              X-axis label: on the "Year" period it contains the year ("12 Aug 2027",
+              issue #256) and at a margin of 8 it ran into the edge. */}
           <ComposedChart data={data} margin={{ top: 12, right: 48, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="overallFillV2" x1="0" y1="0" x2="0" y2="1">
@@ -248,8 +248,8 @@ function ForecastSection({
     { key: 'account', label: t('pulse.forecast.groupAccount') },
     ...(showUserGroup ? [{ key: 'user', label: t('pulse.forecast.groupUser') }] : []),
   ];
-  // Переключение периода режет уже загруженный ряд на клиенте — период не
-  // перезапрашивает сервер (заведомо 365 дней загружены один раз).
+  // Switching the period slices the already loaded series on the client — the period does not
+  // re-request the server (365 days are loaded once up front).
   const sliced = useMemo(() => fullSeries.slice(0, periodDef.days), [fullSeries, periodDef]);
   const truncated = sliced.length < periodDef.days && sliced.length === fullSeries.length;
 
@@ -361,8 +361,8 @@ function WarningRow({ warning, accountsById, baseCurrency }) {
       className={`forecast-warning-row forecast-warning-row--${severity.key}`}
       role="listitem"
       style={{
-        // Полоса слева — та же шкала, что у цифр; фон разведён до подсказки,
-        // чтобы текст остался на обычных токенах и держал контраст (см. palette.js).
+        // The stripe on the left is the same scale as the figures; the background is diluted to a hint
+        // so the text stays on ordinary tokens and holds contrast (see palette.js).
         borderLeftColor: color,
         background: `color-mix(in srgb, ${color} ${(8 - emphasis(ratio, 0) * 6).toFixed(1)}%, transparent)`,
       }}
@@ -645,10 +645,10 @@ export function UpcomingSection({
   );
 }
 
-// Периоды для блока «Потрачено» (issue #383). Диапазоны считаются от
-// локальной полуночи, как и upcomingDayLabel — чтобы «сегодня» не зависел от
-// часового пояса сервера. total_spent_minor из analytics_get приходит уже в
-// базовой валюте (см. analytics.ts), поэтому клиент только делит minor→major.
+// Periods for the "Spent" block (issue #383). Ranges are counted from
+// local midnight, like upcomingDayLabel — so "today" does not depend on
+// the server time zone. total_spent_minor from analytics_get arrives already in
+// the base currency (see analytics.ts), so the client only divides minor→major.
 const SPENT_PERIODS = [
   { key: 'today' },
   { key: 'yesterday' },
@@ -663,10 +663,10 @@ function ymdLocal(d) {
   return `${y}-${m}-${day}`;
 }
 
-// «Неделя» = последние 7 календарных дней включая сегодня; «Месяц» = с 1-го
-// числа текущего месяца по сегодня. «Сегодня»/«Вчера» — одни сутки.
-// Все диапазоны в прошлом или сегодня, поэтому analytics_get за них не пуст
-// (он пуст только за ещё не заполненные будущие даты — см. skill-предупреждение).
+// "Week" = the last 7 calendar days including today; "Month" = from the 1st
+// of the current month through today. "Today"/"Yesterday" are a single day.
+// Every range is in the past or today, so analytics_get is not empty for them
+// (it is empty only for future dates that are not filled in yet — see the skill warning).
 function spentDateRange(period) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -688,13 +688,13 @@ function spentDateRange(period) {
   return { start: ymdLocal(first), end: ymdLocal(today) };
 }
 
-// Блок «Потрачено» (issue #383): сумма расходов за выбранный период
-// (сегодня/вчера/неделя/месяц) во всех валютах, приведённая к базовой.
-// Источник — analytics_get (total_spent_minor уже в базовой валюте, конверсия
-// идёт сервером через общий BigInt-конвертер, Закон 3 — единый путь FX).
-// Переключатель периода — тот же кнопочный контрол, что в остальных блоках
-// «Пульса». На узком экране он прокручивается внутри карточки, не раздувая
-// headline-grid и не скрывая варианты в меню.
+// The "Spent" block (issue #383): spending for the selected period
+// (today/yesterday/week/month) in every currency, converted to the base one.
+// The source is analytics_get (total_spent_minor is already in the base currency; conversion
+// is done by the server through the shared BigInt converter, Law 3 — a single FX path).
+// The period switch is the same button control as in the other "Pulse"
+// blocks. On a narrow screen it scrolls inside the card, without inflating
+// headline-grid and without hiding options in a menu.
 function SpentCard({ baseCurrency, big = false, mobileWide = false, period = 'today', onPeriodChange = undefined }) {
   const { t } = useTranslation();
   const [internalPeriod, setInternalPeriod] = useState('today');
@@ -725,8 +725,8 @@ function SpentCard({ baseCurrency, big = false, mobileWide = false, period = 'to
     <MetricCard
       label={t('pulse.metrics.spent')}
       big={big}
-      // Переключатель периода живёт в одной строке с подписью — так шапка карточки
-      // выглядит одинаково во всех разделах (см. MetricCard.control).
+      // The period switch lives on the same line as the label — so the card header
+      // looks the same in every section (see MetricCard.control).
       control={(
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <PulseSegmentedControl
@@ -749,9 +749,9 @@ function SpentCard({ baseCurrency, big = false, mobileWide = false, period = 'to
         </div>
       )}
       value={status === 'loading' ? t('common.loadingPlaceholder') : status === 'error' ? t('common.unavailablePlaceholder') : formatMinor(spentMinor ?? 0, baseCurrency)}
-      // Расход красится относительно месячного масштаба того же экрана нельзя —
-      // его тут нет; поэтому цвет фиксирован на «тревожной» середине шкалы,
-      // а не выдумывается из воздуха.
+      // Spending cannot be colored against the monthly scale of the same screen —
+      // that scale is not here; so the color is fixed at the "uneasy" middle of the scale,
+      // not invented out of thin air.
       color={status === 'ready' ? moneyScaleColor(0.5) : undefined}
       sub={status === 'error' ? errorText : undefined}
     />
@@ -784,23 +784,23 @@ function GroupToggle({ mode, onChange }) {
 }
 
 /**
- * Приглушение карточек счетов по доле от самого крупного баланса (в base_minor,
- * глобально по всем счетам — не по группе).
+ * Dimming account cards by their share of the largest balance (in base_minor,
+ * globally across all accounts — not per group).
  *
- * Было четыре ступени (порт из v1); стало плавно — требование владельца
- * 2026-08-21. Ступени на реальных данных давали обрыв: счёт с долей 0,49 и счёт
- * с долей 0,51 выглядели как разные классы, хотя разница в деньгах ничтожна.
+ * There used to be four steps (a port from v1); it became smooth — a requirement
+ * of 2026-08-21. Steps on real data made a cliff: an account with a share of 0.49 and an account
+ * with a share of 0.51 looked like different classes, although the money difference is tiny.
  *
- * Приглушаются только фон и рамка — обе стороны смешения непрозрачны и лежат
- * между `--bg` и `--bg-card`, то есть цвет карточки не выходит за пределы двух
- * фонов, для которых контраст текста уже проверен в test/palette.test.ts.
- * Текст остаётся на обычных токенах: гасить его прозрачностью значит
- * проваливать AA на мелких суммах — ровно то, что запрещено для архивных строк.
+ * Only the background and the border are dimmed — both sides of the mix are opaque and lie
+ * between `--bg` and `--bg-card`, so the card color does not leave the two
+ * backgrounds for which text contrast is already checked in test/palette.test.ts.
+ * Text stays on ordinary tokens: fading it with transparency means
+ * failing AA on small amounts — exactly what is forbidden for archived rows.
  */
 function accountCardStyle(baseMinor, maxBaseMinor) {
   if (baseMinor === null || !maxBaseMinor) return undefined;
   const share = Math.abs(baseMinor) / maxBaseMinor;
-  const dim = (1 - emphasis(share, 0)) * 70; // 0 % у крупнейшего счёта, до 70 % у копеечного
+  const dim = (1 - emphasis(share, 0)) * 70; // 0% on the largest account, up to 70% on a tiny one
   if (dim < 1) return undefined;
   return {
     background: `color-mix(in srgb, var(--bg) ${dim.toFixed(1)}%, var(--bg-card))`,
@@ -821,8 +821,8 @@ function AccountsGrid({ accounts, groupMode, baseCurrency }) {
     return Array.from(map.entries());
   }, [accounts, groupMode, otherLabel]);
 
-  // Счета без курса не входят ни в максимум (масштаб дима), ни в итог группы —
-  // их база неизвестна, а не равна нулю.
+  // Accounts with no rate are left out of both the maximum (the dim scale) and the group total —
+  // their base amount is unknown, not equal to zero.
   const maxBaseMinor = useMemo(
     () => accounts.reduce((m, a) => (a.balance_base_minor === null ? m : Math.max(m, Math.abs(a.balance_base_minor))), 0),
     [accounts],
@@ -982,11 +982,11 @@ export default function Pulse({ isCustomizing: externalCustomizing = false, onCu
     );
   }
 
-  // Пустота определяется списком счетов, а НЕ полем lowest. Это не
-  // придирка: lowest приходит null ещё и когда счета есть, но общий итог
-  // неполон (какая-то валюта без курса) — и по lowest экран показывал бы
-  // «заведи счёт» человеку, у которого счета заведены, вместо того чтобы
-  // попросить недостающий курс.
+  // Emptiness is decided by the account list, NOT by the lowest field. This is not
+  // a quibble: lowest also arrives null when accounts exist but the overall total
+  // is incomplete (some currency has no rate) — and by lowest the screen would show
+  // "create an account" to someone who already has accounts, instead of
+  // asking for the missing rate.
   if (forecast.accounts.length === 0) {
     return (
       <div className="empty-panel">

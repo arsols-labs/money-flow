@@ -43,7 +43,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
   });
 
   describe('Handshake (#321, #457)', () => {
-    it('отвечает на initialize с 2026-07-28 согласованным protocolVersion и capabilities', async () => {
+    it('responds to initialize with the negotiated 2026-07-28 protocolVersion and capabilities', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -68,7 +68,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.result.capabilities.resources).toBeTruthy();
     });
 
-    it('отвечает на initialize с легаси 2025-11-25 согласованным protocolVersion', async () => {
+    it('responds to initialize with the negotiated legacy 2025-11-25 protocolVersion', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -90,7 +90,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.result.protocolVersion).toBe('2025-11-25');
     });
 
-    it('на неизвестный protocolVersion отдаёт дефолтный 2026-07-28, не 32601', async () => {
+    it('returns the default 2026-07-28 for an unknown protocolVersion, not 32601', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -107,7 +107,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.result.protocolVersion).toBe('2026-07-28');
     });
 
-    it('принимает notifications/initialized без JSON-RPC ошибки', async () => {
+    it('accepts notifications/initialized without a JSON-RPC error', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -123,7 +123,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       }
     });
 
-    it('отвечает на ping', async () => {
+    it('responds to ping', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -138,7 +138,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
   });
 
   describe('tools/list & Scopes', () => {
-    it('возвращает 8 read-инструментов, если есть только scope "read"', async () => {
+    it('returns 8 read tools when only the "read" scope is present', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -163,7 +163,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       ]);
     });
 
-    it('публикует полный write-контур recurring/planned только для scope "write"', async () => {
+    it('publishes the full recurring/planned write surface only for the "write" scope', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -215,7 +215,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(recurringSkip.outputSchema.properties.balance_unchanged).toBeDefined();
     });
 
-    it('возвращает все 27 инструментов, если есть оба scope ["read", "write"]', async () => {
+    it('returns all 27 tools when both scopes ["read", "write"] are present', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -230,7 +230,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.result.tools.length).toBe(27);
     });
 
-    it('возвращает пустой список инструментов, если scopes пустые', async () => {
+    it('returns an empty tool list when scopes are empty', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -280,8 +280,8 @@ describe('MCP Server (S2-3 & S2-4)', () => {
     }]);
   });
 
-  describe('Разграничение доступа к tools/call', () => {
-    it('запрещает вызов read-инструмента без scope "read"', async () => {
+  describe('tools/call access control', () => {
+    it('rejects a read-tool call without the "read" scope', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -302,7 +302,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.error.message).toContain('"read" scope required');
     });
 
-    it('запрещает вызов write-инструмента без scope "write"', async () => {
+    it('rejects a write-tool call without the "write" scope', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -334,7 +334,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
     });
   });
 
-  describe('Write Tools: MRTR, Валидация и Идемпотентность', () => {
+  describe('Write Tools: MRTR, Validation, and Idempotency', () => {
     let accountId: number;
 
     beforeEach(async () => {
@@ -346,7 +346,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       accountId = acc!.id;
     });
 
-    it('требует наличие idempotency_key для write-инструментов', async () => {
+    it('requires an idempotency_key for write tools', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -375,7 +375,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.result.content[0].text).toContain('idempotency_key');
     });
 
-    it('отклоняет некорректные параметры на этапе пре-валидации (до запроса подтверждения)', async () => {
+    it('rejects invalid parameters at pre-validation (before asking for confirmation)', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -390,7 +390,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
               account_id: accountId,
               kind: 'expense',
               item: 'Обед',
-              amount_minor: 1500, // Положительная сумма для расхода!
+              amount_minor: 1500, // Positive amount for an expense!
               idempotency_key: 'key-invalid-sign'
             }
           }
@@ -406,10 +406,10 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.result.resultType).toBeUndefined();
     });
 
-    it('operation_add: шаг 1 возвращает input_required и не пишет в БД; шаг 2 выполняет запись с source = "agent"', async () => {
+    it('operation_add: step 1 returns input_required and does not write to the DB; step 2 writes the record with source = "agent"', async () => {
       const idempotencyKey = 'key-op-1';
 
-      // Шаг 1: Первичный вызов без подтверждения (MRTR)
+      // Step 1: initial call without confirmation (MRTR)
       const req1 = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -441,11 +441,11 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body1.result.structuredContent.requestState).toBeDefined();
       expect(body1.result.content[0].text).toContain('Подтвердите добавление операции');
 
-      // Проверяем, что в БД ничего не записалось
+      // Check that nothing was written to the DB
       const countBefore = await env.DB.prepare('SELECT COUNT(*) as count FROM operations').first<{ count: number }>();
       expect(countBefore?.count).toBe(0);
 
-      // Шаг 2: Повторный вызов с requestState
+      // Step 2: repeat call with requestState
       const req2 = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -473,7 +473,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body2.result.structuredContent.operation.source).toBe('agent');
       expect(body2.result.structuredContent.operation.amount_minor).toBe(-2500);
 
-      // Проверяем изменение баланса счёта и факт записи в БД
+      // Check the account balance change and that the row was written to the DB
       const opInDb = await env.DB.prepare('SELECT * FROM operations').first<any>();
       expect(opInDb).toBeDefined();
       expect(opInDb.source).toBe('agent');
@@ -482,13 +482,13 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       const accInDb = await env.DB.prepare('SELECT balance_minor FROM accounts WHERE id = ?').bind(accountId).first<{ balance_minor: number }>();
       expect(accInDb?.balance_minor).toBe(97500); // 100000 - 2500
 
-      // Проверяем запись в журнале аудита
+      // Check the audit log entry
       const auditLog = await env.DB.prepare('SELECT * FROM mcp_audit_log WHERE idempotency_key = ?').bind(idempotencyKey).first<any>();
       expect(auditLog).toBeDefined();
       expect(auditLog.status).toBe('success');
       expect(auditLog.tool_name).toBe('operation_add');
 
-      // Шаг 3: Повторный вызов с тем же idempotency_key возвращает закэшированный результат и НЕ дублирует запись
+      // Step 3: a repeat call with the same idempotency_key returns the cached result and does NOT duplicate the write
       const req3 = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -520,9 +520,9 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body3.result.structuredContent.resultType).toBe('complete');
 
       const countAfter = await env.DB.prepare('SELECT COUNT(*) as count FROM operations').first<{ count: number }>();
-      expect(countAfter?.count).toBe(1); // Не задвоилось!
+      expect(countAfter?.count).toBe(1); // Was not duplicated!
 
-      // Тот же ключ нельзя переиспользовать для другого финансового факта.
+      // The same key cannot be reused for a different financial fact.
       const driftedReq = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -551,10 +551,10 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect((await env.DB.prepare('SELECT balance_minor FROM accounts WHERE id = ?').bind(accountId).first<{ balance_minor: number }>())?.balance_minor).toBe(97500);
     });
 
-    it('balance_correct: корректирует баланс счета после подтверждения MRTR', async () => {
+    it('balance_correct: corrects the account balance after MRTR confirmation', async () => {
       const idempotencyKey = 'key-balance-1';
 
-      // Шаг 1: MRTR input_required
+      // Step 1: MRTR input_required
       const req1 = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -581,7 +581,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body1.result.content[0].text).toContain('125000');
       expect(body1.result.content[0].text).not.toContain('текущий:');
 
-      // Шаг 2: Выполнение с requestState
+      // Step 2: execution with requestState
       const req2 = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -609,10 +609,10 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(accInDb?.balance_minor).toBe(125000);
     });
 
-    it('planned_item_add: создает плановую операцию после подтверждения MRTR', async () => {
+    it('planned_item_add: creates a planned operation after MRTR confirmation', async () => {
       const idempotencyKey = 'key-planned-1';
 
-      // Шаг 1: MRTR input_required
+      // Step 1: MRTR input_required
       const req1 = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -641,7 +641,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body1.result.structuredContent.resultType).toBe('input_required');
       expect(body1.result.content[0].text).toContain('Аренда квартиры');
 
-      // Шаг 2: Выполнение с requestState
+      // Step 2: execution with requestState
       const req2 = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -671,7 +671,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(plannedInDb.amount_minor).toBe(-60000);
     });
 
-    it('ALE-7 P0: recurring_item_add создаёт rule Nous -2000 только после MRTR и повтор не дублирует', async () => {
+    it('ALE-7 P0: recurring_item_add creates the Nous -2000 rule only after MRTR, and a repeat does not duplicate it', async () => {
       const idempotencyKey = 'idem-ale-7-nous-recurring';
       const args = {
         title: 'Nous Research Inc. Plus',
@@ -717,7 +717,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
     });
   });
 
-  describe('ALE-7: P1 recurring/planned write tools через provider API', () => {
+  describe('ALE-7: P1 recurring/planned write tools via the provider API', () => {
     let accountId: number;
 
     beforeEach(async () => {
@@ -1294,8 +1294,8 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect((await env.DB.prepare('SELECT balance_minor FROM accounts WHERE id = ?').bind(accountId).first<{ balance_minor: number }>())?.balance_minor).toBe(98000);
       expect((await env.DB.prepare('SELECT next_due_date FROM recurring_items WHERE id = ?').bind(recurring!.id).first<{ next_due_date: string }>())?.next_due_date).toBe('2026-10-01');
 
-      // Детерминированно имитируем stale reader с прежним якорем: уникальный
-      // closure обязан откатить operation, balance delta и update целиком.
+      // Deterministically simulate a stale reader with the previous anchor: the unique
+      // closure must roll back the operation, the balance delta, and the update entirely.
       await env.DB.prepare("UPDATE recurring_items SET next_due_date = '2026-09-01' WHERE id = ?").bind(recurring!.id).run();
       const stalePending = await callWrite('recurring_item_close_period', {
         ...concurrentClose, idempotency_key: 'idem-ale-7-stale-period',
@@ -1431,7 +1431,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
     });
   });
 
-  describe('ALE-5: operation_update и operation_delete через MCP write tools', () => {
+  describe('ALE-5: operation_update and operation_delete via MCP write tools', () => {
     let eurAccountId: number;
     let usdAccountId: number;
 
@@ -1497,7 +1497,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       return res.json() as Promise<any>;
     }
 
-    it('operation_update: MRTR first call не пишет; second call обновляет через backend API и аудит success', async () => {
+    it('operation_update: the MRTR first call does not write; the second call updates via the backend API and the audit is success', async () => {
       const operationId = await seedOperation();
       const idempotencyKey = 'idem-ale-5-update-happy';
 
@@ -1545,7 +1545,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(audit?.tool_name).toBe('operation_update');
     });
 
-    it('operation_update: happy path на нескольких полях и очистка nullable optional fields', async () => {
+    it('operation_update: happy path across several fields, and clearing nullable optional fields', async () => {
       const operationId = await seedOperation();
       const body1 = await callWrite('operation_update', {
         operation_id: operationId,
@@ -1568,7 +1568,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body2.result.structuredContent.operation.subcategory).toBeNull();
     });
 
-    it('operation_add и operation_update принимают comment, receipt_url и fiscal_receipt_id', async () => {
+    it('operation_add and operation_update accept comment, receipt_url, and fiscal_receipt_id', async () => {
       const purs = 'https://suf.purs.gov.rs/v/?vl=abc';
       const add1 = await callWrite('operation_add', {
         date: '2026-08-15',
@@ -1733,7 +1733,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       ).bind(pfr).first<{ count: number }>())?.count).toBe(4);
     });
 
-    it('operation_update: unknown/system fields отклоняются явной ошибкой до MRTR', async () => {
+    it('operation_update: unknown/system fields are rejected with an explicit error before MRTR', async () => {
       const operationId = await seedOperation();
       const body = await callWrite('operation_update', {
         operation_id: operationId,
@@ -1750,7 +1750,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.result.structuredContent.requestState).toBeUndefined();
     });
 
-    it('operation_update: not found и validation error возвращают actionable error, не 500', async () => {
+    it('operation_update: not found and a validation error return an actionable error, not 500', async () => {
       const notFound = await callWrite('operation_update', {
         operation_id: 999999,
         item: 'Нет строки',
@@ -1769,7 +1769,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(invalid.result.structuredContent.error).toContain('amount_minor');
     });
 
-    it('operation_delete: MRTR first call не пишет; second call удаляет через backend API, возвращает snapshot и аудит success', async () => {
+    it('operation_delete: the MRTR first call does not write; the second call deletes via the backend API, returns a snapshot, and the audit is success', async () => {
       const operationId = await seedOperation();
       const idempotencyKey = 'idem-ale-5-delete-happy';
 
@@ -1812,7 +1812,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(audit?.tool_name).toBe('operation_delete');
     });
 
-    it('operation_delete: повторное удаление / отсутствующая operation возвращает стабильную ошибку', async () => {
+    it('operation_delete: deleting again, or a missing operation, returns a stable error', async () => {
       const body = await callWrite('operation_delete', {
         operation_id: 999999,
         idempotency_key: 'idem-ale-5-delete-not-found'
@@ -1821,7 +1821,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.result.structuredContent.error).toMatch(/не найдена|not found/i);
     });
 
-    it('operation_update без write scope отклоняется permission error', async () => {
+    it('operation_update without the write scope is rejected with a permission error', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1843,7 +1843,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
 
 
   describe('S2-5: MCP Apps & UI Resources (SEP-1865)', () => {
-    it('forecast_get tool содержит _meta.ui с ссылкой на ui://pulse', async () => {
+    it('forecast_get tool includes _meta.ui with a link to ui://pulse', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1864,7 +1864,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(forecastTool._meta.ui.csp.resourceDomains).toBeDefined();
     });
 
-    it('resources/list без scope отклоняет; с write отдаёт confirm, не Пульс', async () => {
+    it('resources/list without a scope rejects; with write it returns confirm, not Pulse', async () => {
       const emptyReq = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1886,7 +1886,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(uris).not.toContain('ui://pulse');
     });
 
-    it('resources/list возвращает список UI ресурсов при наличии scope "read"', async () => {
+    it('resources/list returns the UI resource list when the "read" scope is present', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1911,7 +1911,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(analyticsResource._meta.ui.prefersBorder).toBe(true);
     });
 
-    it('resources/read требует scope "read"', async () => {
+    it('resources/read requires the "read" scope', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1931,7 +1931,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.error.code).toBe(-32001);
     });
 
-    it('resources/read возвращает HTML-код Пульса для uri "ui://pulse"', async () => {
+    it('resources/read returns the Pulse HTML for uri "ui://pulse"', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1959,7 +1959,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(content.text).toContain('forecast_get');
     });
 
-    it('resources/read возвращает HTML-код Аналитики для uri "ui://analytics"', async () => {
+    it('resources/read returns the Analytics HTML for uri "ui://analytics"', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1987,7 +1987,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(content.text).toContain('analytics_get');
     });
 
-    it('tools/call analytics_get возвращает данные аналитики', async () => {
+    it('tools/call analytics_get returns analytics data', async () => {
       await env.DB.prepare(
         `INSERT INTO settings (key, value) VALUES ('base_currency', 'EUR') ON CONFLICT(key) DO UPDATE SET value = 'EUR'`
       ).run();
@@ -2026,7 +2026,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.result.structuredContent.categories[0].label).toBe('Food');
     });
 
-    it('resources/read возвращает ошибку 32602 для неизвестного uri', async () => {
+    it('resources/read returns error 32602 for an unknown uri', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2048,7 +2048,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
     });
   });
 
-  describe('#324: structuredContent в каждом tools/call ответе', () => {
+  describe('#324: structuredContent in every tools/call response', () => {
     let accountId: number;
 
     beforeEach(async () => {
@@ -2060,7 +2060,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       accountId = acc!.id;
     });
 
-    it('fx_rate_set без requestState: 200, есть structuredContent, форма совпадает со схемой (MRTR)', async () => {
+    it('fx_rate_set without requestState: 200, structuredContent is present, and the shape matches the schema (MRTR)', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2087,14 +2087,14 @@ describe('MCP Server (S2-3 & S2-4)', () => {
 
       expect(body.result.structuredContent.resultType).toBe('input_required');
       expect(body.result.requestState).toBeUndefined();
-      // structuredContent обязателен по MCP 2025 — без него Gemini закрывает транспорт
+      // structuredContent is required by MCP 2025 — without it Gemini closes the transport
       expect(body.result.structuredContent).toBeDefined();
       expect(body.result.structuredContent.resultType).toBe('input_required');
       expect(body.result.structuredContent.requestState).toBeDefined();
       expect(typeof body.result.structuredContent.description).toBe('string');
     });
 
-    it('operation_add без requestState: structuredContent присутствует (MRTR)', async () => {
+    it('operation_add without requestState: structuredContent is present (MRTR)', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2126,7 +2126,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.result.structuredContent.resultType).toBe('input_required');
     });
 
-    it('write-инструмент: ошибка валидации содержит structuredContent', async () => {
+    it('write tool: a validation error contains structuredContent', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2155,7 +2155,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(typeof body.result.structuredContent.error).toBe('string');
     });
 
-    it('write-инструмент: отсутствие idempotency_key содержит structuredContent', async () => {
+    it('write tool: a missing idempotency_key contains structuredContent', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2181,7 +2181,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.result.structuredContent.error).toContain('idempotency_key');
     });
 
-    it('write-инструмент: битый requestState содержит structuredContent', async () => {
+    it('write tool: a malformed requestState contains structuredContent', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2211,7 +2211,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(typeof body.result.structuredContent.error).toBe('string');
     });
 
-    it('#328: fx_rate_set без requestState не пишет курс; audit без ключа не success', async () => {
+    it('#328: fx_rate_set without requestState does not write the rate; an audit row without a key is not success', async () => {
       await env.DB.prepare(
         `INSERT INTO fx_rates (code, rate_e9, updated_at) VALUES ('RSD', 9800000, '2026-08-12T14:34:29Z')`
       ).run();
@@ -2260,7 +2260,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(audit?.status).not.toBe('success');
     });
 
-    it('#328: fx_rate_set после requestState пишет курс и audit success', async () => {
+    it('#328: fx_rate_set after requestState writes the rate and the audit is success', async () => {
       await env.DB.prepare(
         `INSERT INTO fx_rates (code, rate_e9, updated_at) VALUES ('RSD', 9800000, '2026-08-12T14:34:29Z')`
       ).run();
@@ -2320,7 +2320,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(audit?.tool_name).toBe('fx_rate_set');
     });
 
-    it('#328: tools/list пишет, что первый вызов без requestState ничего не записывает', async () => {
+    it('#328: tools/list states that the first call without requestState writes nothing', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2344,10 +2344,10 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       }
     });
 
-    it('fx_rate_set полный цикл: оба шага возвращают structuredContent', async () => {
+    it('fx_rate_set full cycle: both steps return structuredContent', async () => {
       const ctx = { props: { scopes: ['read', 'write'], clientId } };
 
-      // Шаг 1: MRTR
+      // Step 1: MRTR
       const req1 = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2367,7 +2367,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body1.result.structuredContent).toBeDefined();
       expect(body1.result.structuredContent.resultType).toBe('input_required');
 
-      // Шаг 2: Подтверждение
+      // Step 2: confirmation
       const req2 = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2397,14 +2397,14 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body2.result.structuredContent.resultType).toBe('complete');
     });
 
-    it('#327: fx_rate_delete после requestState удаляет курс и возвращает success (204 без тела не ломает ответ)', async () => {
+    it('#327: fx_rate_delete after requestState deletes the rate and returns success (a bodyless 204 does not break the response)', async () => {
       await env.DB.prepare(
         `INSERT INTO fx_rates (code, rate_e9, updated_at) VALUES ('USD', 1090000000, '2026-08-12T14:34:29Z')`
       ).run();
 
       const ctx = { props: { scopes: ['write'], clientId } };
 
-      // Шаг 1: MRTR
+      // Step 1: MRTR
       const req1 = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2422,7 +2422,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body1.result.structuredContent.requestState).toBeDefined();
       expect(body1.result.structuredContent.written).toBe(false);
 
-      // Шаг 2: подтверждение → DELETE /fx-rates/USD отвечает 204 без тела
+      // Step 2: confirmation → DELETE /fx-rates/USD responds 204 with no body
       const req2 = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2456,7 +2456,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       ).bind('idem-fx-327').first<{ status: string }>();
       expect(audit?.status).toBe('success');
 
-      // Повторное удаление уже удалённого → ожидаемая ошибка с structuredContent (404), не молчаливый успех
+      // Deleting an already deleted rate again → expected error with structuredContent (404), not a silent success
       const req3 = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2571,7 +2571,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
     });
   });
 
-  describe('#331: resultType в structuredContent, класс write и MCP App confirm', () => {
+  describe('#331: resultType in structuredContent, the write class, and MCP App confirm', () => {
     let accountId: number;
 
     beforeEach(async () => {
@@ -2599,7 +2599,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       return res.json() as Promise<any>;
     }
 
-    it('confirm кладёт resultType=complete в structuredContent', async () => {
+    it('confirm puts resultType=complete into structuredContent', async () => {
       const body1 = await callWrite('fx_rate_set', { auto_confirm: false, code: 'RSD', rate: 0.009868, idempotency_key: 'idem-331-sc' }, { id: 201 });
       const body2 = await callWrite('fx_rate_set', {
         code: 'RSD',
@@ -2613,7 +2613,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body2.result.structuredContent.resultType).toBe('complete');
     });
 
-    it('каждый write без requestState не пишет в D1 и не пишет audit', async () => {
+    it('every write without requestState writes neither to D1 nor to the audit log', async () => {
       await env.DB.prepare(
         `INSERT INTO fx_rates (code, rate_e9, updated_at) VALUES ('RSD', 9800000, '2026-08-12T14:34:29Z')`
       ).run();
@@ -2694,7 +2694,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       }
     });
 
-    it('write-инструменты в tools/list ссылаются на ui://write-confirm', async () => {
+    it('write tools in tools/list reference ui://write-confirm', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2707,7 +2707,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       }
     });
 
-    it('resources/list с write отдаёт ui://write-confirm; resources/read — HTML confirm', async () => {
+    it('resources/list with write returns ui://write-confirm; resources/read returns the confirm HTML', async () => {
       const listReq = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2734,8 +2734,8 @@ describe('MCP Server (S2-3 & S2-4)', () => {
     });
   });
 
-  describe('#325: журнал tools/call (read + MRTR)', () => {
-    it('accounts_list пишет audit success без idempotency_key', async () => {
+  describe('#325: tools/call log (read + MRTR)', () => {
+    it('accounts_list writes an audit success without an idempotency_key', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2764,7 +2764,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(row?.result_summary).toBeTruthy();
     });
 
-    it('read без scope пишет audit error', async () => {
+    it('a read without a scope writes an audit error', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2784,7 +2784,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(row?.idempotency_key).toBeNull();
     });
 
-    it('fx_rate_set без requestState пишет audit pending без ключа и не трогает курс', async () => {
+    it('fx_rate_set without requestState writes an audit pending without a key and does not touch the rate', async () => {
       await env.DB.prepare(
         `INSERT INTO fx_rates (code, rate_e9, updated_at) VALUES ('RSD', 9800000, '2026-08-12T14:34:29Z')`
       ).run();
@@ -2828,8 +2828,8 @@ describe('MCP Server (S2-3 & S2-4)', () => {
     });
   });
 
-  describe('#334: CallToolResult 2025-11-25 и annotations', () => {
-    it('первый write: сверху только ключи CallToolResult, MRTR в structuredContent', async () => {
+  describe('#334: CallToolResult 2025-11-25 and annotations', () => {
+    it('first write: only CallToolResult keys at the top level, with MRTR inside structuredContent', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2852,7 +2852,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.result.structuredContent.written).toBe(false);
     });
 
-    it('tools/list: у каждого инструмента явные annotations', async () => {
+    it('tools/list: every tool has explicit annotations', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2881,7 +2881,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
     });
   });
 
-  describe('#338: transfer_add (MCP переводы между счетами, MRTR)', () => {
+  describe('#338: transfer_add (MCP transfers between accounts, MRTR)', () => {
     let fromId: number;
     let toId: number;
 
@@ -2900,7 +2900,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       toId = to!.id;
     });
 
-    it('требует idempotency_key', async () => {
+    it('requires an idempotency_key', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2927,7 +2927,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.result.content[0].text).toContain('idempotency_key');
     });
 
-    it('отклоняет некорректные параметры до запроса подтверждения (MRTR шаг 1)', async () => {
+    it('rejects invalid parameters before asking for confirmation (MRTR step 1)', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2940,7 +2940,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
             arguments: {
               date: '2026-08-15',
               from_account_id: fromId,
-              to_account_id: fromId, // тот же счёт!
+              to_account_id: fromId, // the same account!
               from_amount_minor: 5000,
               to_amount_minor: 5000,
               item: 'Перевод',
@@ -2956,10 +2956,10 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.result.resultType).toBeUndefined();
     });
 
-    it('шаг 1 input_required не пишет в БД; шаг 2 создаёт transfer + 2 операции source=agent; каскад при удалении', async () => {
+    it('step 1 input_required does not write to the DB; step 2 creates a transfer plus 2 operations with source=agent; cascade on delete', async () => {
       const idempotencyKey = 'idem-338-transfer-1';
 
-      // Шаг 1: MRTR input_required
+      // Step 1: MRTR input_required
       const req1 = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2991,13 +2991,13 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body1.result.structuredContent.requestState).toBeDefined();
       expect(body1.result.content[0].text).toContain('Подтвердите перевод');
 
-      // БД ещё пуста
+      // The DB is still empty
       const countBefore = await env.DB.prepare('SELECT COUNT(*) as count FROM operations').first<{ count: number }>();
       expect(countBefore?.count).toBe(0);
       const transferBefore = await env.DB.prepare('SELECT COUNT(*) as count FROM transfers').first<{ count: number }>();
       expect(transferBefore?.count).toBe(0);
 
-      // Шаг 2: подтверждение
+      // Step 2: confirmation
       const req2 = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3029,7 +3029,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(transfer.to_operation.amount_minor).toBe(5000);
       expect(transfer.to_operation.source).toBe('agent');
 
-      // В БД: 1 transfer + 2 операции
+      // In the DB: 1 transfer + 2 operations
       const tCount = await env.DB.prepare('SELECT COUNT(*) as count FROM transfers').first<{ count: number }>();
       expect(tCount?.count).toBe(1);
       const ops = await env.DB.prepare('SELECT * FROM operations ORDER BY kind').all<any>();
@@ -3041,25 +3041,25 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(outOp.transfer_id).toBe(inOp.transfer_id);
       expect(outOp.transfer_id).toBe(transfer.id);
 
-      // Балансы изменились
+      // Balances changed
       const fromBal = await env.DB.prepare('SELECT balance_minor FROM accounts WHERE id = ?').bind(fromId).first<{ balance_minor: number }>();
       const toBal = await env.DB.prepare('SELECT balance_minor FROM accounts WHERE id = ?').bind(toId).first<{ balance_minor: number }>();
       expect(fromBal?.balance_minor).toBe(95000); // 100000 - 5000
       expect(toBal?.balance_minor).toBe(25000); // 20000 + 5000
 
-      // Аудит success
+      // Audit success
       const audit = await env.DB.prepare('SELECT status, tool_name FROM mcp_audit_log WHERE idempotency_key = ?')
         .bind(idempotencyKey).first<{ status: string; tool_name: string }>();
       expect(audit?.status).toBe('success');
       expect(audit?.tool_name).toBe('transfer_add');
 
-      // Каскад: удаление transfer удаляет обе операции
+      // Cascade: deleting the transfer deletes both operations
       await env.DB.prepare('DELETE FROM transfers WHERE id = ?').bind(transfer.id).run();
       const opsAfter = await env.DB.prepare('SELECT COUNT(*) as count FROM operations').first<{ count: number }>();
       expect(opsAfter?.count).toBe(0);
     });
 
-    it('повторный вызов с тем же idempotency_key не дублирует запись (идемпотентность)', async () => {
+    it('a repeat call with the same idempotency_key does not duplicate the write (idempotency)', async () => {
       const idempotencyKey = 'idem-338-transfer-idem';
 
       const buildCall = (withState?: string) => new Request('http://localhost/mcp', {
@@ -3091,7 +3091,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       const body2: any = await (await mcpApp.fetch(buildCall(body1.result.structuredContent.requestState), typedEnv, ctx as any)).json();
       expect(body2.result.structuredContent.written).toBe(true);
 
-      // Третий вызов без state — должен вернуть закэшированный success, не создавать новых
+      // A third call without state must return the cached success and must not create new rows
       const body3: any = await (await mcpApp.fetch(buildCall(), typedEnv, ctx as any)).json();
       expect(body3.result.structuredContent.written).toBe(true);
       expect(body3.result.structuredContent.resultType).toBe('complete');
@@ -3103,8 +3103,8 @@ describe('MCP Server (S2-3 & S2-4)', () => {
     });
   });
 
-  describe('#458: Mcp-Method и Mcp-Name HTTP routing headers (MCP 2026-07-28)', () => {
-    it('обрабатывает tools/list через заголовок Mcp-Method', async () => {
+  describe('#458: Mcp-Method and Mcp-Name HTTP routing headers (MCP 2026-07-28)', () => {
+    it('handles tools/list via the Mcp-Method header', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: {
@@ -3122,7 +3122,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.result.tools.length).toBeGreaterThan(0);
     });
 
-    it('обрабатывает resources/list через заголовок Mcp-Method', async () => {
+    it('handles resources/list via the Mcp-Method header', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: {
@@ -3140,7 +3140,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.result.resources.some((r: any) => r.uri === 'ui://pulse')).toBe(true);
     });
 
-    it('обрабатывает resources/read через заголовки Mcp-Method и Mcp-Name', async () => {
+    it('handles resources/read via the Mcp-Method and Mcp-Name headers', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: {
@@ -3159,7 +3159,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.result.contents[0].uri).toBe('ui://pulse');
     });
 
-    it('обрабатывает tools/call чтения через Mcp-Method и Mcp-Name', async () => {
+    it('handles a read tools/call via Mcp-Method and Mcp-Name', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: {
@@ -3182,7 +3182,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.result.content[0].text).toBeTruthy();
     });
 
-    it('обрабатывает tools/call записи с auto_confirm через Mcp-Method и Mcp-Name', async () => {
+    it('handles a write tools/call with auto_confirm via Mcp-Method and Mcp-Name', async () => {
       const accountRes = await env.DB.prepare(
         "INSERT INTO accounts (name, currency, balance_minor, sort, archived, owner, country, balance_updated_at) VALUES ('Header Acc', 'EUR', 10000, 1, 0, 'Alex', 'ES', '2026-09-02T12:00:00Z') RETURNING id"
       ).first<{ id: number }>();
@@ -3227,7 +3227,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(audit?.tool_name).toBe('operation_add');
     });
 
-    it('отдаёт ошибку -32601 при неизвестном инструменте через Mcp-Name', async () => {
+    it('returns error -32601 for an unknown tool via Mcp-Name', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: {

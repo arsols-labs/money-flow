@@ -1,41 +1,41 @@
-// Чистые клиентские помощники для экрана «Пульс» — отдельно от компонентов,
-// чтобы формулы (особенно цвет предупреждения и порт из v1) были видны и
-// проверяемы глазами без вёрстки вокруг.
+// Pure client helpers for the "Pulse" screen — kept apart from the components
+// so the formulas (especially the warning color and the port from v1) are visible and
+// checkable by eye without layout around them.
 import { fractionDigits } from './money';
 
 /**
- * Минорные единицы в число для recharts. Деление здесь допустимо тем же
- * обоснованием, что и в money.js:formatMinor — это ТОЛЬКО отображение
- * (график, подписи), а не хранение или пересчёт: балансы на порядки меньше
- * MAX_SAFE_INTEGER, точность не страдает.
+ * Minor units into a number for recharts. Division is acceptable here for the same
+ * reason as in money.js:formatMinor — this is ONLY display
+ * (the chart, the labels), not storage or recalculation: balances are orders of magnitude below
+ * MAX_SAFE_INTEGER, so precision is not lost.
  */
 export function toMajor(minor, currency) {
   return minor / 10 ** fractionDigits(currency);
 }
 
 /**
- * "YYYY-MM-DD" (контракт /forecast — календарная дата, не момент времени) →
- * Date локальной календарной даты, БЕЗ прогона через UTC. `new Date("2026-
- * 08-13")` трактует строку как UTC-полночь; часовой пояс западнее UTC при
- * пересчёте в локальное время сдвигает календарный день на сутки назад —
- * «завтра» в списке платежей превращается в «сегодня» (проверено живым
- * прогоном на стенде, tz UTC+2 сдвига не показал, баг ловится только западнее
- * UTC — отсюда и незаметность на этой машине). Разбор по компонентам такого
- * сдвига не делает.
+ * "YYYY-MM-DD" (the /forecast contract — a calendar date, not an instant) →
+ * a Date of the local calendar date, WITHOUT running it through UTC. `new Date("2026-
+ * 08-13")` treats the string as UTC midnight; a time zone west of UTC, when
+ * converted to local time, shifts the calendar day back by one —
+ * "tomorrow" in the payments list becomes "today" (checked with a live
+ * run on the stand; tz UTC+2 showed no shift, and the bug is caught only west of
+ * UTC — which is why it was invisible on this machine). Parsing by components does not
+ * make that shift.
  */
 export function parseDateOnly(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(y, m - 1, d);
 }
 
-// Порог "зелёного" — порт формулы из app/src/ui/Pulse.jsx:21-30, но порог
-// приходит параметром (low_balance_threshold_minor из /forecast), а не
-// зашит константой LOWEST_BALANCE_SAFE_USD: настраиваемость порога — само
-// содержание решения владельца 2026-08-04 (issue #198).
+// The "green" threshold — a port of the formula from app/src/ui/Pulse.jsx:21-30, but the threshold
+// arrives as a parameter (low_balance_threshold_minor from /forecast), not
+// hardcoded as LOWEST_BALANCE_SAFE_USD: a configurable threshold is the
+// substance of the 2026-08-04 decision (issue #198).
 export function lowestBalanceColor(amountMinor, thresholdMinor) {
-  // Нулевой порог — вырожденный случай формулы (amount/threshold делит на
-  // ноль): владелец обнулил предупреждение, и единственный оставшийся сигнал —
-  // знак суммы.
+  // A zero threshold is a degenerate case of the formula (amount/threshold divides by
+  // zero): the warning was zeroed out, and the only signal left is
+  // the sign of the amount.
   if (thresholdMinor === 0) return amountMinor >= 0 ? 'var(--safe)' : 'var(--danger)';
   const ratio = Math.max(0, Math.min(1, amountMinor / thresholdMinor));
   if (ratio >= 1) return 'var(--safe)';
@@ -48,11 +48,11 @@ export function lowestBalanceColor(amountMinor, thresholdMinor) {
 }
 
 /**
- * Ключ страны в точке графика. Префикс обязателен: `country` — свободный текст
- * из карточки счёта, и страна, названная `overall`, `ts` или `date`, молча
- * затёрла бы служебное поле точки — общий итог на графике стал бы страновым
- * рядом, и заметить это было бы нечем. Префикс `c:` в имена стран попасть не
- * может, потому что он добавляется здесь, а не берётся из данных.
+ * Country key on a chart point. The prefix is required: `country` is free text
+ * from the account card, and a country named `overall`, `ts`, or `date` would silently
+ * overwrite a service field of the point — the overall total on the chart would become a country
+ * series, and there would be nothing to notice it by. The `c:` prefix cannot end up in country names
+ * because it is added here, not taken from the data.
  */
 const COUNTRY_KEY_PREFIX = 'c:';
 const ACCOUNT_KEY_PREFIX = 'a:';
@@ -74,10 +74,10 @@ export function userKey(owner) {
 }
 
 /**
- * Обратно из ключа точки в имя страны — для подписей тултипа. Отдельной
- * функцией, а не `slice(2)` по месту: длина префикса не должна жить магическим
- * числом в другом файле. Ошибка там не упала бы, а тихо подписала бы денежную
- * строку не тем именем.
+ * Back from a point key to a country name — for tooltip labels. A separate
+ * function, not an in-place `slice(2)`: the prefix length must not live as a magic
+ * number in another file. A mistake there would not throw; it would quietly label a money
+ * row with the wrong name.
  */
 export function countryFromKey(key) {
   return key.startsWith(COUNTRY_KEY_PREFIX) ? key.slice(COUNTRY_KEY_PREFIX.length) : key;
@@ -92,10 +92,10 @@ export function userFromKey(key) {
 }
 
 /**
- * series (контракт /api/v2/forecast) → точки recharts:
+ * series (the /api/v2/forecast contract) → recharts points:
  * `{ts, date, overall, ['c:'+country]: value, ['a:'+id]: value, ['u:'+owner]: value}`.
- * Суммы уже в base_currency (сервер их туда привёл) — здесь только minor→major.
- * by_account / by_owner могут отсутствовать у старого ответа — тогда ключей нет.
+ * Amounts are already in base_currency (the server converted them) — here only minor→major.
+ * by_account / by_owner may be missing on an old response — then there are no keys.
  */
 export function chartData(series, baseCurrency) {
   return series.map((d) => {
@@ -208,19 +208,19 @@ export function forecastYDomain(points, extraKeys = []) {
   return [min - pad, top + pad];
 }
 
-// Палитра линий по странам. v1 держал RUS/USA/SRB зашитыми в CSS-переменные
-// (--rus/--usa/--srb) — в v2 country произвольная строка (issue #198 снял
-// привязку к трём странам), поэтому цвет назначается по индексу из общей
-// палитры, а знакомым кодам оставлен их привычный цвет, чтобы график не
-// «переехал» для тех, кто уже привык к оттенкам v1.
-// `token` идёт в SVG (чтобы оттенок жил по теме, как в v1), `hex` — то же
-// значение литералом, и оно нужно не для отрисовки, а чтобы палитра ниже могла
-// эти цвета ОБХОДИТЬ: три первых её оттенка и есть эти самые три, поэтому
-// незнакомая страна с индексом 0 получала в точности цвет USA — две линии на
-// графике становились неразличимы. Сравнить `var(--usa)` с литералом нельзя,
-// отсюда вторая колонка. Разъехаться она может только вместе с правкой токена
-// в styles.css, и худшее последствие тогда — незнакомая страна возьмёт
-// оттенок, который снова стал свободным.
+// Line palette by country. v1 kept RUS/USA/SRB hardcoded in CSS variables
+// (--rus/--usa/--srb) — in v2 country is an arbitrary string (issue #198 removed
+// the tie to three countries), so a color is assigned by index from the shared
+// palette, while familiar codes keep their usual color so the chart does not
+// "move" for anyone already used to the v1 shades.
+// `token` goes into SVG (so the shade follows the theme, as in v1); `hex` is the same
+// value as a literal, and it is needed not for drawing but so the palette below can
+// AVOID these colors: its first three shades are exactly these three, so
+// an unfamiliar country at index 0 got exactly the USA color — two lines on
+// the chart became indistinguishable. `var(--usa)` cannot be compared with a literal,
+// hence the second column. It can drift only together with an edit of the token
+// in styles.css, and the worst result then is that an unfamiliar country takes
+// a shade that has become free again.
 const KNOWN_COUNTRY_COLORS = {
   Global: { token: 'var(--overall)', hex: '#9AA3B5' },
   RUS: { token: 'var(--rus)', hex: '#D98757' },
@@ -228,32 +228,32 @@ const KNOWN_COUNTRY_COLORS = {
   SRB: { token: 'var(--srb)', hex: '#6FBF8B' },
 };
 
-// Палитра, читаемая в обеих темах (те же принципы, что у --safe/--warning/
-// --danger в styles.css: насыщенность средняя, не чистые primary-цвета).
+// A palette readable in both themes (the same principles as --safe/--warning/
+// --danger in styles.css: medium saturation, not pure primary colors).
 const COUNTRY_PALETTE = [
-  '#5B8FC7', // синий
-  '#D98757', // оранжевый
-  '#6FBF8B', // зелёный
-  '#B07FD9', // фиолетовый
-  '#D9C15B', // жёлтый
-  '#5BC7B4', // бирюзовый
-  '#D95B8F', // розовый
+  '#5B8FC7', // blue
+  '#D98757', // orange
+  '#6FBF8B', // green
+  '#B07FD9', // purple
+  '#D9C15B', // yellow
+  '#5BC7B4', // teal
+  '#D95B8F', // pink
 ];
 
 /**
- * Цвета линий для ВСЕГО списка стран сразу, а не по одной.
+ * Line colors for the WHOLE country list at once, not one by one.
  *
- * По одной было нельзя: цвет незнакомой страны зависит от того, какие цвета
- * уже заняли знакомые соседи, а этого знания у вызова с одним аргументом нет.
- * Возвращает объект `{ [country]: color }`; порядок входного списка задаёт
- * порядок выдачи цветов, то есть при неизменном наборе стран цвет стабилен.
+ * One by one was impossible: an unfamiliar country's color depends on which colors
+ * familiar neighbors have already taken, and a call with one argument does not know that.
+ * Returns an object `{ [country]: color }`; the order of the input list sets
+ * the order in which colors are handed out, so the color is stable while the set of countries is unchanged.
  */
 export function countryColors(countries) {
   const taken = new Set(countries.map((c) => KNOWN_COUNTRY_COLORS[c]?.hex).filter(Boolean));
   const free = COUNTRY_PALETTE.filter((color) => !taken.has(color));
-  // Все семь оттенков заняты знакомыми странами — теоретически невозможно
-  // (знакомых всего три), но пустой список цветов оставил бы страну без линии,
-  // а повтор оттенка её хотя бы покажет.
+  // All seven shades are taken by familiar countries — theoretically impossible
+  // (there are only three familiar ones), but an empty color list would leave a country with no line,
+  // while repeating a shade at least shows it.
   const pool = free.length > 0 ? free : COUNTRY_PALETTE;
 
   const colors = {};

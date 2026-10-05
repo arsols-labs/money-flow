@@ -1,6 +1,6 @@
-// CRUD API v2 (S1-2, issue #196) — счета, курсы валют, чтение настроек.
-// Все роуты требуют валидную сессию (verifySessionCookie) и монтируются в
-// index.ts как `app.route('/api/v2', apiV2)` — пути здесь без префикса.
+// CRUD API v2 (S1-2, issue #196) — accounts, exchange rates, and settings reads.
+// Every route requires a valid session (verifySessionCookie) and is mounted in
+// index.ts as `app.route('/api/v2', apiV2)` — paths here have no prefix.
 import { Hono } from 'hono';
 import type { Env } from './types';
 import { verifySessionCookie } from './auth';
@@ -44,11 +44,11 @@ import {
 
 const apiV2 = new Hono<{ Bindings: Env }>();
 
-// Guard — единственное middleware sub-app'а, регистрируется ПЕРВЫМ: Hono
-// выполняет middleware и роуты в порядке регистрации, а не «middleware всегда
-// раньше» — объявленный после маршрутов `use()` их бы не перехватывал.
+// Guard is the sub-app's only middleware and is registered FIRST: Hono
+// runs middleware and routes in registration order, not "middleware always
+// first" — a `use()` declared after the routes would not intercept them.
 apiV2.use('*', async (c, next) => {
-  // Внутренние вызовы от MCP сервера внутри Worker'а
+  // Internal calls from the MCP server inside the Worker
   let isInternalMcp = false;
   try {
     isInternalMcp = (c.executionCtx as any)?.isInternalMcp === true;
@@ -75,10 +75,10 @@ apiV2.use('*', async (c, next) => {
   await next();
 });
 
-// ---------- общие помощники ----------
+// ---------- shared helpers ----------
 
-// Момент с точностью до СЕКУНД — CHECK-ограничение схемы отклоняет миллисекунды
-// из наивного `new Date().toISOString()` (migrations/0001_initial_schema.sql).
+// A timestamp precise to the SECOND — the schema CHECK rejects milliseconds
+// from a naive `new Date().toISOString()` (migrations/0001_initial_schema.sql).
 function nowIso(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
@@ -103,9 +103,9 @@ function asRecord(body: unknown): Record<string, unknown> {
 }
 
 async function readBody(c: { req: { json: () => Promise<unknown> } }): Promise<Record<string, unknown>> {
-  // Пустое/битое тело сводим к {} — дальше это даёт тот же 400 «нет нужных
-  // полей», что и осмысленный, но неполный JSON: разбираться, чем конкретно
-  // не угодил клиент, здесь не обязательно.
+  // An empty or broken body collapses to {} — that then yields the same 400 "missing required
+  // fields" as meaningful but incomplete JSON: figuring out exactly how
+  // the client failed is not necessary here.
   const raw = await c.req.json().catch(() => ({}));
   return asRecord(raw);
 }
@@ -126,7 +126,7 @@ function normalizeCurrency(input: unknown): string {
   return upper;
 }
 
-/** bank/type: строка или null; пустая строка после trim → null. */
+/** bank/type: a string or null; an empty string after trim → null. */
 function normalizeOptionalText(input: unknown, field: string): string | null {
   if (input === null || input === undefined) return null;
   if (typeof input !== 'string') throw new ValidationError('FIELD_TYPE_STRING_OR_NULL', { field });
@@ -155,14 +155,14 @@ function normalizeOptionalFiscalReceiptId(input: unknown, field = 'fiscal_receip
 }
 
 /**
- * owner/country: непустая строка, как `name` и `currency`. Отдельно от
- * `normalizeOptionalText` потому, что правило ROADMAP «Счёт имеет одного
- * владельца, одну валюту и обязательную страну» не оставляет им состояния
- * «не указано»: счёт без владельца нельзя отобрать под операцию (отбор идёт
- * строго по владельцу и валюте, решение владельца 2026-08-11), а счёт без
- * страны — пустая колонка там, где v1 держит RUS/USA/SRB. `null` здесь тоже
- * ошибка, а не «оставить как есть»: PATCH без поля и так его не трогает,
- * поэтому явный `null` может означать только попытку стереть обязательное.
+ * owner/country: a non-empty string, like `name` and `currency`. Separate from
+ * `normalizeOptionalText` because the ROADMAP rule "An account has one
+ * owner, one currency, and a required country" leaves them no
+ * "unspecified" state: an account without an owner cannot be selected for an operation (selection is
+ * strictly by owner and currency, owner decision 2026-08-11), and an account without a
+ * country is an empty column where v1 stores RUS/USA/SRB. `null` here is also an
+ * error, not "leave as is": a PATCH that omits the field already leaves it untouched,
+ * so an explicit `null` can only mean an attempt to erase a required value.
  */
 function normalizeRequiredText(input: unknown, field: string): string {
   if (typeof input !== 'string') throw new ValidationError('FIELD_REQUIRED', { field });
@@ -186,39 +186,39 @@ function assertSafeBalanceDelta(currentMinor: number, deltaMinor: number): void 
   }
 }
 
-// Порядковый номер в списке счетов. Диапазон узкий намеренно: новый счёт без
-// явного sort получает MAX(sort)+1 без проверок, и если бы в таблице лежало
-// значение у самой границы точного целого, инкремент вышел бы за неё — дальше
-// точность теряется и позиции начинают дублироваться. Миллиард позиций в
-// списке счетов — запас, которого эта задача не увидит никогда.
+// Ordinal position in the account list. The range is narrow on purpose: a new account without
+// an explicit sort gets MAX(sort)+1 with no checks, and if the table held a value
+// at the very edge of the exact integer range, the increment would step past it — after that
+// precision is lost and positions start to duplicate. A billion positions in
+// the account list is headroom this task will never see.
 const SORT_LIMIT = 1_000_000_000;
 
 function normalizeSort(input: unknown): number {
-  // isSafeInteger, а не isInteger: за пределами 2^53 у double нет дробной
-  // части в принципе, поэтому isInteger(1e21) === true — и такое значение
-  // ложится в INTEGER-колонку как REAL (проверено на локальной D1). Та же
-  // болезнь, что у rate_e9 ниже, то же лекарство.
+  // isSafeInteger, not isInteger: past 2^53 a double has no fractional
+  // part at all, so isInteger(1e21) === true — and such a value
+  // lands in an INTEGER column as REAL (verified on local D1). The same
+  // disease as rate_e9 below, the same remedy.
   if (typeof input !== 'number' || !Number.isSafeInteger(input) || Math.abs(input) > SORT_LIMIT) {
     throw new ValidationError('INVALID_SORT');
   }
   return input;
 }
 
-// done/active/archived — одна и та же булева проверка на три ресурса
-// (счета, плановые и регулярные операции). Раньше была своя копия с зашитым
-// именем поля 'archived' — обобщена сюда, чтобы третьей копии не завести.
+// done/active/archived — the same boolean check for three resources
+// (accounts, planned operations, and recurring operations). There used to be a private copy with the hardcoded
+// field name 'archived' — generalized here so a third copy would not appear.
 function normalizeBoolean(input: unknown, field: string): number {
   if (typeof input !== 'boolean') throw new ValidationError('FIELD_TYPE_BOOLEAN', { field });
   return input ? 1 : 0;
 }
 
-/** :id из пути — нечисловой/дробный id не может ничему соответствовать, это 404, а не 400. */
+/** :id from the path — a non-numeric or fractional id cannot match anything; that is 404, not 400. */
 function parseIdParam(raw: string): number | null {
   const id = Number(raw);
   return Number.isInteger(id) ? id : null;
 }
 
-// ---------- счета ----------
+// ---------- accounts ----------
 
 interface AccountRow {
   id: number;
@@ -226,9 +226,9 @@ interface AccountRow {
   bank: string | null;
   type: string | null;
   account_number: string | null;
-  // Без `| null`: с миграции 0004 обе колонки NOT NULL, и пустое значение
-  // отвергает уже сама D1 (#234). До неё тип честно отражал схему, теперь
-  // `| null` описывал бы состояние, которого в базе не бывает.
+  // No `| null`: since migration 0004 both columns are NOT NULL, and an empty value
+  // is already rejected by D1 itself (#234). Before that the type honestly reflected the schema; now
+  // `| null` would describe a state that does not occur in the database.
   owner: string;
   country: string;
   currency: string;
@@ -252,8 +252,8 @@ function toAccountJson(row: AccountRow, aliases?: AliasJson[]) {
     balance_updated_at: row.balance_updated_at,
     sort: row.sort,
     archived: row.archived === 1,
-    // Алиасы счёта — для UI «Данные» (привязка виртуальных карт, issue #339).
-    // Пустой массив, когда их нет, чтобы клиент всегда видел поле одной формы.
+    // Account aliases — for the "Data" UI (virtual-card binding, issue #339).
+    // An empty array when there are none, so the client always sees the field in one shape.
     aliases: aliases ?? [],
   };
 }
@@ -262,25 +262,25 @@ apiV2.get('/accounts', async (c) => {
   const { results } = await c.env.DB.prepare(
     'SELECT * FROM accounts ORDER BY archived ASC, sort ASC, id ASC',
   ).all<AccountRow>();
-  // Алиасов у счёта мало, поэтому набор запросов к account_aliases по id
-  // счёта дешевле, чем JOIN с группировкой по JSON. Число счетов в v2
-  // измеряется единицами, а не тысячами — N+1 здесь не болит.
+  // An account has few aliases, so a set of queries against account_aliases by account
+  // id is cheaper than a JOIN with JSON grouping. The number of accounts in v2
+  // is measured in ones, not thousands — N+1 does not hurt here.
   const accounts = await Promise.all(
     results.map(async (row) => toAccountJson(row, await listAliases(c.env.DB, row.id))),
   );
   return c.json({ accounts });
 });
 
-// ---------- алиасы счетов (issue #339) ----------
+// ---------- account aliases (issue #339) ----------
 //
-// Виртуальные карты (`Visa *6125`, `DinaCard`) привязываются к реальному
-// счёту через account_aliases. Резолвер (resolveOrPend) — единственная точка,
-// где импорт истории (#340) и автоматизация (#341) превращают «счёт списания»
-// чека в account_id; на неизвестном счёте он не падает, а кладёт строку в
-// pending_account_strings (эндпоинты /pending ниже), которую потом разбирает
-// Hermes Scheduled Job (#341) через Telegram.
+// Virtual cards (`Visa *6125`, `DinaCard`) are bound to a real
+// account through account_aliases. The resolver (resolveOrPend) is the only point
+// where history import (#340) and automation (#341) turn a receipt's "charge account"
+// into an account_id; on an unknown account it does not fail, but stores a row in
+// pending_account_strings (the /pending endpoints below), which is later handled by
+// the Hermes Scheduled Job (#341) via Telegram.
 //
-// AliasError несёт свой HTTP-статус — ловим его отдельно от ValidationError.
+// AliasError carries its own HTTP status — catch it separately from ValidationError.
 
 apiV2.get('/accounts/:id/aliases', async (c) => {
   const id = parseIdParam(c.req.param('id'));
@@ -346,13 +346,13 @@ apiV2.post('/accounts/resolve', async (c) => {
   return c.json({ account_id: accountId, pending: accountId === null });
 });
 
-// Список непривязанных счетов из чеков — для Hermes Scheduled Job (#341).
+// List of unbound accounts from receipts — for the Hermes Scheduled Job (#341).
 apiV2.get('/accounts/pending', async (c) => {
   return c.json({ pending: await listPending(c.env.DB) });
 });
 
-// Привязка неизвестного счёта к реальному: создаёт алиас и убирает строку из
-// pending. Вызывается ответом владельца на Telegram-подтверждение (#341).
+// Binding an unknown account to a real one: creates an alias and removes the row from
+// pending. Called by the owner's reply to a Telegram confirmation (#341).
 apiV2.post('/accounts/pending/:id/bind', async (c) => {
   const pendingId = parseIdParam(c.req.param('id'));
   if (pendingId === null) return fail(c, 'NOT_FOUND', 404);
@@ -382,8 +382,8 @@ apiV2.post('/accounts', async (c) => {
 
     let sort: number;
     if (body.sort === undefined) {
-      // max(sort)+1 среди ВСЕХ счетов (включая архивные) — новый счёт не должен
-      // случайно занять чужое место после разархивации. Пустая таблица → 0.
+      // max(sort)+1 across ALL accounts (including archived) — a new account must not
+      // accidentally take someone else's place after unarchiving. An empty table → 0.
       const row = await c.env.DB.prepare('SELECT COALESCE(MAX(sort), -1) + 1 AS next_sort FROM accounts').first<{
         next_sort: number;
       }>();
@@ -409,31 +409,31 @@ apiV2.post('/accounts', async (c) => {
 
 const ACCOUNT_PATCH_FIELDS = ['name', 'bank', 'type', 'account_number', 'owner', 'country', 'currency', 'balance_minor', 'sort', 'archived'] as const;
 
-// Измерения счёта — пять полей, которые правило ROADMAP объявляет неизменяемыми
-// после первой операции: «После первой операции владелец, валюта, страна, банк
-// и вид счёта неизменяемы». Остальные поля PATCH'а замок не трогает: `name`
-// правится всегда (имя редактируемое по тому же правилу), `balance_minor` —
-// суть экрана «Данные», `sort` и `archived` — признаки строки, а не свойства
-// денег на ней.
+// Account dimensions — five fields the ROADMAP rule declares immutable
+// after the first operation: "After the first operation the owner, currency, country, bank,
+// and account kind are immutable." The lock does not touch the other PATCH fields: `name`
+// is always editable (the name is editable under the same rule), `balance_minor` is
+// the point of the "Data" screen, and `sort` and `archived` are row flags, not properties
+// of the money on it.
 const ACCOUNT_LOCKED_FIELDS = ['owner', 'currency', 'country', 'bank', 'type'] as const;
 
-// Таблицы, ссылка из которых означает «на счёте была операция». Список один на
-// обе формы проверки ниже: новая ссылающаяся таблица иначе тихо выпала бы из
-// одной из них, и DELETE с PATCH разошлись бы в понимании занятости. Значения
-// литеральные, пользовательский ввод сюда не попадает.
+// Tables whose reference means "the account has had an operation." One list for
+// both checks below: a new referencing table would otherwise silently drop out of
+// one of them, and DELETE and PATCH would disagree about occupancy. The values
+// are literals; user input never reaches here.
 //
-// `operations` здесь особенно важна, и не только ради симметрии: валюта
-// операции не хранится, а берётся у счёта (миграция 0005). Смена валюты счёта
-// задним числом переписала бы смысл КАЖДОЙ суммы на нём — 1 200 RSD стали бы
-// 1 200 USD, не изменившись ни в одной колонке. Замок измерений — единственное,
-// что этого не даёт.
+// `operations` matters here, and not only for symmetry: an operation's currency
+// is not stored; it is taken from the account (migration 0005). Changing the account currency
+// retroactively would rewrite the meaning of EVERY amount on it — 1,200 RSD would become
+// 1,200 USD without a change in any column. The dimension lock is the only thing
+// that prevents that.
 const ACCOUNT_REF_TABLES = ['operations', 'planned_items', 'recurring_items'] as const;
 
-/** Сколько операций, плановых и регулярных строк ссылается на счёт. */
+/** How many operations, planned rows, and recurring rows reference the account. */
 async function countAccountRefs(db: D1Database, id: number): Promise<number> {
-  // Явный COUNT вместо того, чтобы полагаться на срабатывание FK: FK без
-  // ON DELETE (схема) и так отклонит DELETE, но нам нужен наш собственный
-  // текст ошибки и код 409, а не то, что D1 отдаст по факту нарушения FK.
+  // An explicit COUNT instead of relying on the FK firing: an FK without
+  // ON DELETE (the schema) would reject the DELETE anyway, but we need our own
+  // error text and a 409, not whatever D1 returns when the FK is violated.
   const refs = await db
     .prepare(
       `SELECT ${ACCOUNT_REF_TABLES.map((table) => `(SELECT COUNT(*) FROM ${table} WHERE account_id = ?)`).join(' + ')} AS cnt`,
@@ -443,12 +443,12 @@ async function countAccountRefs(db: D1Database, id: number): Promise<number> {
   return refs?.cnt ?? 0;
 }
 
-// То же условие, но пригодное внутри UPDATE — страховка от гонки. Ранняя
-// проверка `countAccountRefs` даёт внятный 409 и стоит до всех прочих отказов,
-// но между ней и записью счёт может обзавестись операцией: транзакции на запрос
-// в v2 нет. Условие в самом `WHERE` делает проверку и запись атомарными — тот же
-// приём и та же причина, что у `RATE_DELETABLE_SQL` ниже. Ссылки идут на
-// `accounts.id` (коррелированный подзапрос), чтобы не плодить лишние бинды.
+// The same condition, but usable inside an UPDATE — a race guard. The early
+// `countAccountRefs` check yields a clear 409 and runs before every other rejection,
+// but between it and the write the account can gain an operation: v2 has no
+// per-request transaction. The condition in the `WHERE` itself makes the check and the write atomic — the same
+// technique and the same reason as `RATE_DELETABLE_SQL` below. References point at
+// `accounts.id` (a correlated subquery), so we do not multiply extra binds.
 const ACCOUNT_UNLOCKED_SQL = ACCOUNT_REF_TABLES.map(
   (table) => `NOT EXISTS (SELECT 1 FROM ${table} WHERE account_id = accounts.id)`,
 ).join('\n  AND ');
@@ -457,9 +457,9 @@ apiV2.patch('/accounts/:id', async (c) => {
   const id = parseIdParam(c.req.param('id'));
   if (id === null) return fail(c, 'NOT_FOUND', 404);
 
-  // Нормализованные значения собираем в Map, а не сразу в SQL: замок ниже
-  // сравнивает их с текущей строкой, и делать это на сыром теле запроса
-  // нельзя — 'usd' и 'USD' там разные строки, а в базе одна и та же валюта.
+  // Normalized values go into a Map, not straight into SQL: the lock below
+  // compares them with the current row, and doing that on the raw request body
+  // is wrong — 'usd' and 'USD' are different strings there, but the same currency in the database.
   const updates = new Map<(typeof ACCOUNT_PATCH_FIELDS)[number], unknown>();
   try {
     const body = await readBody(c);
@@ -506,29 +506,29 @@ apiV2.patch('/accounts/:id', async (c) => {
   const current = await c.env.DB.prepare('SELECT * FROM accounts WHERE id = ?').bind(id).first<AccountRow>();
   if (!current) return fail(c, 'NOT_FOUND', 404);
 
-  // Замок измерений срабатывает по ФАКТИЧЕСКОМУ изменению, а не по наличию
-  // поля в теле: форма правки шлёт все свои поля всегда, в том числе
-  // нетронутые, и проверка «поле пришло» превратила бы переименование счёта в
-  // 409. Архивация замок не снимает — правило не делает для архива исключения,
-  // а деньги на архивном счёте никуда не делись.
+  // The dimension lock fires on an ACTUAL change, not on the field's presence
+  // in the body: the edit form always sends every field, including
+  // untouched ones, and a "the field arrived" check would turn renaming an account into
+  // a 409. Archiving does not lift the lock — the rule makes no exception for the archive,
+  // and the money on an archived account has not gone anywhere.
   const touchesLocked = ACCOUNT_LOCKED_FIELDS.some(
     (field) => updates.has(field) && updates.get(field) !== current[field],
   );
 
-  // Замок проверяется ПЕРВЫМ среди отказов, и это не порядок ради порядка: он
-  // терминален, а требование balance_minor ниже — устранимо. В обратном порядке
-  // смена валюты на занятом счёте отвечала бы «добавьте balance_minor», а на
-  // послушный повторный запрос — «менять поздно»: клиента водили бы по кругу.
+  // The lock is checked FIRST among rejections, and that order is load-bearing: it is
+  // terminal, while the balance_minor requirement below is fixable. In the reverse order
+  // a currency change on an occupied account would answer "add balance_minor", and a
+  // compliant retry would answer "too late to change": the client would be led in a circle.
   if (touchesLocked && (await countAccountRefs(c.env.DB, id)) > 0) {
     return fail(c, 'ACCOUNT_LOCKED', 409);
   }
 
-  // Валюта и баланс связаны, хотя в теле запроса это два независимых поля:
-  // balance_minor хранится в минорных единицах СВОЕЙ валюты, а их разрядность
-  // у валют разная. Сменить USD на JPY, не тронув баланс, — значит превратить
-  // $1500.00 (150000 центов) в ¥150 000, молча и на два порядка. Поэтому смена
-  // валюты требует явно назвать баланс в новой валюте тем же запросом: пусть
-  // клиент решает, пересчитать сумму или подтвердить как есть.
+  // Currency and balance are linked, even though they are two independent fields in the request body:
+  // balance_minor is stored in the minor units of ITS OWN currency, and the scale
+  // differs by currency. Changing USD to JPY without touching the balance means turning
+  // $1500.00 (150000 cents) into ¥150,000, silently and by two orders of magnitude. So a currency
+  // change requires naming the balance in the new currency explicitly in the same request: let
+  // the client decide whether to convert the amount or confirm it as is.
   if (updates.has('currency') && updates.get('currency') !== current.currency && !updates.has('balance_minor')) {
     return fail(
       c,
@@ -537,12 +537,12 @@ apiV2.patch('/accounts/:id', async (c) => {
     );
   }
 
-  // Поле с прежним значением в SET не идёт вовсе. Для незапертых это просто
-  // экономия, а для запертых — единственная защита: guard ниже добавляется
-  // только когда измерения реально меняются, и без этого фильтра запрос,
-  // который «не менял» измерения, всё равно переписывал бы их по снапшоту,
-  // прочитанному раньше, — то есть откатывал бы чужую параллельную правку в
-  // обход замка. Не пишем — нечего и терять.
+  // A field that keeps its previous value is left out of SET entirely. For unlocked fields that is just
+  // a saving; for locked ones it is the only protection: the guard below is added
+  // only when dimensions actually change, and without this filter a request
+  // that "did not change" the dimensions would still rewrite them from a snapshot
+  // read earlier — that is, it would roll back someone else's concurrent edit
+  // around the lock. If we do not write it, there is nothing to lose.
   const setClauses: string[] = [];
   const values: unknown[] = [];
   for (const [field, value] of updates) {
@@ -551,16 +551,16 @@ apiV2.patch('/accounts/:id', async (c) => {
     values.push(value);
   }
 
-  // balance_minor в теле — это подтверждение баланса «на сейчас», даже если
-  // число совпало со старым: отметка «я проверил» не то же самое, что «я не менял».
+  // balance_minor in the body confirms the balance "as of now", even when
+  // the number matches the old one: a mark of "I checked" is not the same as "I did not change it".
   if (updates.has('balance_minor')) {
     setClauses.push('balance_updated_at = ?');
     values.push(nowIso());
   }
 
-  // Все переданные значения совпали с текущими — писать нечего. Это штатный
-  // случай, а не ошибка: форма правки шлёт все поля, и «сохранить, ничего не
-  // изменив» должно отвечать тем же, чем ответило бы изменение.
+  // Every supplied value matched the current one — there is nothing to write. This is the normal
+  // case, not an error: the edit form sends every field, and "save without
+  // changing anything" must answer the same way a real change would.
   if (setClauses.length === 0) {
     return c.json({ account: toAccountJson(current) });
   }
@@ -573,11 +573,11 @@ apiV2.patch('/accounts/:id', async (c) => {
     .bind(...values)
     .first<AccountRow>();
 
-  // Сюда попадаем только гонкой: занятость и существование счёта проверены
-  // выше, поэтому ноль обновлённых строк означает, что между проверкой и
-  // записью счёт удалили или на него сослалась первая операция. Что именно
-  // случилось, разбирает отдельный SELECT — он идёт только по этому пути и
-  // обычную правку не удорожает (тот же приём, что в DELETE курса ниже).
+  // We reach this only via a race: occupancy and existence of the account were checked
+  // above, so zero updated rows means that between the check and
+  // the write the account was deleted or the first operation came to reference it. Which one
+  // happened is sorted out by a separate SELECT — it runs only on this path and
+  // does not make an ordinary edit more expensive (the same technique as the rate DELETE below).
   if (!row) {
     const stillThere = await c.env.DB.prepare('SELECT id FROM accounts WHERE id = ?').bind(id).first();
     return stillThere ? fail(c, 'ACCOUNT_LOCKED', 409) : fail(c, 'NOT_FOUND', 404);
@@ -585,30 +585,30 @@ apiV2.patch('/accounts/:id', async (c) => {
   return c.json({ account: toAccountJson(row) });
 });
 
-// Подтверждение баланса без правки суммы (issue #223). Отдельный роут, а не
-// поле в теле PATCH'а, по трём причинам сразу. Смысл действия обратный правке:
-// оно НЕ меняет данные, а свидетельствует о них — смешивать его с эндпоинтом,
-// который данные меняет, значит терять это различие в первом же чтении кода.
-// PATCH к тому же собирает поля циклом по ACCOUNT_PATCH_FIELDS и проверяет
-// «передано хотя бы одно известное поле»; флаг-исключение пришлось бы проводить
-// мимо цикла, мимо замка измерений и мимо проверки «нечего писать» — три
-// развилки в коде, который сегодня читается линейно. И третье: подтверждение
-// обязано быть однозначным. Тело `{"confirm_balance": true}` открывает вопрос,
-// что делать с `false` и с сочетанием флага и суммы в одном запросе; у роута
-// без тела таких вопросов нет.
+// Balance confirmation without editing the amount (issue #223). A separate route, not
+// a field in the PATCH body, for three reasons at once. The action means the opposite of an edit:
+// it does NOT change the data, it attests to them — mixing it into the endpoint
+// that changes data would lose that distinction on the first reading of the code.
+// PATCH also collects fields in a loop over ACCOUNT_PATCH_FIELDS and checks that
+// "at least one known field was sent"; an exception flag would have to be threaded
+// past the loop, past the dimension lock, and past the "nothing to write" check — three
+// branches in code that today reads linearly. And third: a confirmation
+// must be unambiguous. A body `{"confirm_balance": true}` raises the question of
+// what to do with `false` and with a flag combined with an amount in one request; a route
+// with no body has no such questions.
 //
-// Тело запроса не читается вовсе: подтверждать нечего, кроме самого факта.
-// Замок измерений (ACCOUNT_LOCKED_FIELDS) здесь не при чём — момент проверки
-// не измерение счёта, и подтверждать баланс на счёте с операциями нужно тем
-// более. Архивный счёт тоже подтверждается: деньги на нём никуда не делись.
+// The request body is not read at all: there is nothing to confirm except the fact itself.
+// The dimension lock (ACCOUNT_LOCKED_FIELDS) does not apply here — the moment of confirmation
+// is not an account dimension, and confirming the balance of an account that already has operations matters all the
+// more. An archived account is confirmed too: the money on it has not gone anywhere.
 apiV2.post('/accounts/:id/confirm-balance', async (c) => {
   const id = parseIdParam(c.req.param('id'));
   if (id === null) return fail(c, 'NOT_FOUND', 404);
 
-  // Одним statement'ом, без пары «прочитать и записать»: транзакции на запрос в
-  // v2 нет, а между чтением и записью счёт можно удалить. Ноль обновлённых
-  // строк здесь означает ровно одно — счёта нет, — потому что других условий в
-  // WHERE не стоит; разбирать этот случай вторым запросом, как в PATCH, нечего.
+  // One statement, without a "read then write" pair: v2 has no per-request
+  // transaction, and the account can be deleted between the read and the write. Zero updated
+  // rows here means exactly one thing — the account does not exist — because the
+  // WHERE has no other conditions; there is nothing to sort out with a second query the way PATCH does.
   const row = await c.env.DB.prepare('UPDATE accounts SET balance_updated_at = ? WHERE id = ? RETURNING *')
     .bind(nowIso(), id)
     .first<AccountRow>();
@@ -623,19 +623,19 @@ apiV2.delete('/accounts/:id', async (c) => {
   const existing = await c.env.DB.prepare('SELECT id FROM accounts WHERE id = ?').bind(id).first();
   if (!existing) return fail(c, 'NOT_FOUND', 404);
 
-  // Явный COUNT вместо того, чтобы полагаться на срабатывание FK: FK без
-  // ON DELETE (схема) и так отклонит DELETE, но нам нужен наш собственный
-  // текст ошибки и код 409, а не то, что D1 отдаст по факту нарушения FK.
+  // An explicit COUNT instead of relying on the FK firing: an FK without
+  // ON DELETE (the schema) would reject the DELETE anyway, but we need our own
+  // error text and a 409, not whatever D1 returns when the FK is violated.
   if ((await countAccountRefs(c.env.DB, id)) > 0) return fail(c, 'ACCOUNT_IN_USE', 409);
 
   try {
     await c.env.DB.prepare('DELETE FROM accounts WHERE id = ?').bind(id).run();
   } catch (e) {
-    // Между COUNT выше и этим DELETE ссылка может появиться — проверка и
-    // действие не в одной транзакции. Сейчас через API такую строку создать
-    // ещё нечем, но эндпоинты плановых и регулярных приходят следующей
-    // задачей, и тогда голый COUNT отдал бы владельцу 500 вместо внятного
-    // «счёт занят». Ответ один и тот же, каким бы путём мы это ни узнали.
+    // A reference can appear between the COUNT above and this DELETE — the check and
+    // the action are not in one transaction. The API still has no way to create
+    // such a row, but the planned and recurring endpoints arrive in the next
+    // task, and then a bare COUNT would give the owner a 500 instead of a clear
+    // "account is in use". The response is the same whichever way we learn it.
     if (e instanceof Error && /FOREIGN KEY/i.test(e.message)) {
       return fail(c, 'ACCOUNT_IN_USE', 409);
     }
@@ -644,18 +644,18 @@ apiV2.delete('/accounts/:id', async (c) => {
   return c.body(null, 204);
 });
 
-// ---------- курсы валют ----------
+// ---------- exchange rates ----------
 //
-// Инвариант раздела (issue #193): у валюты, на которую есть ссылка, должен
-// быть курс к базовой. Схемой не выражается — CHECK в SQLite не видит другую
-// таблицу, триггеров в v2 нет намеренно, — поэтому держится здесь: DELETE не
-// снимает курс с валюты в ходу, GET показывает валюты в ходу без курса.
+// Section invariant (issue #193): a currency that is referenced must
+// have a rate to the base. The schema cannot express it — a SQLite CHECK cannot see another
+// table, and v2 has no triggers on purpose — so it is held here: DELETE does not
+// remove the rate of a currency in use, and GET shows currencies in use that lack a rate.
 //
-// Гарантия односторонняя, и это осознанно: завести счёт в валюте без курса
-// по-прежнему можно, сменить базовую валюту в settings — тоже. То есть код
-// не даёт курс ПОТЕРЯТЬ, но не обещает, что он всегда есть. Продуктовое
-// обоснование и требование к пересчёту — ТЗ, docs/2026-08-09-v2-simple-spec.md,
-// раздел «Данные»; устройство проверок — README, «API и экраны v2».
+// The guarantee is one-sided, and that is deliberate: creating an account in a currency with no rate
+// is still allowed, and so is changing the base currency in settings. The code
+// does not let a rate be LOST, but it does not promise that a rate always exists. The product
+// rationale and the conversion requirement are the spec, docs/2026-08-09-v2-simple-spec.md,
+// section "Data"; how the checks are built is the README, "API and v2 screens".
 
 interface FxRateRow {
   code: string;
@@ -663,21 +663,21 @@ interface FxRateRow {
   updated_at: string;
 }
 
-// Разбор курса — целочисленно, без единого float на пути (см. комментарий к
-// fx_rates в migrations/0001_initial_schema.sql). Формат: неотрицательное
-// десятичное число, не больше девяти знаков после точки, без экспоненты и
-// без знака — молчаливое округление входа запрещено контрактом.
+// Parsing a rate is integer-only, with no float anywhere on the path (see the comment on
+// fx_rates in migrations/0001_initial_schema.sql). Format: a non-negative
+// decimal, at most nine digits after the point, no exponent and
+// no sign — silent rounding of the input is forbidden by the contract.
 const RATE_PATTERN = /^\d+(\.\d{1,9})?$/;
 
-// Потолок сверху нужен именно здесь, а не в схеме. Регулярка не ограничивает
-// целую часть, а `rate_e9` — это ввод, умноженный на 1e9, поэтому длинная
-// строка цифр переполняет 64-битный INTEGER SQLite. Проверено на локальной
-// D1: `rate_e9` из 23 цифр оседает в колонке как REAL (`typeof` → 'real',
-// значение 1e+23), `CHECK (rate_e9 > 0)` его пропускает — то есть без границы
-// ошибка ввода не отклоняется, а тихо превращает целочисленный курс в float,
-// ровно в то, чего вся эта арифметика избегает. MAX_SAFE_INTEGER — курс до
-// ~9 007 199 базовых единиц за одну чужую, на порядки больше любой реальной
-// валюты, и заодно гарантия точности обратного форматирования через Number.
+// The upper bound belongs here, not in the schema. The regex does not limit
+// the integer part, and `rate_e9` is the input multiplied by 1e9, so a long
+// digit string overflows SQLite's 64-bit INTEGER. Verified on local
+// D1: a 23-digit `rate_e9` lands in the column as REAL (`typeof` → 'real',
+// value 1e+23), and `CHECK (rate_e9 > 0)` lets it through — so without a bound
+// a bad input is not rejected; it quietly turns an integer rate into a float,
+// exactly what this arithmetic exists to avoid. MAX_SAFE_INTEGER is a rate up to
+// ~9,007,199 base units per one foreign unit, orders of magnitude above any real
+// currency, and it also guarantees that formatting back through Number stays exact.
 const MAX_RATE_E9 = BigInt(Number.MAX_SAFE_INTEGER);
 
 function parseRateE9(input: unknown): bigint {
@@ -703,7 +703,7 @@ function parseRateE9(input: unknown): bigint {
   return rateE9;
 }
 
-/** Обратное форматирование rate_e9 → человеческая строка, тоже целочисленно. */
+/** Formatting rate_e9 back into a human string, also integer-only. */
 function formatRateE9(rateE9: number): string {
   const digits = BigInt(rateE9).toString().padStart(10, '0');
   const intPart = digits.slice(0, -9);
@@ -724,23 +724,23 @@ function normalizeCurrencyCodeParam(raw: string): string | null {
   return /^[A-Za-z]{3}$/.test(raw) ? raw.toUpperCase() : null;
 }
 
-// Таблицы с колонкой `currency` — единственный список на весь файл, чтобы обе
-// проверки ниже не разошлись между собой. Значения литеральные, в SQL идут
-// только они: пользовательский ввод сюда не попадает ни при каком раскладе.
-// Экспортируется ради теста, который сверяет список с реальной схемой: новая
-// таблица с колонкой `currency` иначе тихо выпала бы из обеих проверок.
+// Tables with a `currency` column — the single list for the whole file, so the two
+// checks below cannot drift apart. The values are literals, and only they go into SQL:
+// user input never reaches here, whatever the request looks like.
+// Exported for the test that checks the list against the real schema: otherwise a new
+// table with a `currency` column would silently drop out of both checks.
 //
-// `operations` в списке нет, и это не пропуск: своей колонки `currency` у неё
-// не осталось (миграция 0005) — валюта операции равна валюте счёта и берётся
-// у него `JOIN`'ом. Валюту «в ходу» такая операция всё равно держит, но через
-// `accounts`, куда она и так ссылается. Тест сверки со схемой это стережёт:
-// вернут колонку — список придётся дополнить.
+// `operations` is absent from the list, and that is not an omission: it no longer has its own `currency`
+// column (migration 0005) — an operation's currency equals the account currency and is taken
+// from the account with a `JOIN`. Such an operation still holds a currency "in use", but through
+// `accounts`, which it already references. The schema-reconciliation test guards this:
+// if the column comes back, the list has to grow.
 export const CURRENCY_TABLES = ['accounts', 'planned_items', 'recurring_items', 'imported_receipt_items'] as const;
 
-// Нормализация базовой валюты живёт в двух видах — на JS и на SQL — потому что
-// `DELETE` ниже обязан выполнить проверку одним statement'ом, а не сравнивать с
-// заранее прочитанным значением. SQL-список строится из того же snapshot ISO,
-// поэтому прямой мусор вроде `ZZZ` не получает привилегий базовой валюты.
+// Base-currency normalization lives in two forms — in JS and in SQL — because the
+// `DELETE` below must perform the check in one statement, not by comparing with a
+// value read ahead of time. The SQL list is built from the same ISO snapshot,
+// so raw junk such as `ZZZ` does not receive base-currency privileges.
 const ISO_4217_CODES_SQL = ISO_4217_CURRENCY_CODES.map((code) => `'${code}'`).join(', ');
 const BASE_CURRENCY_SQL = `(
   SELECT upper(trim(value))
@@ -749,67 +749,67 @@ const BASE_CURRENCY_SQL = `(
 )`;
 
 /**
- * Базовая валюта из settings, или `null`, если значение непригодно. Своего
- * курса у неё нет и быть не должно — она и есть единица пересчёта, курс к
- * самой себе равен единице по определению. Отсюда три следствия: в `missing`
- * она не попадает никогда; завести ей курс нельзя — `PUT` отвечает 400 (#228);
- * а её случайную строку в fx_rates разрешено удалить даже когда валюта в ходу
- * (иначе ошибку ввода нельзя было бы исправить). Вход закрыт, выход оставлен
- * открытым намеренно: строки, заведённые до запрета или правкой БД, иначе
- * стало бы нечем убрать.
+ * The base currency from settings, or `null` when the value is unusable. It has no
+ * rate of its own and must not have one — it is the unit of conversion, so the rate to
+ * itself is one by definition. Three consequences follow: it never lands in `missing`;
+ * giving it a rate is forbidden — `PUT` answers 400 (#228);
+ * and an accidental fx_rates row for it may be deleted even while the currency is in use
+ * (otherwise an input mistake could not be repaired). Entry is closed and exit is left
+ * open on purpose: rows created before the ban, or by a direct database edit, would otherwise
+ * have no way to be removed.
  *
- * Именно поэтому непригодное значение даёт `null`, а не подстановку 'USD'.
- * Решение это про обе формы нормализации сразу — они обязаны совпадать (см.
- * `BASE_CURRENCY_SQL` выше), поэтому дефолт пришлось бы завести и в SQL.
- * Выглядел бы он безобиднее, но применил бы все три следствия к
- * КОНКРЕТНОЙ валюте: при мусоре в settings доллар молча перестал бы
- * показываться в `missing`, стал бы удаляемым при живых долларовых счетах и
- * лишился бы права на курс — а базовой в этот момент вполне может быть не он.
- * То есть сломанная настройка разом и незаметно снимала бы две защиты и
- * навешивала бы лишний запрет. `null` ошибается в другую сторону: ни
- * послаблений, ни запретов не достаётся никому, лишняя валюта в `missing` —
- * видимая и безвредная неточность.
+ * That is why an unusable value yields `null` rather than substituting 'USD'.
+ * The decision covers both normalization forms at once — they must agree (see
+ * `BASE_CURRENCY_SQL` above), so a default would have had to exist in SQL as well.
+ * A default would have looked more harmless, but it would apply all three consequences to
+ * ONE SPECIFIC currency: with junk in settings the dollar would silently stop
+ * appearing in `missing`, become deletable while live dollar accounts exist, and
+ * lose the right to a rate — while the base at that moment may well not be the dollar.
+ * A broken setting would, at once and unnoticed, drop two protections and
+ * add an extra ban. `null` fails the other way: nobody receives either
+ * a relaxation or a ban, and an extra currency in `missing` is
+ * a visible, harmless inaccuracy.
  *
- * PUT /settings/base_currency принимает только действующий ISO 4217 код, так
- * что непригодное значение достижимо только прямой правкой БД. Защитное чтение
- * всё равно нужно: ручная ошибка не должна молча назначить другую базу.
+ * PUT /settings/base_currency accepts only a current ISO 4217 code, so
+ * an unusable value is reachable only by editing the database directly. The defensive read
+ * is still required: a manual mistake must not silently appoint another base.
  */
 async function readBaseCurrency(db: D1Database): Promise<string | null> {
   const row = await db.prepare(`SELECT ${BASE_CURRENCY_SQL} AS code`).first<{ code: string | null }>();
-  // Нормализация — общая с forecast/load.ts (shared/currency.ts): разойдись
-  // эти две формы, `GET /fx-rates` и `GET /forecast` считали бы базовой валютой
-  // разное при одном и том же значении в settings.
+  // Normalization is shared with forecast/load.ts (shared/currency.ts): if the
+  // two forms diverged, `GET /fx-rates` and `GET /forecast` would treat different currencies as the base
+  // for the same value in settings.
   return normalizeIso4217CurrencyCode(row?.code);
 }
 
 /**
- * Валюты, на которые в базе есть хоть одна ссылка. Архивные счета считаются
- * наравне с активными намеренно: архив в v2 — это признак строки, а не списание
- * денег. Деньги на счёте остались, счёт можно разархивировать одним PATCH, и
- * любой итог, куда он попадёт, всё так же потребует курса. Ровно на этом
- * «архивное не держит справочник» и построен исходный сценарий #193.
+ * Currencies referenced at least once in the database. Archived accounts count
+ * the same as active ones on purpose: in v2, archive is a row flag, not a write-off
+ * of money. The money is still on the account, one PATCH can unarchive it, and
+ * any total it lands in still needs a rate. The original scenario #193 is built
+ * exactly on "archived rows do not hold the reference data".
  */
 async function currenciesInUse(db: D1Database): Promise<Set<string>> {
-  // UNION, а не UNION ALL: дубли нам не нужны, и дедупликацию дешевле сделать
-  // в SQLite, чем тащить в Worker по строке на каждый счёт и каждую трату.
+  // UNION, not UNION ALL: duplicates are unwanted, and deduplication is cheaper
+  // in SQLite than shipping one row per account and per expense into the Worker.
   const sql = CURRENCY_TABLES.map((table) => `SELECT currency FROM ${table}`).join(' UNION ');
   const { results } = await db.prepare(sql).all<{ currency: string }>();
   return new Set(results.map((row) => row.currency));
 }
 
 apiV2.get('/fx-rates', async (c) => {
-  // Три запроса взаимно независимы — идут параллельно. Последовательными они
-  // втрое удлиняли бы загрузку экрана «Данные» без единой на то причины.
+  // The three queries are independent of each other, so they run in parallel. Run sequentially,
+  // they would triple the load time of the "Data" screen for no reason at all.
   const [{ results }, baseCurrency, inUse] = await Promise.all([
     c.env.DB.prepare('SELECT code, rate_e9, updated_at FROM fx_rates ORDER BY code').all<FxRateRow>(),
     readBaseCurrency(c.env.DB),
     currenciesInUse(c.env.DB),
   ]);
   const known = new Set(results.map((row) => row.code));
-  // Валюты в ходу, для которых пересчёт невозможен. Якорной валюте (USD) курс
-  // не нужен по определению. Если какой-то другой валюты (включая базовую) нет
-  // в таблице курсов, пересчёт через USD сломается. Экран показывает это
-  // предупреждением, чтобы владелец ввёл курс к USD.
+  // Currencies in use for which conversion is impossible. The anchor currency (USD) needs no rate
+  // by definition. If any other currency (including the base) is missing
+  // from the rates table, conversion through USD breaks. The screen shows that
+  // as a warning so the owner enters a rate to USD.
   const missing = [...inUse].filter((code) => code !== 'USD' && !known.has(code)).sort();
   return c.json({ base_currency: baseCurrency, rates: results.map(toRateJson), missing });
 });
@@ -820,9 +820,9 @@ apiV2.put('/fx-rates/:code', async (c) => {
     return fail(c, 'CURRENCY_CODE_INVALID', 400);
   }
 
-  // Вход закрыт, выход — нет: USD является абсолютным якорем (usd_per_unit).
-  // Заводить строку для USD бессмысленно, 1 USD = 1 USD всегда.
-  // DELETE такой строки, уже лежащей в базе, разрешён — это единственный путь её убрать.
+  // Entry is closed, exit is not: USD is the absolute anchor (usd_per_unit).
+  // A row for USD is pointless; 1 USD = 1 USD always.
+  // DELETE of such a row that is already in the database is allowed — it is the only way to remove it.
   const baseCurrency = await readBaseCurrency(c.env.DB);
   if (code === 'USD') {
     return fail(c, 'BASE_CURRENCY_RATE_FORBIDDEN', 400);
@@ -838,10 +838,10 @@ apiV2.put('/fx-rates/:code', async (c) => {
   }
 
   const updatedAt = nowIso();
-  // Строкой, а не bigint/number: D1 не принимает bigint в bind(), а INTEGER-
-  // аффинити SQLite сама и без потерь превращает цифровую строку в целое —
-  // это ещё и обходит риск потери точности JS Number на больших rate_e9.
-  // Курсы баз-независимы (usd_per_unit), поэтому смена базы их не трогает.
+  // As a string, not bigint/number: D1 does not accept bigint in bind(), and SQLite
+  // INTEGER affinity itself turns a digit string into an integer with no loss —
+  // which also avoids JS Number losing precision on a large rate_e9.
+  // Rates are independent of the base (usd_per_unit), so changing the base does not touch them.
   const row = await c.env.DB.prepare(
     `INSERT INTO fx_rates (code, rate_e9, updated_at)
      VALUES (?, ?, ?)
@@ -857,13 +857,13 @@ apiV2.put('/fx-rates/:code', async (c) => {
   return c.json({ rate: toRateJson(row) });
 });
 
-// «Курс удалять можно»: либо это якорная валюта (USD), либо на код не ссылается ни
-// одна строка. Условие стоит внутри самого DELETE, а не отдельным SELECT'ом
-// перед ним, и это не стилистика: проверка и удаление в одном statement
-// атомарны, поэтому строка, вставленная между ними, невозможна в принципе.
-// Пара «SELECT, потом DELETE» такое окно оставляла бы, а транзакции у нас на
-// каждый запрос нет. Ссылки внутри подзапросов идут на `fx_rates.code`, чтобы
-// не плодить одинаковые бинды.
+// "A rate may be deleted": either this is the anchor currency (USD), or nothing
+// references the code. The condition sits inside the DELETE itself, not in a separate SELECT
+// beforehand, and that is not a matter of style: check and delete in one statement
+// are atomic, so a row inserted between them is impossible.
+// A "SELECT, then DELETE" pair would leave that window, and there is no transaction
+// per request. References inside the subqueries point at `fx_rates.code`, so we
+// do not repeat the same binds.
 const RATE_DELETABLE_SQL = `(
   code = 'USD'
   OR (${CURRENCY_TABLES.map((table) => `NOT EXISTS (SELECT 1 FROM ${table} WHERE currency = fx_rates.code)`).join('\n      AND ')})
@@ -878,23 +878,23 @@ apiV2.delete('/fx-rates/:code', async (c) => {
     .run();
   if (deleted.meta.changes > 0) return c.body(null, 204);
 
-  // Ноль удалённых строк означает одно из двух: строки не было (404) либо она
-  // есть, но валюта занята (409). Различает их отдельный SELECT — он идёт
-  // только по неуспешному пути и обычное удаление не удорожает. Заодно это
-  // верный ответ на два одновременных DELETE: тот, кто опоздал, получит 404
-  // «уже нет», а не 409 «занята».
+  // Zero deleted rows means one of two things: the row was absent (404), or it
+  // is present but the currency is in use (409). A separate SELECT tells them apart — it runs
+  // only on the failure path and does not make a normal delete more expensive. It is also
+  // the right answer to two concurrent DELETEs: the one that loses gets 404
+  // "already gone", not 409 "in use".
   const existing = await c.env.DB.prepare('SELECT code FROM fx_rates WHERE code = ?').bind(code).first();
   return existing ? fail(c, 'RATE_IN_USE', 409, { code }) : fail(c, 'NOT_FOUND', 404);
 });
 
-// ---------- плановые операции ----------
+// ---------- planned operations ----------
 //
-// Разовые операции с определённой датой (S1-3, issue #197). Валюта строки
-// независима от валюты счёта — так же, как у счетов и трат в CURRENCY_TABLES
-// выше: колонка currency своя, смена одной не меняет другую и совпадать они
-// не обязаны. Замок измерений счёта (issue #232) на planned_items не
-// распространяется: правило ROADMAP запирает карточку счёта, а не операции,
-// которые на него ссылаются.
+// One-off operations with a definite date (S1-3, issue #197). The row currency
+// is independent of the account currency — the same as accounts and expenses in CURRENCY_TABLES
+// above: the currency column is its own, changing one does not change the other, and they
+// do not have to match. The account dimension lock (issue #232) does not
+// apply to planned_items: the ROADMAP rule locks the account card, not the operations
+// that reference it.
 
 interface PlannedItemRow {
   id: number;
@@ -945,12 +945,12 @@ function toPlannedItemJson(row: PlannedItemRow, fulfillment?: OperationFulfillme
   };
 }
 
-// Даты — TEXT 'YYYY-MM-DD' (шапка 0001_initial_schema.sql), схема проверяет
-// формат round-trip'ом через SQLite `date()`. Та же проверка нужна ДО записи:
-// без неё "2026-02-30" улетает в CHECK и падает 500-кой вместо внятного 400.
-// `Date.UTC` + сверка компонентов обратно — тот же приём, что у `date()`, но
-// без зависимости от таймзоны окружения: `new Date('2026-02-30')` без UTC в
-// некоторых таймзонах не бросает вовсе, а тихо съезжает на соседние сутки.
+// Dates are TEXT 'YYYY-MM-DD' (header of 0001_initial_schema.sql). The schema checks
+// the format with a round trip through SQLite `date()`. The same check is required BEFORE the write:
+// without it "2026-02-30" hits the CHECK and fails as a 500 instead of a clear 400.
+// `Date.UTC` plus comparing the components back is the same technique as `date()`, but
+// independent of the environment timezone: `new Date('2026-02-30')` without UTC does not
+// throw at all in some timezones; it quietly slides onto a neighboring day.
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 function normalizeDateString(input: unknown, field: string): string {
@@ -965,15 +965,15 @@ function normalizeDateString(input: unknown, field: string): string {
   return input;
 }
 
-/** end_date — та же проверка формата, но null разрешён явно (снять срок). */
+/** end_date — the same format check, but null is explicitly allowed (clear the deadline). */
 function normalizeNullableDateString(input: unknown, field: string): string | null {
   if (input === null || input === undefined) return null;
   return normalizeDateString(input, field);
 }
 
-// amount_minor — та же целочисленность, что у balance_minor счёта, плюс
-// запрет нуля: схема отклоняет его CHECK'ом (amount_minor <> 0), у баланса
-// счёта такого ограничения нет (пустой счёт — обычное дело).
+// amount_minor — the same integer rule as an account's balance_minor, plus
+// a ban on zero: the schema rejects zero with a CHECK (amount_minor <> 0). An account
+// balance has no such limit (an empty account is ordinary).
 function normalizeAmountMinor(input: unknown, field: string): number {
   const value = normalizeIntegerMinor(input, field);
   if (value === 0) {
@@ -990,9 +990,9 @@ function normalizeAccountId(input: unknown): number {
 }
 
 /**
- * Счёт по id — для проверки существования и для валюты по умолчанию.
- * Архивный счёт разрешён намеренно: архив — признак строки (см.
- * `toAccountJson`), а не запрет на операции с ним.
+ * The account by id — to check that it exists and to take the default currency.
+ * An archived account is allowed on purpose: archive is a row flag (see
+ * `toAccountJson`), not a ban on operations against it.
  */
 async function loadAccountForReference(
   db: D1Database,
@@ -1023,19 +1023,19 @@ async function findDuplicateExpenseId(
 }
 
 /**
- * Вид операции из знака плановой. У плановой `kind` нет: минус — расход,
- * плюс — доход. Возврат (`refund`) отсюда не вывести — его у плана нет,
- * и issue #267 этого не просит.
+ * Operation kind from the sign of the planned item. A planned item has no `kind`: minus is an expense,
+ * plus is income. A refund (`refund`) cannot be derived from this — a plan has none,
+ * and issue #267 does not ask for one.
  */
 function kindFromPlannedAmount(amountMinor: number): 'expense' | 'income' {
   return amountMinor < 0 ? 'expense' : 'income';
 }
 
 /**
- * Операция не имеет своей валюты — она равна валюте счёта. Применить
- * `amount_minor` плановой «как есть» можно только в тех же единицах.
- * Тихий пересчёт по курсу хуже, чем отказ: курса на дату плана мы не
- * обещали, а чужие минорные единицы на счёте — это враньё в деньгах.
+ * An operation has no currency of its own — it equals the account currency. Applying a
+ * planned item's `amount_minor` "as is" is valid only in those same units.
+ * A silent conversion by rate is worse than a refusal: we never promised a rate on the plan's date,
+ * and foreign minor units on the account are a lie about the money.
  */
 function assertPlannedCurrencyMatchesAccount(plannedCurrency: string, accountCurrency: string): void {
   if (plannedCurrency !== accountCurrency) {
@@ -1057,9 +1057,9 @@ function insertOperationFromPlannedStatement(
       )
       .bind(planned.date, planned.account_id, kind, planned.title, planned.category, planned.amount_minor);
   }
-  // UNIQUE на planned_item_id — сеть на гонке двух отметок. Пустой INSERT
-  // здесь нарочно не делаем: к нему нельзя приклеить дельту баланса, не
-  // применив её повторно на втором запросе.
+  // UNIQUE on planned_item_id is a net for a race between two completions. An empty INSERT
+  // is deliberately not done here: a balance delta cannot be attached to it without
+  // applying that delta a second time on the next request.
   return db
     .prepare(
       `INSERT INTO operations (date, account_id, kind, store, item, category, subcategory, amount_minor, receipt_id, source, planned_item_id)
@@ -1110,9 +1110,9 @@ apiV2.post('/planned-items', async (c) => {
     const accountId = normalizeAccountId(body.account_id);
     const account = await loadAccountForReference(c.env.DB, accountId);
     if (!account) throw new ValidationError('ACCOUNT_NOT_FOUND');
-    // Валюта по умолчанию — валюта счёта, но независимая от неё дальше: явно
-    // переданная валюта принимается как есть, совпадать с валютой счёта не
-    // обязана (см. докблок раздела).
+    // The default currency is the account currency, but it stays independent afterward: an explicitly
+    // passed currency is accepted as is and does not have to match the account currency
+    // (see the section docblock).
     const currency = body.currency === undefined ? account.currency : normalizeCurrency(body.currency);
     const category = normalizeOptionalText(body.category, 'category');
     const done = body.done === undefined ? 0 : normalizeBoolean(body.done, 'done');
@@ -1120,9 +1120,9 @@ apiV2.post('/planned-items', async (c) => {
     if (done === 1) {
       assertPlannedCurrencyMatchesAccount(currency, account.currency);
       assertSafeBalanceDelta(account.balance_minor, amountMinor);
-      // Создание сразу выполненным — тот же факт, что отметка: плановая,
-      // операция и дельта баланса в одном batch. last_insert_rowid() берёт
-      // id только что вставленной плановой в этой же транзакции.
+      // Creating it already completed is the same fact as marking it done: the planned item,
+      // the operation, and the balance delta go in one batch. last_insert_rowid() takes the
+      // id of the planned item just inserted in this same transaction.
       const [inserted] = await c.env.DB.batch<PlannedItemRow>([
         c.env.DB.prepare(
           `INSERT INTO planned_items (date, title, amount_minor, currency, account_id, category, done, revision)
@@ -1368,9 +1368,9 @@ apiV2.patch('/planned-items/:id', async (c) => {
       if (!account) throw new ValidationError('ACCOUNT_NOT_FOUND');
     }
 
-    // Та же причина, что у счетов: amount_minor хранится в минорных единицах
-    // СВОЕЙ валюты, и у валют разная разрядность. Смена account_id валюту не
-    // переопределяет — только явная смена currency требует суммы тем же запросом.
+    // The same reason as for accounts: amount_minor is stored in the minor units
+    // of ITS OWN currency, and currencies differ in scale. Changing account_id does not
+    // redefine the currency — only an explicit currency change requires the amount in the same request.
     if (updates.has('currency') && updates.get('currency') !== current.currency && !updates.has('amount_minor')) {
       throw new ValidationError('CURRENCY_CHANGE_REQUIRES_AMOUNT');
     }
@@ -1404,11 +1404,11 @@ apiV2.patch('/planned-items/:id', async (c) => {
       return fail(c, 'PLANNED_ITEM_LINKED_FACT', 409, { fields: changedProtected.join(', ') });
     }
   }
-  // Старая галочка без операции (до #267) и повторный done: true после
-  // удаления факта — тот же путь, что первая отметка, но ТОЛЬКО при явной
-  // передаче done: true в запросе. Иначе обычная правка полей (название,
-  // категория) выполненной плановой пытается материализовать операцию и
-  // падает на несовпадении валют со счётом (#282).
+  // An old checkbox with no operation (before #267), and a repeated done: true after
+  // the fact was deleted, take the same path as the first completion, but ONLY when
+  // done: true is sent explicitly. Otherwise an ordinary edit of fields (title,
+  // category) on a completed planned item tries to materialize an operation and
+  // fails on a currency mismatch with the account (#282).
   const needsMaterialize = updates.has('done') && updates.get('done') === 1 && !existingOp && !existingFulfillment;
   const becomingOpen = current.done === 1 && next.done === 0;
 
@@ -1443,8 +1443,8 @@ apiV2.patch('/planned-items/:id', async (c) => {
     )
     .bind(...values, ...plannedSnapshotBinds(current));
 
-  // Без смены факта — одиночный CAS UPDATE. Устаревший snapshot получает 409,
-  // а не молча перетирает более свежую правку.
+  // When the fact does not change — a single CAS UPDATE. A stale snapshot gets 409
+  // instead of silently overwriting a newer edit.
   if (!needsMaterialize && !becomingOpen) {
     const row = await updatePlanned.first<PlannedItemRow>();
     if (!row) {
@@ -1456,9 +1456,9 @@ apiV2.patch('/planned-items/:id', async (c) => {
     return c.json({ planned_item: toPlannedItemJson(row) });
   }
 
-  // CAS UPDATE идёт первым. Каждый следующий statement исполняет эффект
-  // только когда предыдущий изменил ровно одну строку (`changes() = 1`).
-  // Поэтому устаревший snapshot не создаёт operation и не двигает balance.
+  // The CAS UPDATE goes first. Each following statement applies its effect
+  // only when the previous one changed exactly one row (`changes() = 1`).
+  // A stale snapshot therefore creates no operation and does not move the balance.
   const statements: D1PreparedStatement[] = [updatePlanned];
   if (becomingOpen) {
     if (existingFulfillment?.fulfillment_type === 'linked') {
@@ -1578,15 +1578,15 @@ apiV2.delete('/planned-items/:id', async (c) => {
   return c.body(null, 204);
 });
 
-// ---------- регулярные операции ----------
+// ---------- recurring operations ----------
 //
-// Правило хранится якорем + шагом (шапка 0001_initial_schema.sql): день/месяц
-// имеют смысл только для части частот, и связь между ними жёстко проверяют
-// CONSTRAINT'ы `recurring_items_rule_anchors` (0001) и
-// `recurring_items_yearly_month_matches_anchor` (0003) — оба живые на ЛЮБОМ
-// UPDATE строки, не только на INSERT. Валидация ниже не дублирует эти
-// CHECK'и, а отвечает внятным 400 РАНЬШЕ, чем запрос до них дойдёт: без неё
-// несогласованный ввод падал бы 500-кой с текстом SQLite вместо объяснения.
+// A rule is stored as an anchor plus a step (header of 0001_initial_schema.sql): day and month
+// matter only for some frequencies, and the link between them is enforced by
+// the CONSTRAINTs `recurring_items_rule_anchors` (0001) and
+// `recurring_items_yearly_month_matches_anchor` (0003) — both fire on ANY
+// UPDATE of the row, not only on INSERT. The validation below does not duplicate those
+// CHECKs; it answers with a clear 400 BEFORE the request reaches them. Without it,
+// inconsistent input would fail as a 500 with SQLite's text instead of an explanation.
 
 const FREQUENCIES = ['daily', 'weekly', 'monthly', 'yearly'] as const;
 type Frequency = (typeof FREQUENCIES)[number];
@@ -1608,10 +1608,10 @@ function normalizeIntervalCount(input: unknown): number {
   return input;
 }
 
-// day_of_month/month_of_year — общая форма: число в границах CHECK'а схемы
-// или null. undefined приравнен к null — на POST оба означают «поле не
-// пришло», а в PATCH-цикле этот путь недостижим (туда попадают только поля,
-// реально пришедшие в теле, см. `field in body` ниже).
+// day_of_month/month_of_year share one shape: a number inside the schema CHECK bounds,
+// or null. undefined is treated as null — on POST both mean "the field
+// did not arrive", and this path is unreachable inside the PATCH loop (only fields
+// that actually arrived in the body get there; see `field in body` below).
 function normalizeNullableInteger(input: unknown, field: string, min: number, max: number): number | null {
   if (input === null || input === undefined) return null;
   if (typeof input !== 'number' || !Number.isInteger(input) || input < min || input > max) {
@@ -1629,10 +1629,10 @@ function monthFromDateString(date: string): number {
 }
 
 /**
- * Якоря для НОВОЙ строки (POST). day_of_month: явный или выведенный из дня
- * next_due_date. month_of_year года — производный от next_due_date всегда;
- * явное значение принимается, только если совпадает с производным (CONSTRAINT
- * миграции 0003 требует ровно этого, и не только на INSERT).
+ * Anchors for a NEW row (POST). day_of_month is explicit, or derived from the day of
+ * next_due_date. For a yearly rule, month_of_year is always derived from next_due_date;
+ * an explicit value is accepted only when it matches the derived one (the CONSTRAINT
+ * in migration 0003 requires exactly that, and not only on INSERT).
  */
 function computeAnchorsForCreate(
   frequency: Frequency,
@@ -1671,14 +1671,14 @@ function computeAnchorsForCreate(
 }
 
 /**
- * Якоря для ПРАВКИ существующей строки (PATCH) — правило считается целиком:
- * эффективная частота решает, какие якоря обязательны, а `dayProvided`/
- * `monthProvided` отличают «клиент не тронул поле» (наследуем от старой
- * строки или выводим из даты) от «клиент явно передал» (в т. ч. явный null —
- * это отказ, если частота требует значение). Смена frequency, не трогающая
- * сами якоря явно, обязана сама решить их судьбу — иначе PATCH
- * `{ frequency: 'daily' }` на месячном правиле упёрся бы в CHECK схемы вместо
- * внятного результата (докблок раздела).
+ * Anchors for an EDIT of an existing row (PATCH) — the rule is evaluated as a whole:
+ * the effective frequency decides which anchors are required, and `dayProvided` /
+ * `monthProvided` distinguish "the client left the field alone" (inherit it from the old
+ * row, or derive it from the date) from "the client sent it explicitly" (including an explicit null —
+ * a rejection when the frequency requires a value). Changing frequency without touching
+ * the anchors themselves must decide their fate: otherwise PATCH
+ * `{ frequency: 'daily' }` on a monthly rule would hit the schema CHECK instead of
+ * a clear result (section docblock).
  */
 function computeEffectiveAnchors(
   frequency: Frequency,
@@ -1705,10 +1705,10 @@ function computeEffectiveAnchors(
     if (dayValue === null) throw new ValidationError('FREQUENCY_DAY_REQUIRED', { frequency });
     dayOfMonth = dayValue;
   } else if (currentFrequency === 'monthly' || currentFrequency === 'yearly') {
-    // Правило уже несло якорь — переносим его как есть. Это и есть «скользящая
-    // дата не двигает day_of_month»: 31 числа, один раз прижатое к 28 февраля,
-    // не должно навсегда остаться 28-м (докблок 0001). current.day_of_month
-    // здесь гарантированно не NULL — того требует сама схема для этих частот.
+    // The rule already carried an anchor — keep it as is. That is what "a sliding
+    // date does not move day_of_month" means: the 31st, once clamped to 28 February,
+    // must not stay the 28th forever (docblock of 0001). current.day_of_month
+    // is guaranteed not NULL here — the schema itself requires that for these frequencies.
     dayOfMonth = currentDayOfMonth as number;
   } else {
     dayOfMonth = dayFromDateString(nextDueDate);
@@ -1721,9 +1721,9 @@ function computeEffectiveAnchors(
     return { dayOfMonth, monthOfYear: null };
   }
 
-  // yearly — month_of_year производный от next_due_date ВСЕГДА, даже когда
-  // клиент его не трогал: перенос даты в другой месяц обязан перенести якорь
-  // за собой одним и тем же PATCH (докблок миграции 0003).
+  // yearly — month_of_year is ALWAYS derived from next_due_date, even when
+  // the client did not touch it: moving the date into another month must carry the anchor
+  // along in the same PATCH (docblock of migration 0003).
   const derivedMonth = monthFromDateString(nextDueDate);
   if (monthProvided && monthValue !== null && monthValue !== derivedMonth) {
     throw new ValidationError('FREQUENCY_MONTH_DERIVED', { month: derivedMonth });
@@ -1980,15 +1980,15 @@ apiV2.patch('/recurring-items/:id', async (c) => {
       throw new ValidationError('CURRENCY_CHANGE_REQUIRES_AMOUNT');
     }
 
-    // effectiveNextDueDate нужен и якорям, и проверке end_date — считаем один раз.
+    // effectiveNextDueDate is needed by both the anchors and the end_date check — compute it once.
     const effectiveNextDueDate = updates.has('next_due_date')
       ? (updates.get('next_due_date') as string)
       : current.next_due_date;
 
-    // Правило считается ЦЕЛИКОМ: ни одно из четырёх полей не валидно без
-    // остальных трёх (докблок раздела), поэтому пересчёт срабатывает, если
-    // тронуто хотя бы одно из них, и переписывает day_of_month/month_of_year
-    // оба сразу — даже то поле, которое клиент не назвал явно.
+    // The rule is evaluated as a WHOLE: none of the four fields is valid without
+    // the other three (section docblock), so the recompute runs when
+    // at least one of them was touched, and it rewrites both day_of_month and month_of_year
+    // at once — including the field the client did not name.
     const ruleTouched =
       updates.has('frequency') ||
       updates.has('day_of_month') ||
@@ -2015,9 +2015,9 @@ apiV2.patch('/recurring-items/:id', async (c) => {
       updates.set('month_of_year', monthOfYear);
     }
 
-    // end_date держит СВОЙ инвариант (>= next_due_date) на любом UPDATE строки
-    // (докблок 0002), а не только когда его меняют явно: продвинуть якорь за
-    // уже стоящий срок отдельным PATCH нельзя — отвечаем 400 раньше отказа схемы.
+    // end_date keeps ITS OWN invariant (>= next_due_date) on every UPDATE of the row
+    // (docblock of 0002), not only when it is changed explicitly: a separate PATCH must not push the anchor past
+    // a deadline that is already set — answer 400 before the schema rejects it.
     if (updates.has('next_due_date') || updates.has('end_date')) {
       const effectiveEndDate = updates.has('end_date') ? (updates.get('end_date') as string | null) : current.end_date;
       if (effectiveEndDate !== null && effectiveEndDate < effectiveNextDueDate) {
@@ -2115,12 +2115,12 @@ function recurringSnapshotMatches(
     && value.active === row.active;
 }
 
-// Закрытие периода регулярного платежа (issue #280): порождает операцию-факт
-// (source = 'recurring'), двигает баланс счёта и сдвигает скользящий якорь
-// `next_due_date` на следующее вхождение (nextOccurrence).
+// Closing a recurring-payment period (issue #280): it creates a fact operation
+// (source = 'recurring'), moves the account balance, and shifts the sliding anchor
+// `next_due_date` to the next occurrence (nextOccurrence).
 //
-// Если следующее вхождение выходит за `end_date`, правило деактивируется
-// (active = 0), а дата якоря остаётся в границах CHECK'а.
+// If the next occurrence falls past `end_date`, the rule is deactivated
+// (active = 0) and the anchor date stays inside the CHECK bounds.
 apiV2.post('/recurring-items/:id/close-period', async (c) => {
   const id = parseIdParam(c.req.param('id'));
   if (id === null) return fail(c, 'NOT_FOUND', 404);
@@ -2526,8 +2526,8 @@ apiV2.post('/recurring-items/:id/fulfill-existing', async (c) => {
   }, 201);
 });
 
-// Пропуск периода регулярного платежа (issue #280): сдвигает якорь на следующее
-// вхождение без создания операции и без изменения баланса.
+// Skipping a recurring-payment period (issue #280): shifts the anchor to the next
+// occurrence without creating an operation and without changing the balance.
 apiV2.post('/recurring-items/:id/skip-period', async (c) => {
   const id = parseIdParam(c.req.param('id'));
   if (id === null) return fail(c, 'NOT_FOUND', 404);
@@ -2708,36 +2708,36 @@ apiV2.post('/recurring-items/:id/cancel-period-fulfillment', async (c) => {
   });
 });
 
-// ---------- операции ----------
+// ---------- operations ----------
 //
-// Траты, доходы и возвраты одной таблицей (S1-5a, issue #200; решение владельца
-// 2026-08-12, отменившее прежнюю посылку ТЗ «у траты счёта нет»). Три правила,
-// без которых остальной код этого раздела читается как произвол:
+// Expenses, income, and refunds in one table (S1-5a, issue #200; owner decision
+// of 2026-08-12, which cancelled the spec's former premise that "an expense has no account"). Three rules,
+// without which the rest of this section reads as arbitrary:
 //
-//   1. СЧЁТ ОБЯЗАТЕЛЕН. Любая операция случилась на каком-то счёте — это и есть
-//      «пульт слежения за течением денег» из идеи проекта.
-//   2. ВАЛЮТА НЕ ХРАНИТСЯ И НЕ ЗАДАЁТСЯ — она равна валюте счёта всегда.
-//      Причина не техническая: с динарового счёта долларовая покупка списывается
-//      в динарах, и хранить у операции «доллары» значило бы записать то, чего на
-//      счету не было. В JSON валюта есть — это `JOIN`, а не колонка (0005).
-//   3. СУММА — ДЕЛЬТА БАЛАНСА СЧЁТА: расход отрицателен, доход и возврат
-//      положительны, и то же самое требует CONSTRAINT `operations_sign_matches_kind`.
-//      Прежняя `expenses` держала обратную конвенцию, унаследованную от листа v1;
-//      она стала неверной ровно тогда, когда сумма начала править баланс.
+//   1. AN ACCOUNT IS REQUIRED. Every operation happened on some account — that is
+//      the "console for watching the flow of money" from the idea of the project.
+//   2. CURRENCY IS NEITHER STORED NOR SUPPLIED — it always equals the account currency.
+//      The reason is not technical: a dollar purchase charged to a dinar account is debited
+//      in dinars, and storing "dollars" on the operation would record something that was never
+//      on the account. JSON still has a currency — that is a `JOIN`, not a column (0005).
+//   3. THE AMOUNT IS THE ACCOUNT-BALANCE DELTA: an expense is negative, income and a refund
+//      are positive, and CONSTRAINT `operations_sign_matches_kind` requires the same thing.
+//      The old `expenses` table kept the opposite convention, inherited from the v1 sheet;
+//      it became wrong at the moment the amount started to adjust the balance.
 //
-// БАЛАНС СЧЁТА ДВИГАЕТСЯ ВМЕСТЕ С ОПЕРАЦИЕЙ — при создании, правке и удалении.
-// Это не двойная запись и не бухгалтерия: баланс остаётся редактируемым полем,
-// ручная сверка с банком по-прежнему главнее, а операция лишь избавляет от того,
-// чтобы вводить сумму заново после каждой покупки. Отсюда следствие, которое
-// стоит знать: банковский баланс, вбитый после покупки, уже включает её — и
-// введённая следом операция вычтет её второй раз. Дрейф самоизлечивается на
-// ближайшей ручной сверке, потому что баланс это поле, а не сумма операций;
-// экран показывает будущее значение до сохранения, чтобы эффект был виден.
+// THE ACCOUNT BALANCE MOVES TOGETHER WITH THE OPERATION — on create, on edit, and on delete.
+// This is not double-entry bookkeeping: the balance remains an editable field,
+// a manual reconciliation with the bank is still the authority, and an operation only saves
+// retyping the amount after every purchase. One consequence is worth
+// knowing: a bank balance entered after a purchase already includes that purchase — and
+// an operation entered next will subtract it a second time. The drift heals itself at the
+// next manual reconciliation, because the balance is a field, not the sum of operations;
+// the screen shows the future value before save, so the effect is visible.
 //
-// `balance_updated_at` при этом НЕ ПЕРЕСТАВЛЯЕТСЯ, и это тоже решение: отметка
-// означает «я сверился с банком» (issue #223), а посчитанная нами коррекция
-// сверкой не является. Переставлять её значило бы гасить напоминание «пора
-// сверить» ровно тогда, когда расхождение с банком как раз и накапливается.
+// `balance_updated_at` is NOT moved when that happens, and that too is a decision: the mark
+// means "I reconciled with the bank" (issue #223), and a correction we computed
+// is not a reconciliation. Moving the mark would clear the "time to
+// reconcile" reminder at the exact moment the gap with the bank is growing.
 
 const OPERATION_KINDS = ['expense', 'income', 'refund', 'transfer_out', 'transfer_in'] as const;
 type OperationKind = (typeof OPERATION_KINDS)[number];
@@ -2762,7 +2762,7 @@ interface OperationRow {
   fiscal_receipt_id: string | null;
 }
 
-/** Строка операции вместе с валютой счёта — форма, в которой она уходит клиенту. */
+/** An operation row together with the account currency — the shape sent to the client. */
 interface OperationRowWithCurrency extends OperationRow {
   currency: string;
 }
@@ -2778,7 +2778,7 @@ function toOperationJson(row: OperationRowWithCurrency, fulfillment?: OperationF
     category: row.category,
     subcategory: row.subcategory,
     amount_minor: row.amount_minor,
-    // Не колонка, а валюта счёта: своей у операции нет (см. правило 2 выше).
+    // Not a column: it is the account currency. An operation has none of its own (see rule 2 above).
     currency: row.currency,
     receipt_id: row.receipt_id,
     source: row.source,
@@ -2800,9 +2800,9 @@ function toOperationJson(row: OperationRowWithCurrency, fulfillment?: OperationF
   };
 }
 
-// Валюта берётся `JOIN`'ом во всех чтениях — своей колонки у операции нет.
-// INNER JOIN, а не LEFT: `account_id NOT NULL` плюс FK без ON DELETE означают,
-// что операции без счёта не существует, и подставлять null было бы враньём.
+// Currency is taken with a `JOIN` on every read — an operation has no currency column of its own.
+// INNER JOIN, not LEFT: `account_id NOT NULL` plus an FK with no ON DELETE mean
+// that an operation without an account does not exist, and substituting null would be a lie.
 const OPERATION_SELECT = `
   SELECT o.*, a.currency AS currency
   FROM operations o
@@ -2816,12 +2816,12 @@ function normalizeKind(input: unknown): OperationKind {
 }
 
 /**
- * Знак суммы и вид операции проверяются вместе, потому что вместе их проверяет
- * и схема. Без этого расход с положительной суммой уходил бы в CONSTRAINT
- * `operations_sign_matches_kind` и возвращался 500-кой с текстом SQLite вместо
- * объяснения. Сам знак не выводится из вида молча: клиент, приславший «расход
- * на +350», ошибся в одном из двух полей, и какое именно он имел в виду —
- * неизвестно.
+ * The amount's sign and the operation kind are checked together because the schema
+ * checks them together. Without that, an expense with a positive amount would hit CONSTRAINT
+ * `operations_sign_matches_kind` and come back as a 500 with SQLite's text instead of
+ * an explanation. The sign is not silently derived from the kind: a client that sent "an expense
+ * of +350" was wrong in one of the two fields, and which one they meant
+ * is unknown.
  */
 function assertSignMatchesKind(kind: OperationKind, amountMinor: number): void {
   if ((kind === 'expense' || kind === 'transfer_out') && amountMinor > 0) {
@@ -2837,10 +2837,10 @@ function assertSignMatchesKind(kind: OperationKind, amountMinor: number): void {
 }
 
 /**
- * Подкатегория без категории запрещена схемой (`operations_subcategory_needs_category`)
- * и бессмысленна по существу: «Овощи и фрукты» сами по себе ничего не уточняют.
- * Проверка нужна здесь по той же причине, что и предыдущая, — внятный 400
- * вместо отказа базы.
+ * A subcategory without a category is forbidden by the schema (`operations_subcategory_needs_category`)
+ * and meaningless on its own: "Vegetables and fruit" by itself clarifies nothing.
+ * The check belongs here for the same reason as the previous one — a clear 400
+ * instead of a database rejection.
  */
 function assertSubcategoryHasCategory(category: string | null, subcategory: string | null): void {
   if (subcategory !== null && category === null) {
@@ -2849,13 +2849,13 @@ function assertSubcategoryHasCategory(category: string | null, subcategory: stri
 }
 
 /**
- * Происхождение операции этим API не задаётся: ручной ввод — всегда
- * `source = 'manual'` с пустым `receipt_id`, позиции чеков заводит S2 своим
- * путём. Присланное значение не игнорируется, а отклоняется: клиент, ждавший
- * привязки к чеку, иначе получил бы 201 с пустой ссылкой и решил, что привязка
- * состоялась. Именно 201, а не отказ базы: INSERT ниже пишет `NULL, 'manual'`
- * литералами, а `OPERATION_PATCH_FIELDS` обеих колонок не содержит — до CHECK'а
- * присланное значение не доходит вообще.
+ * This API does not set an operation's origin: manual entry is always
+ * `source = 'manual'` with an empty `receipt_id`. Receipt line items are created by S2 on its own
+ * path. A supplied value is rejected, not ignored: a client that expected
+ * a link to a receipt would otherwise get 201 with an empty reference and conclude that the link
+ * was stored. It would be a 201, not a database rejection: the INSERT below writes `NULL, 'manual'`
+ * as literals, and `OPERATION_PATCH_FIELDS` contains neither column — a supplied value
+ * never reaches the CHECK at all.
  */
 function rejectReceiptFields(body: Record<string, unknown>, allowAgentSource = false): void {
   if ('source' in body) {
@@ -2881,13 +2881,13 @@ function rejectReceiptFields(body: Record<string, unknown>, allowAgentSource = f
 }
 
 /**
- * Правка баланса счёта на дельту — только для СОЗДАНИЯ, где сумма известна из
- * входа, а строки, с которой её можно было бы рассинхронизировать, ещё нет.
- * Правка и удаление считают дельту иначе — подзапросом по живой строке (см.
- * комментарий в `PATCH` ниже): арифметика на JS от прочитанного снимка даёт там
- * lost update на двух параллельных запросах.
+ * Adjusting the account balance by a delta is only for CREATE, where the amount is known from
+ * the input and there is not yet a row it could drift away from.
+ * Edit and delete compute the delta differently — with a subquery against the live row (see
+ * the comment in `PATCH` below): doing the arithmetic in JS from a snapshot already read produces a
+ * lost update when two requests run in parallel.
  *
- * `balance_updated_at` не трогается намеренно (докблок раздела).
+ * `balance_updated_at` is left untouched on purpose (section docblock).
  */
 function balanceDeltaStatement(db: D1Database, accountId: number, deltaMinor: number) {
   return db.prepare(
@@ -2896,9 +2896,9 @@ function balanceDeltaStatement(db: D1Database, accountId: number, deltaMinor: nu
 }
 
 apiV2.get('/operations', async (c) => {
-  // Свежие сверху — обратный порядок к плановым, и по той же причине, по
-  // которой у тех он прямой: плановые смотрят вперёд, а операция уже случилась.
-  // id вторым ключом тоже по убыванию: позже введённая стоит выше.
+  // Newest first — the reverse of planned items, for the same reason theirs
+  // runs the other way: planned items look ahead, and an operation has already happened.
+  // id, the second key, is descending too: the one entered later stands higher.
   const [operations, links] = await Promise.all([
     c.env.DB.prepare(`${OPERATION_SELECT} ORDER BY o.date DESC, o.id DESC`).all<OperationRowWithCurrency>(),
     c.env.DB.prepare('SELECT * FROM operation_fulfillment_links').all<OperationFulfillmentLinkRow>(),
@@ -2934,9 +2934,9 @@ apiV2.post('/operations', async (c) => {
     const fiscalReceiptId = normalizeOptionalFiscalReceiptId(body.fiscal_receipt_id);
     assertSubcategoryHasCategory(category, subcategory);
 
-    // Валюта не принимается от клиента — она у счёта, и отсюда же берётся для
-    // ответа. Проверка существования счёта нужна и сама по себе: без неё FK
-    // отдал бы 500 вместо внятного «Счёт не найден».
+    // Currency is not accepted from the client — it belongs to the account, and the response takes it
+    // from there as well. Checking that the account exists matters on its own: without it the FK
+    // would return 500 instead of a clear "Account not found".
     const account = await loadAccountForReference(c.env.DB, accountId);
     if (!account) throw new ValidationError('ACCOUNT_NOT_FOUND');
     accountCurrency = account.currency;
@@ -2974,9 +2974,9 @@ apiV2.post('/operations', async (c) => {
     throw e;
   }
 
-  // batch — одна транзакция (D1). Запись операции и правка баланса обязаны быть
-  // атомарны: половина этой пары означала бы либо потерянную операцию, либо
-  // баланс, разъехавшийся с историей без следа.
+  // batch is one transaction (D1). Writing the operation and adjusting the balance have to be
+  // atomic: half of that pair would mean either a lost operation or
+  // a balance that has drifted from the history with no trace.
   const [balanceRes, inserted] = await c.env.DB.batch<OperationRow>(statements);
   if (!ledgerApplied(balanceRes) || !inserted?.results[0]) {
     return fail(c, ledgerApplied(balanceRes) ? 'BALANCE_OUT_OF_SAFE_RANGE' : 'LEDGER_EFFECT_MISSING', 400);
@@ -2984,10 +2984,10 @@ apiV2.post('/operations', async (c) => {
   return c.json({ operation: toOperationJson({ ...inserted.results[0]!, currency: accountCurrency }) }, 201);
 });
 
-// source и receipt_id в список не входят намеренно: происхождение операции —
-// не редактируемое поле. Правка самих данных (что купили, за сколько, с какого
-// счёта) разрешена независимо от происхождения: ошибка в названии распознанной
-// позиции чека — обычное дело, и чинить её владелец будет здесь же.
+// source and receipt_id are omitted from the list on purpose: an operation's origin
+// is not an editable field. Editing the data itself (what was bought, for how much, from which
+// account) is allowed regardless of origin: a wrong name on a recognized
+// receipt line is ordinary, and the owner fixes it here.
 const OPERATION_PATCH_FIELDS = ['date', 'account_id', 'kind', 'store', 'item', 'category', 'subcategory', 'amount_minor', 'comment', 'receipt_url', 'fiscal_receipt_id'] as const;
 
 apiV2.patch('/operations/:id', async (c) => {
@@ -3062,10 +3062,10 @@ apiV2.patch('/operations/:id', async (c) => {
     }
   }
 
-  // Правило считается на ЭФФЕКТИВНОЙ строке — том, чем она станет после патча, —
-  // а не на присланных полях. Иначе смена одного лишь `kind` на месячной строке
-  // расхода упиралась бы в CONSTRAINT схемы вместо внятного ответа: тот же приём
-  // и та же причина, что у якорей регулярных правил выше.
+  // The rule is evaluated on the EFFECTIVE row — what the row will be after the patch —
+  // not on the fields that were sent. Otherwise changing only `kind` on a monthly expense
+  // row would hit the schema CONSTRAINT instead of a clear answer: the same technique
+  // and the same reason as the recurring-rule anchors above.
   const nextKind = (updates.get('kind') as OperationKind | undefined) ?? (current.kind as OperationKind);
   const nextAmount = (updates.get('amount_minor') as number | undefined) ?? current.amount_minor;
   const nextAccountId = (updates.get('account_id') as number | undefined) ?? current.account_id;
@@ -3084,18 +3084,18 @@ apiV2.patch('/operations/:id', async (c) => {
         loadAccountForReference(c.env.DB, nextAccountId),
       ]);
       if (!to) throw new ValidationError('ACCOUNT_NOT_FOUND');
-      // Смена счёта — это смена валюты операции, потому что своей у неё нет.
-      // Без этой проверки перенос «1 500,00 RSD» на долларовый счёт отвечал 200
-      // и оставлял `amount_minor` как есть: 1 500 динаров молча становились
-      // 1 500 долларами, не изменившись ни в одной колонке. Поймано независимым
-      // прогоном правила 13. Замок измерений (#232) этот путь не закрывает — он
-      // запрещает менять валюту У СЧЁТА, а не уводить операцию на счёт с другой
-      // валютой.
+      // Changing the account changes the operation's currency, because the operation has none of its own.
+      // Without this check, moving "1,500.00 RSD" onto a dollar account would answer 200
+      // and leave `amount_minor` unchanged: 1,500 dinars would silently become
+      // 1,500 dollars, with no column changed. Caught by an independent
+      // run of rule 13. The dimension lock (#232) does not close this path — it
+      // forbids changing the currency OF THE ACCOUNT, not moving an operation onto an account in another
+      // currency.
       //
-      // Требование то же, что у счетов и плановых при смене currency: сумму
-      // надо назвать заново, в новой валюте. Пересчитать по курсу за владельца
-      // нельзя — курса на дату операции мы не знаем, а тихо округлить чужие
-      // деньги хуже, чем переспросить.
+      // The requirement matches accounts and planned items on a currency change: the amount
+      // has to be named again, in the new currency. Converting by rate on the owner's behalf
+      // is not allowed — the rate on the operation's date is unknown, and silently rounding someone else's
+      // money is worse than asking again.
       if (from && from.currency !== to.currency && !updates.has('amount_minor')) {
         throw new ValidationError('CURRENCY_CHANGE_REQUIRES_AMOUNT', {
           fromCurrency: from.currency,
@@ -3124,25 +3124,25 @@ apiV2.patch('/operations/:id', async (c) => {
 
   values.push(id);
 
-  // Баланс правится ТРЕМЯ statement'ами, и каждый читает живую строку
-  // подзапросом, а не заранее прочитанный снимок: снять то, что реально лежит,
-  // записать новое, применить то, что реально стало.
+  // The balance is adjusted by THREE statements, and each one reads the live row
+  // with a subquery rather than a snapshot taken earlier: remove what is actually stored,
+  // write the new value, then apply what it actually became.
   //
-  // Приём тот же, что в DELETE ниже, но чинит он не только гонку с удалением.
-  // Прежняя редакция считала дельту на JS от снимка `current` — и два
-  // параллельных PATCH давали классический lost update: соседнее устройство
-  // правит сумму на −40 000 (баланс 60 000), затем наш запрос со снимком
-  // −25 000 правит на −30 000 и снимает разницу от СВОЕГО снимка → 55 000
-  // вместо 70 000, оба ответа 200, ошибки не видит никто. Поймано независимым
-  // прогоном правила 13 на воспроизводимой подмене `batch`.
+  // The technique matches the DELETE below, but it fixes more than a race with deletion.
+  // The previous version computed the delta in JS from the `current` snapshot — and two
+  // parallel PATCHes produced a classic lost update: the other device
+  // adjusts the amount by −40,000 (balance 60,000), then our request, holding a snapshot of
+  // −25,000, adjusts it to −30,000 and subtracts the difference from ITS OWN snapshot → 55,000
+  // instead of 70,000. Both answers are 200, and nobody sees an error. Caught by an independent
+  // run of rule 13 against a reproducible stand-in for `batch`.
   //
-  // Живые подзапросы закрывают этот класс целиком: что бы ни успел сделать
-  // сосед, баланс остаётся равен «стартовый + сумма всех операций счёта».
-  // Порядок полей в самой строке при этом по-прежнему «кто последний, тот и
-  // прав» — обычное поведение PATCH и здесь, и у плановых, инвариант оно не
-  // рушит. Строку удалили — все три подзапроса дают NULL, `WHERE id = NULL` не
-  // совпадает ни с чем, RETURNING пуст, и ниже это честный 404 без единой
-  // правки баланса.
+  // Live subqueries close that whole class: whatever the other request managed to do,
+  // the balance stays equal to "starting balance plus the sum of every operation on the account".
+  // Field order on the row itself is still last-write-wins
+  // — ordinary PATCH behavior, here and for planned items — and that does not
+  // break the invariant. If the row was deleted, all three subqueries yield NULL, `WHERE id = NULL` matches
+  // nothing, RETURNING is empty, and the result below is an honest 404 with no
+  // balance change at all.
   const liveDelta = (sign: '-' | '+', requirePriorChange = false) =>
     c.env.DB.prepare(
       `UPDATE accounts
@@ -3219,14 +3219,14 @@ apiV2.delete('/operations/:id', async (c) => {
     return c.body(null, 204);
   }
 
-  // Снятие вклада операции из баланса идёт ПЕРЕД удалением и читает живую
-  // строку подзапросом, а не заранее прочитанное значение: пара «SELECT, потом
-  // DELETE» оставила бы окно, в котором сумма успевает измениться, и с баланса
-  // ушло бы не то, что там лежало. Строки нет — подзапрос даёт NULL, `WHERE id
-  // = NULL` не совпадает ни с чем, и UPDATE ничего не делает.
+  // Removing the operation's contribution from the balance happens BEFORE the delete and reads the live
+  // row with a subquery, not a value read earlier: a "SELECT, then
+  // DELETE" pair would leave a window in which the amount can change, and the balance
+  // would lose something other than what was stored. If the row is gone, the subquery yields NULL, `WHERE id
+  // = NULL` matches nothing, and the UPDATE does nothing.
   //
-  // Если операция порождена плановой, done снимается в том же batch: удалили
-  // факт — план снова ожидание, иначе прогноз её не видит, а галочка врёт.
+  // If a planned item produced the operation, done is cleared in the same batch: once the
+  // fact is deleted the plan is waiting again. Otherwise the forecast misses it and the checkbox lies.
   const balanceRes = await c.env.DB.prepare(
     `UPDATE accounts
      SET balance_minor = balance_minor - (SELECT amount_minor FROM operations WHERE id = ?1)
@@ -3254,7 +3254,7 @@ apiV2.delete('/operations/:id', async (c) => {
   return c.body(null, 204);
 });
 
-// ---------- переводы между счетами ----------
+// ---------- transfers between accounts ----------
 apiV2.post('/transfers', async (c) => {
   let fromAccountId: number;
   let toAccountId: number;
@@ -3430,12 +3430,12 @@ apiV2.delete('/transfers/:id', async (c) => {
   return c.body(null, 204);
 });
 
-// Атомарное изменение перевода (#401): вместо запрета PATCH'ить ноги по
-// отдельности — обновляем обе операции одним batch. Балансы правятся теми же
-// live-подзапросами, что и PATCH /operations (каждый читает живую строку,
-// а не снимок, — закрывает lost-update при параллельных правках). Смена
-// валюты запрещена без явной суммы в новой валюте (тот же замок, что у
-// PATCH /operations). Нулевые суммы, как и в POST, недопустимы.
+// Atomic edit of a transfer (#401): instead of forbidding a PATCH of each leg
+// on its own, both operations are updated in one batch. Balances are adjusted with the same
+// live subqueries as PATCH /operations (each reads the live row,
+// not a snapshot, which closes lost updates under concurrent edits). Changing
+// currency is forbidden without an explicit amount in the new currency (the same lock as
+// PATCH /operations). Zero amounts are forbidden, as they are in POST.
 apiV2.put('/transfers/:id', async (c) => {
   const id = parseIdParam(c.req.param('id'));
   if (id === null) return fail(c, 'NOT_FOUND', 404);
@@ -3504,7 +3504,7 @@ apiV2.put('/transfers/:id', async (c) => {
     throw e;
   }
 
-  // Смена валюты запрещена без явной новой суммы (тот же замок, что у PATCH).
+  // Changing currency is forbidden without an explicit new amount (the same lock as PATCH).
   const [fromCur, toCur, origFromCur, origToCur] = await Promise.all([
     loadAccountForReference(c.env.DB, fromAccountId),
     loadAccountForReference(c.env.DB, toAccountId),
@@ -3582,13 +3582,13 @@ apiV2.put('/transfers/:id', async (c) => {
     200,
   );
 });
-// ---------- прогноз ----------
+// ---------- forecast ----------
 //
-// Движок (forecast/build.ts) — чистая функция без D1, вся загрузка данных
-// живёт в forecast/load.ts (issue #198, S1-4). Роут ниже только склеивает их
-// и сериализует BigInt-поля в обычные JS-числа — тем же приёмом, что и
-// balance_minor/rate_e9 в остальном API v2: деньги здесь всегда влезают в
-// Number.isSafeInteger, а bigint в JSON.stringify не сериализуется вовсе.
+// The engine (forecast/build.ts) is a pure function with no D1. All data loading
+// lives in forecast/load.ts (issue #198, S1-4). The route below only joins the two
+// and serializes BigInt fields to ordinary JS numbers — the same technique as
+// balance_minor and rate_e9 elsewhere in API v2. Amounts here always fit in
+// Number.isSafeInteger, and JSON.stringify cannot serialize a bigint at all.
 
 const CASH_FLOW_DAYS = 30;
 const UPCOMING_DAYS = 30;
@@ -3622,8 +3622,8 @@ apiV2.get('/forecast', async (c) => {
     throw e;
   }
 
-  // «Сегодня» сервера в UTC — без учёта часового пояса просмотра, как и все
-  // financial date в v2 (шапка migrations/0001_initial_schema.sql).
+  // The server's "today", in UTC — the viewer's timezone is ignored, as for every
+  // financial date in v2 (header of migrations/0001_initial_schema.sql).
   const asOf = new Date().toISOString().slice(0, 10);
   const limitDate = addDays(asOf, horizonDays);
 
@@ -3647,10 +3647,10 @@ apiV2.get('/forecast', async (c) => {
     cashFlowDays: CASH_FLOW_DAYS,
   });
 
-  // Тот же конвертер, что внутри buildForecast, — округление и трактовка
-  // «курса нет» обязаны совпадать с агрегатами до последней минорной единицы.
-  // Собственный экземпляр (без сбора missing_rates) нужен потому, что список
-  // недостающих валют уже посчитан ядром и второй раз не собирается.
+  // The same converter used inside buildForecast. Rounding, and the meaning of
+  // "no rate", must match the aggregates down to the last minor unit.
+  // A separate instance (one that does not collect missing_rates) is required because the list of
+  // missing currencies was already computed by the core and is not collected again.
   const toBase = makeConverter(ratesE9, settings.baseCurrency);
   const accountById = new Map(accounts.map((a) => [a.id, a]));
   try {
@@ -3719,9 +3719,9 @@ apiV2.get('/forecast', async (c) => {
   }
 });
 
-// ---------- настройки ----------
+// ---------- settings ----------
 
-/** Все настройки одним объектом — форма ответа у GET и PUT одна и та же. */
+/** Every setting in one object — GET and PUT share the same response shape. */
 async function readAllSettings(db: D1Database): Promise<Record<string, string>> {
   const { results } = await db.prepare('SELECT key, value FROM settings').all<{ key: string; value: string }>();
   const settings: Record<string, string> = {};
@@ -3733,7 +3733,7 @@ apiV2.get('/settings', async (c) => c.json({ settings: await readAllSettings(c.e
 
 const SETTINGS_WRITABLE_KEYS = new Set(['low_balance_threshold_minor', 'base_currency']);
 
-/** low_balance_threshold_minor — целое >= 0; 0 валиден («предупреждать только при уходе в ноль»). */
+/** low_balance_threshold_minor — an integer >= 0; 0 is valid ("warn only when the balance reaches zero"). */
 function normalizeThresholdSetting(input: unknown): string {
   if (typeof input === 'number') {
     if (!Number.isSafeInteger(input) || input < 0) {
@@ -3751,7 +3751,7 @@ function normalizeThresholdSetting(input: unknown): string {
   throw new ValidationError('SETTING_VALUE_INVALID');
 }
 
-/** base_currency — трёхбуквенный код ISO 4217 (приводится к верхнему регистру). */
+/** base_currency — a three-letter ISO 4217 code (folded to uppercase). */
 function normalizeCurrencySetting(input: unknown): string {
   const code = normalizeIso4217CurrencyCode(input);
   if (code === null) throw new ValidationError('SETTING_CURRENCY_INVALID');
@@ -3770,11 +3770,11 @@ apiV2.put('/settings/:key', async (c) => {
   try {
     const body = await readBody(c);
     const value = normalizeSettingValue(key, body.value);
-    // Курсы хранятся как `usd_per_unit` (fx_rates.rate_e9, см. миграцию
-    // 0001) — они НЕ зависят от выбранной базовой валюты, поэтому смена базы
-    // никогда не трогает fx_rates. Удаление курсов при смене базы было
-    // регрессией (ALE-9, первый прогон): владелец видел, как введённые курсы
-    // исчезают. Здесь — только запись настройки.
+    // Rates are stored as `usd_per_unit` (fx_rates.rate_e9; see migration
+    // 0001). They do NOT depend on the chosen base currency, so changing the base
+    // never touches fx_rates. Deleting rates when the base changed was
+    // a regression (ALE-9, first run): the owner watched rates they had entered
+    // disappear. This path writes the setting only.
     await c.env.DB.prepare(
       `INSERT INTO settings (key, value) VALUES (?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
@@ -3789,7 +3789,7 @@ apiV2.put('/settings/:key', async (c) => {
   return c.json({ settings: await readAllSettings(c.env.DB) });
 });
 
-// ---------- аналитика (S1-5b) ----------
+// ---------- analytics (S1-5b) ----------
 
 apiV2.post('/analytics', async (c) => {
   let startDate: string | null = null;

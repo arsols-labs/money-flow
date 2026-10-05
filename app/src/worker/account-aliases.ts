@@ -1,28 +1,28 @@
-// Алиасы счетов (issue #339) — резолвер виртуальных карт к реальному счёту и
-// работа со списком «неизвестных» счетов из чеков.
+// Account aliases (issue #339) — a resolver from virtual cards to a real
+// account, and work with the list of "unknown" accounts from receipts.
 //
-// Две ответственности, одна таблица на каждую:
-//   * account_aliases — строка из чека → account_id (обратного хода нет);
-//   * pending_account_strings — счёт из чека, который ещё не привязан.
+// Two responsibilities, one table for each:
+//   * account_aliases — a string from a receipt → account_id (there is no reverse path);
+//   * pending_account_strings — an account from a receipt that is not bound yet.
 //
-// Резолвер (`resolveOrPend`) — единственная точка, через которую импорт
-// истории (#340) и автоматизация (#341) превращают «счёт списания» из чека в
-// счёт v2. По контракту он НИКОГДА не бросает на неизвестном счёте: либо
-// возвращает account_id, либо кладёт строку в pending и возвращает null
-// (Закон 1 — тихий провал импорта хуже явной пометки «требует подтверждения»).
+// The resolver (`resolveOrPend`) is the only point through which history
+// import (#340) and automation (#341) turn a receipt's charge account into a
+// v2 account. By contract it NEVER throws on an unknown account: it either
+// returns account_id, or puts the string into pending and returns null
+// (Law 1 — a silent import failure is worse than an explicit "needs confirmation" mark).
 //
-// Нормализация. `alias_text` хранит оригинал (включая регистр: в листе
-// `Visa *6125`, а не `visa`), а `alias_norm` — форму для совпадения:
-// trim, схлопывание внутренних пробелов, lower-case. Так `Visa *6125` и
-// `visa *6125` указывают на один счёт, а UNIQUE на `alias_norm` не даёт
-// завести тот же алиас дважды под разным регистром. Тот же алгоритм
-// (normalizeAlias) применяется к pending-строкам, поэтому один и тот же
-// неизвестный счёт попадает в список ровно один раз, какую бы галлюцинацию
-// регистра/пробелов ни выдал экстрактор чека.
+// Normalization. `alias_text` stores the original (including case: on the sheet
+// `Visa *6125`, not `visa`), and `alias_norm` is the form used for matching:
+// trim, collapsing internal whitespace, lower-case. So `Visa *6125` and
+// `visa *6125` point at one account, and UNIQUE on `alias_norm` does not allow
+// creating the same alias twice under different case. The same algorithm
+// (normalizeAlias) is applied to pending rows, so one and the same unknown
+// account lands in the list exactly once, whatever case/whitespace hallucination
+// the receipt extractor produced.
 import type { D1Database } from '@cloudflare/workers-types';
 import { AppError, type ApiErrorCode, type ApiErrorParams } from '../shared/api-errors';
 
-/** Ошибка слоя алиасов с готовым HTTP-статусом — API-слой только пробрасывает. */
+/** An aliases-layer error with a ready HTTP status — the API layer only rethrows it. */
 export class AliasError extends AppError {
   constructor(status: number, code: ApiErrorCode, params?: ApiErrorParams) {
     super(code, status, params);
@@ -58,15 +58,15 @@ export interface PendingStringJson {
   first_seen_at: string;
 }
 
-/** Момент с точностью до СЕКУНД — CHECK-ограничение схемы отклоняет миллисекунды. */
+/** A timestamp precise to SECONDS — the schema CHECK rejects milliseconds. */
 function nowIso(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
 /**
- * Нормализует строку счёта для поиска совпадения: убирает краевые пробелы,
- * схлопывает внутренние, приводит к нижнему регистру. Пустая/не-строка → null
- * (такой «счёт» резолвер не интересен — ни в алиас, ни в pending он не идёт).
+ * Normalizes an account string for matching: strips leading and trailing
+ * whitespace, collapses internal whitespace, lower-cases. Empty/non-string → null
+ * (such an "account" is of no interest to the resolver — it goes neither into an alias nor into pending).
  */
 export function normalizeAlias(input: unknown): string | null {
   if (typeof input !== 'string') return null;
@@ -84,14 +84,14 @@ function isUniqueViolation(e: unknown): boolean {
 }
 
 /**
- * Резолвит строку счёта из чека в account_id.
+ * Resolves an account string from a receipt into account_id.
  *
- * Порядок: сначала точное совпадение по нормализованному алиасу, затем —
- * точное совпадение по нормализованному ИМЕНИ счёта (дешёвый fallback:
- * реальная карта `200-0750000027949-16` иногда вводится и как имя счёта).
- * Ни то, ни другое не подошло — строка ложится в pending_account_strings
- * (INSERT OR IGNORE, идемпотентно), и функция возвращает null. Никогда не
- * бросает на неизвестном счёте.
+ * Order: first an exact match on the normalized alias, then an exact match on
+ * the normalized account NAME (a cheap fallback: a real card
+ * `200-0750000027949-16` is sometimes entered as the account name too). If
+ * neither matches, the string is placed into pending_account_strings
+ * (INSERT OR IGNORE, idempotent), and the function returns null. It never
+ * throws on an unknown account.
  */
 /** Lookup only — never writes pending rows. */
 export async function resolveAccount(db: D1Database, raw: unknown): Promise<number | null> {
@@ -120,8 +120,8 @@ export async function resolveOrPend(db: D1Database, raw: unknown): Promise<numbe
   const norm = normalizeAlias(raw);
   if (!norm) return null;
 
-  // Не резолвится — помечаем для подтверждения владельцем (Scheduled Job #341).
-  // INSERT OR IGNORE: повторный first-seen того же счёта не плодит дубли.
+  // It does not resolve — mark it for confirmation by the owner (Scheduled Job #341).
+  // INSERT OR IGNORE: a repeated first-seen of the same account does not spawn duplicates.
   const text = typeof raw === 'string' ? raw.trim() : '';
   if (text.length > 0) {
     await db
@@ -134,7 +134,7 @@ export async function resolveOrPend(db: D1Database, raw: unknown): Promise<numbe
   return null;
 }
 
-/** Все алиасы счёта, отсортированные стабильно (по id). */
+/** All aliases of an account, sorted stably (by id). */
 export async function listAliases(db: D1Database, accountId: number): Promise<AliasJson[]> {
   const { results } = await db
     .prepare(
@@ -145,8 +145,8 @@ export async function listAliases(db: D1Database, accountId: number): Promise<Al
   return results.map(toAliasJson);
 }
 
-/** Добавляет алиас к счёту. Бросает AliasError на пустом тексте, несуществующем
- *  счёте (404) или уже занятом алиасе (409, в т.ч. привязанном к другому счёту). */
+/** Adds an alias to an account. Throws AliasError on empty text, a missing
+ *  account (404), or an alias already taken (409, including one bound to another account). */
 export async function addAlias(
   db: D1Database,
   accountId: number,
@@ -170,9 +170,9 @@ export async function addAlias(
       .first<AliasRow>();
     return toAliasJson(row!);
   } catch (e) {
-    // Счёт не существует — FK без ON DELETE здесь именно так и отклоняет.
+    // The account does not exist — an FK without ON DELETE rejects it in exactly this way.
     if (isFkViolation(e)) throw new AliasError(404, 'ACCOUNT_NOT_FOUND');
-    // alias_norm уже есть — привязан к этому или другому счёту.
+    // alias_norm already exists — bound to this account or to another.
     if (isUniqueViolation(e)) {
       throw new AliasError(409, 'ALIAS_ALREADY_BOUND');
     }
@@ -180,21 +180,21 @@ export async function addAlias(
   }
 }
 
-/** Удаляет алиас у счёта. 404, если алиас не принадлежит этому счёту (или нет). */
+/** Removes an alias from an account. 404 if the alias does not belong to this account (or does not exist). */
 export async function removeAlias(db: D1Database, accountId: number, aliasId: number): Promise<void> {
   const res = await db
     .prepare('DELETE FROM account_aliases WHERE id = ? AND account_id = ?')
     .bind(aliasId, accountId)
     .run();
-  // D1 run() возвращает meta.changes; типизация wrangler'а зовёт это
-  // `meta`, но в miniflare/prod оно есть. Безопасно читаем через any.
+  // D1 run() returns meta.changes; wrangler's typings call this
+  // `meta`, but in miniflare/prod it is there. Read it safely through any.
   const changes = (res as unknown as { meta?: { changes?: number } }).meta?.changes ?? 0;
   if (changes === 0) {
     throw new AliasError(404, 'ALIAS_NOT_FOUND');
   }
 }
 
-/** Список всех непривязанных счетов из чеков (для Scheduled Job #341). */
+/** List of all unbound accounts from receipts (for Scheduled Job #341). */
 export async function listPending(db: D1Database): Promise<PendingStringJson[]> {
   const { results } = await db
     .prepare(
@@ -205,11 +205,11 @@ export async function listPending(db: D1Database): Promise<PendingStringJson[]> 
 }
 
 /**
- * Привязывает неизвестный счёт к реальному: создаёт алиас из оригинала строки
- * и удаляет её из pending. Атомарно через batch — если алиас уже занят
- * (уникальное нарушение), batch откатывается и строка остаётся в pending.
- * 404, если строка уже обработана; 409, если алиас уже привязан к другому
- * счёту; 404 на несуществующий счёт назначения.
+ * Binds an unknown account to a real one: creates an alias from the original
+ * string and deletes it from pending. Atomic via batch — if the alias is
+ * already taken (a unique violation), the batch rolls back and the row stays
+ * in pending. 404 if the row was already processed; 409 if the alias is
+ * already bound to another account; 404 for a missing destination account.
  */
 export async function bindPending(
   db: D1Database,
