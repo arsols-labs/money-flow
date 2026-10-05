@@ -61,10 +61,10 @@ const EXPECTED_INDEXES = [
 
 const NOW = '2026-08-09T12:00:00Z';
 
-// Изоляция хранилища в vitest-pool-workers — на тестовый ФАЙЛ, а не на тест:
-// без явной очистки фикстуры соседних тестов видны друг другу и проверки
-// начинают падать на чужих строках. Порядок удаления обратный ссылкам.
-// settings не трогаем — там значения по умолчанию из самой миграции.
+// Storage isolation in @cloudflare/vitest-plugin is per test FILE, not per test:
+// without explicit cleanup, fixtures from neighbouring tests are visible to each
+// other and checks start failing on foreign rows. Deletion order is reverse of
+// references. settings is left alone — it holds defaults from the migration itself.
 beforeEach(async () => {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM mcp_audit_log'),
