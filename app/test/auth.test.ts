@@ -187,7 +187,7 @@ async function createMockAuthenticationResponse(options: {
   };
 }
 
-describe('WebAuthn User Verification & User Presence (#494)', () => {
+describe('WebAuthn User Verification & User Presence', () => {
   const RP_ID = 'example.com';
   const ORIGIN = 'https://example.com';
 

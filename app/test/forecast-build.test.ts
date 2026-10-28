@@ -1,4 +1,4 @@
-// Golden tests of the pure forecast core (issue #198, S1-4) — buildForecast
+// Golden tests of the pure forecast core — buildForecast
 // does not touch D1 at all (see the docblock in src/worker/forecast/build.ts), so the
 // whole file runs on hand-built ForecastAccount/ForecastFlow values, without a
 // D1 test bench. In spirit this is a port of `forecast golden` from archive/v2-codex
@@ -264,7 +264,7 @@ describe('buildForecast — threshold: already below vs will cross later', () =>
   });
 });
 
-describe('buildForecast — an empty dimension stays silent (issue #256)', () => {
+describe('buildForecast — an empty dimension stays silent', () => {
   it('an account with a zero balance and no operations produces no warnings at all', () => {
     // Found by the owner in production: an empty EUR account always warned, simply
     // because 0 is below the $1000 threshold. There is nothing to warn about — there is no money
@@ -454,7 +454,7 @@ describe('buildForecast — validation', () => {
   });
 });
 
-describe('buildForecast — overdue recurring payment (issue #279)', () => {
+describe('buildForecast — overdue recurring payment', () => {
   it('aggregated debt on the first day of the horizon shifts the whole daily series and cash_flow', () => {
     const acc = account({ id: 1, currency: 'USD', balance_minor: 100000 }); // $1000.00
     const asOfDate = '2026-08-15';

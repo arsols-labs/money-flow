@@ -6,7 +6,7 @@ import ResetSection, { RESET_CONFIRM_PHRASE } from '../src/ui/ResetSection.jsx';
 import { RefreshProvider } from '../src/ui/RefreshContext.jsx';
 import { tabFromHash } from '../src/ui/Shell.jsx';
 
-describe('Reset UI (issue #579)', () => {
+describe('Reset UI', () => {
   it('renders the reset section next to the typed-confirm action', () => {
     const html = renderToStaticMarkup(
       React.createElement(RefreshProvider, null, React.createElement(ResetSection)),

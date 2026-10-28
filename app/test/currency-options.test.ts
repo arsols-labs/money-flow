@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildCurrencyOptions } from '../src/ui/components';
 
-describe('buildCurrencyOptions (issue #403)', () => {
+describe('buildCurrencyOptions', () => {
   it('collects unique account currencies and sorts them', () => {
     const accounts = [
       { currency: 'USD' },

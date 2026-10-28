@@ -51,7 +51,7 @@ async function mcpCall(name: string, args: Record<string, unknown>, scopes: stri
   }), env as unknown as Env, { props: { scopes, clientId: 'wo-541' } } as any);
 }
 
-describe('security #541', () => {
+describe('security hardening', () => {
   beforeEach(async () => {
     await env.KV.delete('auth_epoch');
     const listed = await env.KV.list({ prefix: 'webauthn_cred' });

@@ -3,7 +3,7 @@ import app from '../src/worker/index';
 import { isAllowedHost, isAllowedOrigin, resolveOrigin, resolveRpID } from '../src/worker/auth';
 import type { Env } from '../src/worker/types';
 
-describe('Domains & Environment Configuration (De-personalization, #509)', () => {
+describe('Domains & Environment Configuration (De-personalization)', () => {
   const dummyEnv: Env = {
     KV: {} as any,
     OAUTH_KV: {} as any,
@@ -50,7 +50,7 @@ describe('Domains & Environment Configuration (De-personalization, #509)', () =>
       );
     });
 
-    it('does not treat all of *.workers.dev as trusted (#533)', () => {
+    it('does not treat all of *.workers.dev as trusted', () => {
       expect(
         isAllowedHost('evil.workers.dev', 'app.example.com', 'app.example.com'),
       ).toBe(false);

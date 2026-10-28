@@ -1,4 +1,4 @@
-// Backup on the "Data" screen (issue #515).
+// Backup on the "Data" screen.
 // v2 has no separate `#/settings` — the section lives here, like the other
 // data settings. `#/settings` and `#/data/backup` only scroll to here.
 import React, { useEffect, useRef, useState } from 'react';

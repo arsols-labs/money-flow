@@ -69,7 +69,7 @@ export function ThemeDropdown({ theme, onChange }) {
   );
 }
 
-// Language choice in the header and on auth screens (issues #511, #586). The same pattern as ThemeDropdown:
+// Language choice in the header and on auth screens. The same pattern as ThemeDropdown:
 // an icon button plus a list, a click outside closes it, a check mark on the active one.
 // Language names in the menu are native and do not follow the current locale — otherwise, in
 // an unfamiliar language, there is no way to tell which item to pick.
@@ -148,7 +148,7 @@ export function LanguageDropdown() {
   );
 }
 
-// Base-currency choice in the header (issue #382 / #403). The same pattern as
+// Base-currency choice in the header. The same pattern as
 // ThemeDropdown: an icon button plus a dropdown, a click outside closes it,
 // a check mark on the active currency. buildCurrencyOptions builds the currency list:
 // unique account currencies (the requirement is only those actually
@@ -425,7 +425,7 @@ export function IncomeExpenseBars({ income, expenses, fmt }) {
 }
 
 /**
- * Loading a block's data is deferred until the first expand (issue #260).
+ * Loading a block's data is deferred until the first expand.
  *
  * All five "Data" blocks are collapsed by default, and loading the contents of what
  * is not visible means paying three requests to open the screen. Hence
@@ -440,7 +440,7 @@ export function IncomeExpenseBars({ income, expenses, fmt }) {
  */
 export function useLoadWhenExpanded(expanded, load, refreshNonce = 0) {
   const startedRef = useRef(false);
-  // Global "Refresh" (issue #381): clear the "already loaded" mark
+  // Global "Refresh": clear the "already loaded" mark
   // so a collapsed-then-expanded "Data" block re-reads data instead of
   // showing the cached list. When nonce changes, a block that is currently
   // expanded loads again; a collapsed one returns to the initial "not started"
@@ -460,7 +460,7 @@ export function useLoadWhenExpanded(expanded, load, refreshNonce = 0) {
 }
 
 /**
- * A "Data" screen block with a collapsible title (issue #260).
+ * A "Data" screen block with a collapsible title.
  *
  * Separate from CollapsibleSection above, not a replacement for it: that one lives on "Pulse",
  * on a `.card`, with a subtitle and its own state inside itself. Here
@@ -472,7 +472,7 @@ export function useLoadWhenExpanded(expanded, load, refreshNonce = 0) {
  * a hidden body, so the button would look broken.
  *
  * `collapsedActions` is an action in the header of a collapsed block (for example, a visible CTA
- * "+ Add account" on an empty database, issue #278).
+ * "+ Add account" on an empty database).
  */
 export function DataSection({ id, title, expanded, onToggle, actions, collapsedActions, children }) {
   const bodyId = `data-section-${id}`;

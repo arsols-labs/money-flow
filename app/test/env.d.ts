@@ -11,7 +11,7 @@ declare global {
       KV: KVNamespace;
       OAUTH_KV: KVNamespace;
       TEST_MIGRATIONS: D1Migration[];
-      // Needed by createSessionCookie/verifySessionCookie in test/api-v2.test.ts (S1-2).
+      // Needed by createSessionCookie/verifySessionCookie in test/api-v2.test.ts.
       SESSION_SECRET: string;
       // Dummy SETUP_TOKEN for WebAuthn registration tests.
       SETUP_TOKEN: string;

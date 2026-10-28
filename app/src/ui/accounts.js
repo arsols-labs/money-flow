@@ -1,4 +1,4 @@
-// Two hints for the account form (issue #235, account rules in ROADMAP).
+// Two hints for the account form (account rules in ROADMAP).
 //
 // Both are about the moment when a real set of accounts is entered by hand,
 // for the first time and in a row: v2 has no import from Sheets. Neither of them

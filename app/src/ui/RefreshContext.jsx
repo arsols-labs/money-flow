@@ -1,4 +1,4 @@
-// Global data refresh without reloading the page (issue #381).
+// Global data refresh without reloading the page.
 //
 // Why: the "Refresh" button in the header must actually re-read data on every
 // screen (Pulse, Data, Access), rather than calling window.location.reload() —

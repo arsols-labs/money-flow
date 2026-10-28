@@ -1,4 +1,4 @@
-// Pure helpers for the "Spending trend" chart (issue #582): expense and refund
+// Pure helpers for the "Spending trend" chart: expense and refund
 // on one scale, but as different series. The server sends minor units; here only
 // minor→major for recharts and a fallback parse of the old `total_minor` without a split.
 

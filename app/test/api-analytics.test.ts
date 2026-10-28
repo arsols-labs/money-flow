@@ -1,4 +1,4 @@
-// Tests for the POST /api/v2/analytics endpoint (S1-5b, issue #250).
+// Tests for the POST /api/v2/analytics endpoint.
 import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import app from '../src/worker/index';
@@ -166,7 +166,7 @@ describe('POST /api/v2/analytics', () => {
     expect(body.options.accounts).toEqual(['RSD Cash', 'USD Card']);
     expect(body.options.currencies).toEqual(['RSD', 'USD']);
 
-    // Daily series: net 131.00, spending and refund kept separate (issue #582)
+    // Daily series: net 131.00, spending and refund kept separate
     expect(body.series.day).toHaveLength(1);
     expect(body.series.day[0].total_minor).toBe(13100);
     expect(body.series.day[0].expense_minor).toBe(14000);
@@ -387,7 +387,7 @@ describe('POST /api/v2/analytics', () => {
     ]);
   });
 
-  it('keeps Analytics receipt grouping by store+date+account even when PFRs differ (#557)', async () => {
+  it('keeps Analytics receipt grouping by store+date+account even when PFRs differ', async () => {
     const acc = await createAccount('RSD Card', 'USD');
     await createOperation(acc.id, 'expense', -800, {
       store: 'Maxi 722', item: 'Молоко', fiscal_receipt_id: 'PFR-GROCERY',

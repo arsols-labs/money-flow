@@ -5,7 +5,7 @@ import { compactComment, ReceiptUrlLink } from '../src/ui/ReceiptUrlLink.jsx';
 import { parseHttpUrl } from '../src/shared/http-url';
 import i18n from '../src/ui/i18n.js';
 
-describe('parseHttpUrl / ReceiptUrlLink (issue #555)', () => {
+describe('parseHttpUrl / ReceiptUrlLink', () => {
   it('accepts http(s) and rejects javascript:', () => {
     expect(parseHttpUrl(' https://suf.purs.gov.rs/v/?vl=abc ')).toBe('https://suf.purs.gov.rs/v/?vl=abc');
     expect(parseHttpUrl('http://example.com/fiscal')).toBe('http://example.com/fiscal');

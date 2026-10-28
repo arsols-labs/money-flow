@@ -21,7 +21,7 @@ const series = [
   },
 ];
 
-describe('forecast chart grouping (issue #594)', () => {
+describe('forecast chart grouping', () => {
   it('chartData keeps country keys and adds account/user series', () => {
     const [point] = chartData(series, 'USD');
     expect(point.overall).toBe(100);

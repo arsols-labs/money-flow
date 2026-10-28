@@ -1,4 +1,4 @@
-// Parsing money input on the client (S1-2, issue #196).
+// Parsing money input on the client.
 //
 // Why this is tested at all, even though "CRUD and UI are smoke" per the spec: this is
 // where the user types amounts by hand, and an error here silently distorts the balance
@@ -115,7 +115,7 @@ describe('minorToInputString', () => {
   });
 });
 
-describe('formatMajorCompact (issue #582)', () => {
+describe('formatMajorCompact', () => {
   it('keeps thousands grouping instead of stripping the group as cents', () => {
     // The old axis formatter: formatMajor(v).replace(/[.,]\d+/, '') —
     // on en-US `$17,521.60` turned into `$17.60`.

@@ -2,6 +2,24 @@
 
 All notable changes to the Money Flow app are documented here.
 
+## 2.27.3 - 2026-10-28
+
+### Changed
+
+- Branch previews now use Cloudflare Workers Previews: each branch gets its own reachable preview URL with isolated demo-session storage. Production is unchanged.
+
+## 2.27.2 - 2026-10-28
+
+### Changed
+
+- Internal maintenance: the remaining source, test, and database migration comments use neutral wording, and security test files have descriptive names. Database schema and app behavior are unchanged.
+
+## 2.27.1 - 2026-10-28
+
+### Changed
+
+- Internal maintenance: source comments and test names use neutral wording, and the release tooling now checks that private-only files never reach a public copy of the repository. No user-visible behavior changes.
+
 ## 2.27.0 - 2026-10-28
 
 ### Added

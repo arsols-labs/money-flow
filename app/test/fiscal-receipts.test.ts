@@ -21,7 +21,7 @@ function op(overrides: Record<string, unknown>) {
   };
 }
 
-describe('groupFiscalReceipts (issue #557)', () => {
+describe('groupFiscalReceipts', () => {
   it('groups the Maxi same-day visit into three fiscal cards by PFR', () => {
     const ops = [
       op({ id: 3401, item: 'Молоко', amount_minor: -800, fiscal_receipt_id: 'PFR-GROCERY' }),

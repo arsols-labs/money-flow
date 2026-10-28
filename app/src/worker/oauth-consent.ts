@@ -1,4 +1,4 @@
-// S2-1: Consent page logic and CSRF protection (issue #261)
+// Consent page logic and CSRF protection
 
 import { LANGUAGE_STORAGE_KEY, resolveRequestLanguage } from '../ui/language.js';
 import { timingSafeEqualString } from './crypto-eq';

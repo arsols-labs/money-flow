@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { toIsoUtc } from '../src/worker/datetime';
 
-describe('toIsoUtc (#325)', () => {
+describe('toIsoUtc', () => {
   it('returns null for empty values', () => {
     expect(toIsoUtc(null)).toBeNull();
     expect(toIsoUtc(undefined)).toBeNull();

@@ -27,7 +27,7 @@ async function sessionCookie(): Promise<string> {
   return setCookie.split(';')[0]!;
 }
 
-describe('security #535', () => {
+describe('security hardening', () => {
   beforeEach(async () => {
     resetRateLimitMemoryForTests();
     const listed = await env.KV.list({ prefix: 'webauthn_cred' });

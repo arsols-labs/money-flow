@@ -1,4 +1,4 @@
-// Interface language selection (issue #511, #548, #586).
+// Interface language selection.
 //
 // Pure functions without i18next: default `en`, key `mf_lang`.
 import { describe, expect, it } from 'vitest';
@@ -35,7 +35,7 @@ function memoryStorage(initial: Record<string, string> = {}) {
   };
 }
 
-describe('language storage (issue #511, #548, #586)', () => {
+describe('language storage', () => {
   it('keeps en/ru/de/fr/es/pt/sr, default is en', () => {
     expect(DEFAULT_LANGUAGE).toBe('en');
     expect([...SUPPORTED_LANGUAGES]).toEqual(['en', 'ru', 'de', 'fr', 'es', 'pt', 'sr']);
@@ -127,7 +127,7 @@ describe('language storage (issue #511, #548, #586)', () => {
   });
 });
 
-describe('browser locale detect (issue #586)', () => {
+describe('browser locale detect', () => {
   it('maps exact codes and language/region prefixes', () => {
     expect(mapLocaleTag('sr')).toBe('sr');
     expect(mapLocaleTag('sr-RS')).toBe('sr');

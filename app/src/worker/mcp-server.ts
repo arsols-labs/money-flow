@@ -2825,7 +2825,7 @@ mcpApp.post('/mcp', async (c) => {
 
         // DELETE /fx-rates/:code answers 204 with no body (the api.ts contract).
         // response.json() throws on an empty body — the client would see
-        // isError even though the rate is already deleted (#327). A 204 has no body by definition.
+        // isError even though the rate is already deleted. A 204 has no body by definition.
         const mutationData: Record<string, any> =
           response.status === 204 ? {} : ((await response.json()) as Record<string, any>);
 

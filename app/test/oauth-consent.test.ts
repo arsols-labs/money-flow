@@ -33,7 +33,7 @@ function consentPage(options?: Parameters<typeof renderConsentHtml>[1]) {
   }, options);
 }
 
-describe('consent submit-once (#559)', () => {
+describe('consent submit-once', () => {
   it('keeps CSP sha256 hash byte-identical to CONSENT_SUBMIT_ONCE_JS', async () => {
     const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(CONSENT_SUBMIT_ONCE_JS));
     const b64 = btoa(String.fromCharCode(...new Uint8Array(digest)));
@@ -157,7 +157,7 @@ describe('consent page locale', () => {
 const FORM_ACTION =
   "form-action 'self' https: http://localhost:* http://127.0.0.1:*";
 
-describe('consent form-action CSP (#561)', () => {
+describe('consent form-action CSP', () => {
   it('allows any https callback and loopback ports without pinning the host', () => {
     const callbacks = [
       'https://chat.openai.com/connector_platform_oauth_redirect',

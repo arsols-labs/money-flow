@@ -1,4 +1,4 @@
-// Interface language selection (issues #511, #548, #586).
+// Interface language selection.
 //
 // A separate module without i18next: tests and i18n initialization depend on it.
 // A first visit with no mf_lang uses the browser/region language, otherwise en.

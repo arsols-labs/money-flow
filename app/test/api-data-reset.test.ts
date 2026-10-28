@@ -1,4 +1,4 @@
-// Instance reset (issue #579).
+// Instance reset.
 import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import app from '../src/worker/index';

@@ -1,4 +1,4 @@
-// Export/import user-state backup (issue #515).
+// Export/import user-state backup.
 import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import app from '../src/worker/index';

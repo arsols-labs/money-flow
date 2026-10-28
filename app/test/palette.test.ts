@@ -1,4 +1,4 @@
-// Palette v2 contrast per WCAG 2.2 (issue #252).
+// Palette v2 contrast per WCAG 2.2.
 //
 // Why a test, and not a one-off measurement: colors live in CSS variables, they
 // cannot be checked by eye, and a browser measurement via `getComputedStyle`
@@ -64,7 +64,7 @@ function over(layer: Rgb, alpha: number, base: Rgb): Rgb {
 /**
  * Tint fractions are taken from the CSS itself, not copied here as numbers:
  * a copy would silently drift from `color-mix()` — exactly why the `rgba()`
- * literals drifted from the palette (issue #252). If one token is diluted
+ * literals drifted from the palette. If one token is diluted
  * differently in different places, the densest tint is used: it is also the
  * hardest for contrast in both themes.
  */
@@ -141,7 +141,7 @@ describe.each(THEMES)('palette v2, $name theme', ({ t, hover }) => {
   });
 });
 
-describe('archived rows (issue #269)', () => {
+describe('archived rows', () => {
   it('are dimmed without losing contrast: no opacity, via token reassignment', () => {
     // In styles.css archived rows and lists must not use opacity,
     // because that drops contrast below AA 4.5:1.

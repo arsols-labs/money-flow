@@ -259,7 +259,7 @@ app.post('/api/auth/logout', async (c) => {
   return c.body(null, 204);
 });
 
-// ---------- OAuth 2.1 Provider & Consent (S2-1, issue #261) ----------
+// ---------- OAuth 2.1 Provider & Consent ----------
 
 function oauthRequestId(c: { req: { header: (name: string) => string | undefined } }): string | undefined {
   return c.req.header('cf-ray') || undefined;
@@ -477,7 +477,7 @@ app.get('/api/auth/oauth/authorize', async (c) => {
     status: 200,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
-      // Document CSP must allow navigating to redirect_uri after form POST (#561).
+      // Document CSP must allow navigating to redirect_uri after form POST.
       ...consentSecurityHeaders(oauthRequest.redirectUri),
     },
   });

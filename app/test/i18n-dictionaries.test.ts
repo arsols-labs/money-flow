@@ -31,7 +31,7 @@ function interpolationTokens(text: string): string[] {
   return [...text.matchAll(/\{\{\s*[\w.]+\s*\}\}/g)].map((m) => m[0].replace(/\s+/g, '')).sort();
 }
 
-describe('i18n dictionaries (issues #512, #513, #548, #586)', () => {
+describe('i18n dictionaries', () => {
   it('every English key exists in de/fr/es/pt/ru/sr (locales may add plural forms)', () => {
     const englishKeys = flatten(en);
     for (const [lng, dict] of Object.entries(LOCALES)) {

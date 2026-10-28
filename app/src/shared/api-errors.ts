@@ -1,4 +1,4 @@
-// Machine-readable API error contract (issue #513).
+// Machine-readable API error contract.
 //
 // 4xx/5xx JSON is always:
 //   { "error": { "code": "ACCOUNT_NOT_FOUND", "message": "Account not found" } }

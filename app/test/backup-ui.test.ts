@@ -6,7 +6,7 @@ import BackupSection from '../src/ui/BackupSection.jsx';
 import { RefreshProvider } from '../src/ui/RefreshContext.jsx';
 import { tabFromHash } from '../src/ui/Shell.jsx';
 
-describe('Backup UI (issue #515)', () => {
+describe('Backup UI', () => {
   it('renders download and restore actions', () => {
     const html = renderToStaticMarkup(
       React.createElement(RefreshProvider, null, React.createElement(BackupSection)),

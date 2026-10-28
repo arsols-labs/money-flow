@@ -1,4 +1,4 @@
-// Collapsed-block state of the "Data" screen (issue #260).
+// Collapsed-block state of the "Data" screen.
 //
 // No DOM is needed here: parsing and writing are extracted as pure functions in
 // dataSections.js, the same way account-form hints already are

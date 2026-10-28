@@ -17,7 +17,7 @@ body { background: var(--bg, #0F1115); transition: background-color 0.2s ease, c
      2.85:1 on a card — below AA even for non-text objects. The threshold is held by
      test/palette.test.ts; do not tune the numbers by hand. */
   --text-faint: #7E8495;
-  /* Forecast line colors — "Total" and the country palette (issue #198). RUS/USA/SRB
+  /* Forecast line colors — "Total" and the country palette. RUS/USA/SRB
      keep their v1 values so the chart does not "move" for people already
      used to the shades; other countries are colored by index — see forecast.js. */
   --overall: #9AA3B5;
@@ -27,7 +27,7 @@ body { background: var(--bg, #0F1115); transition: background-color 0.2s ease, c
   --safe: #6FBF8B;
   --warning: #E0B65F;
   /* The old #D9534F gave 4.39:1 on a card — expense amounts in lists did not
-     pass AA (issue #252). Lightened just enough for the threshold to hold
+     pass AA. Lightened just enough for the threshold to hold
      even on the lightest dark-theme background — `--bg-hover` over a card. */
   --danger: #DE6B67;
   --primary: #EDEFF3;
@@ -403,7 +403,7 @@ html[data-theme="light"] {
 .tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab--active { background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 7px 9px; }
 
-/* The "More" menu (Data / Access, issue #329) takes exactly one cell next
+/* The "More" menu (Data / Access) takes exactly one cell next
    to Pulse and Analytics — flex: 1 like the other tabs, not auto width from
    content, otherwise the strip stops being even. */
 .tab-more { flex: 1; display: flex; }
@@ -508,7 +508,7 @@ html[data-theme="light"] {
 .data-section-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; }
 .data-section-header h2 { margin: 0; font-size: 15px; font-weight: 600; }
 
-/* Collapsible block title (issue #260). The button inside the h2 is reset to
+/* Collapsible block title. The button inside the h2 is reset to
    look like a plain heading: no border, no background, font size and weight
    come from the h2 itself (`font: inherit`); the chevron carries all state signal.
 
@@ -533,7 +533,7 @@ html[data-theme="light"] {
 .data-section-body[hidden] { display: none; }
 .data-hint { margin: -4px 0 0; font-size: 12px; color: var(--text-faint); }
 /* Same technique as .data-warning below: the border and background carry the color, and the text
-   is normal. After the palette fix (#252) colored text would pass AA here, but
+   is normal. After the palette fix colored text would pass AA here, but
    the technique stays — a 12px message in a saturated color reads worse than the same
    text in the normal color inside a colored border.
 
@@ -553,7 +553,7 @@ html[data-theme="light"] {
    Only the border and the icon use the warning color; the text is normal.
    Originally this was because `--warning` in the light theme did not pass AA
    on the background or on the card itself (2.96:1 and 3.19:1). The palette is fixed
-   (#252), but the technique is kept — for the same reasons as .data-error above. */
+   now, but the technique is kept — for the same reasons as .data-error above. */
 .data-warning {
   display: flex; align-items: flex-start; gap: 8px;
   background: color-mix(in srgb, var(--warning) 10%, transparent);
@@ -578,7 +578,7 @@ html[data-theme="light"] {
 .data-list > .data-row + .data-row { border-top: 1px solid var(--border); }
 .data-list--archived {}
 
-/* ---------- Data: search/filter (#377) ---------- */
+/* ---------- Data: search/filter ---------- */
 
 /* Sticky panel as in "Analytics": it does not scroll away in a long section.
    top follows the actual sticky header height (`--appbar-h`, measured by
@@ -602,7 +602,7 @@ html[data-theme="light"] {
 
 .data-row { display: flex; flex-direction: column; padding: 10px 0; }
 
-/* Dimming archived rows by reassigning tokens (issue #269).
+/* Dimming archived rows by reassigning tokens.
    `opacity` cannot be used: `--text-faint` is already at the AA 4.5:1 boundary,
    and under transparency any text drops below the norm. Reassigning tokens
    guarantees contrast is preserved (all of them are >= 4.5:1). */
@@ -641,13 +641,13 @@ html[data-theme="light"] {
 .data-due--future { color: var(--text-faint); }
 
 
-/* "Same amount" — balance confirmation without changing the amount (#223). Smaller
+/* "Same amount" — balance confirmation without changing the amount. Smaller
    than a regular link-btn and without a permanent underline: the button sits at every
    account and must not compete for attention with the balance above it. Its color
    is NOT dimmed to `--text-faint`, used by the neighboring date: the date is
    static text, while the button must be noticeable. `--text-muted` from
    `.link-btn` gives 6.50 (light) and 5.65 (dark). Originally contrast was
-   also a reason — `--text-faint` gave 2.85:1 in the dark theme — but since #252
+   also a reason — `--text-faint` gave 2.85:1 in the dark theme — but since the palette fix
    it passes AA by itself, and only hierarchy remains. */
 .data-confirm-balance {
   display: inline-flex; align-items: center; gap: 4px;
@@ -666,11 +666,11 @@ html[data-theme="light"] {
    `data-row-sub` on the right under the balance, while the meta on the left lists the bank, type,
    owner and country, none of which changed. Without narrowing to
    `data-row--rate` the whole left column of the account turned warning-colored and
-   read as "something is wrong with the account" (spotted in a live run, #223). */
+   read as "something is wrong with the account" (spotted in a live run). */
 .data-row--rate.data-row--stale .data-row-meta { color: var(--warning); }
 .data-row--stale .data-row-sub { color: var(--warning); }
 
-/* Base currency rate row (#228) — the same highlight as a stale
+/* Base currency rate row — the same highlight as a stale
    rate: icon and meta in the warning color. A separate modifier rather than
    reusing `data-row--stale`, because the reason is different (the currency
    must not have a rate at all, not "the rate has not been updated for a long time"). */
@@ -738,7 +738,7 @@ html[data-theme="light"] {
 .data-form-note { font-size: 11px; color: var(--text-faint); }
 .data-form-actions { display: flex; gap: 8px; align-items: center; margin-top: 2px; }
 
-/* ---------- account alias editor (issue #339) ---------- */
+/* ---------- account alias editor ---------- */
 /* Nested in the account edit form; visually separated by a top border so it does not
    blend with the account fields. Same colors as the form — it is part of the same card. */
 .alias-editor {
@@ -802,7 +802,7 @@ html[data-theme="light"] {
    stopped in JS (stopPropagation); here it only gets spacing from the text. */
 .data-row-check { margin: 0 2px 0 0; cursor: pointer; flex-shrink: 0; }
 
-/* ---------- "Pulse": metrics, forecast, payments, accounts (issue #198) ----------
+/* ---------- "Pulse": metrics, forecast, payments, accounts ----------
    Port of app/src/ui/styles.css — the same layout on v2 theme tokens. */
 
 /* Card grid — exactly two columns on anything wider than 560px, and one below.
@@ -988,7 +988,7 @@ html[data-theme="light"] {
 .account-card--no-rate { border-color: var(--warning); }
 .account-no-rate { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--warning); margin-top: 2px; }
 
-/* Exchange rate footer (issue #421). Collapsed to one row of signs and numbers; the full
+/* Exchange rate footer. Collapsed to one row of signs and numbers; the full
    view with codes and dates opens on click — see FxFooter in components.jsx. */
 .footer { display: flex; flex-direction: column; gap: 6px; align-items: center; padding: 4px 0 0; font-size: 11px; color: var(--text-faint); }
 .fx-summary {
@@ -1678,7 +1678,7 @@ html[data-theme="light"] {
   margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--grid);
 }
 
-/* ---------- Analytics: filters and search (S1-5b) ---------- */
+/* ---------- Analytics: filters and search ---------- */
 
 /* top follows the actual sticky header height (`--appbar-h`, measured by
    Shell.jsx): the filter panel sits exactly under the header at any width, not
@@ -1737,7 +1737,7 @@ html[data-theme="light"] {
 .filter-clear { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
 .filter-clear:hover { border-color: var(--danger); }
 
-/* ---------- Analytics: breakdowns and bar rows (S1-5c) ---------- */
+/* ---------- Analytics: breakdowns and bar rows ---------- */
 
 .category-bars { display: flex; flex-direction: column; gap: 10px; }
 .category-row { display: grid; grid-template-columns: 120px 1fr auto; gap: 10px; align-items: center; font-size: 12px; }
@@ -1771,7 +1771,7 @@ html[data-theme="light"] {
   background: var(--text); color: var(--bg); border-color: var(--text); font-weight: 600;
 }
 
-/* ---------- Analytics: receipts (S1-5c) ---------- */
+/* ---------- Analytics: receipts ---------- */
 
 .receipt-list { display: flex; flex-direction: column; gap: 8px; }
 .receipt { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
@@ -1796,7 +1796,7 @@ html[data-theme="light"] {
 .receipt-line-total { font-family: var(--font-mono); white-space: nowrap; display: flex; flex-direction: column; align-items: flex-end; }
 .receipt-line-usd { font-size: 10px; color: var(--text-faint); }
 
-/* ---------- Recurring items and plans (issue #290) ---------- */
+/* ---------- Recurring items and plans ---------- */
 
 .stat-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .stat-block { background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 10px 14px; }
@@ -1907,7 +1907,7 @@ html[data-theme="light"] {
 .recurring-item-orig { font-weight: 500; color: var(--text); }
 .recurring-item-eq { font-size: 10px; color: var(--text-faint); }
 
-/* ---------- Passkeys Management (issue #507) ---------- */
+/* ---------- Passkeys Management ---------- */
 
 .passkeys-list {
   display: flex;
@@ -2052,7 +2052,7 @@ html[data-theme="light"] {
   font-family: var(--font-mono);
 }
 
-/* ---------- MCP Access & Audit (S2-2, issue #262) ---------- */
+/* ---------- MCP Access & Audit ---------- */
 
 .mcp-clients-list {
   display: flex;

@@ -1,4 +1,4 @@
-// Collapsed / expanded state of blocks on the "Data" screen (issue #260).
+// Collapsed / expanded state of blocks on the "Data" screen.
 //
 // Stored in localStorage, not in D1 settings: a write on every header click
 // and extending SETTINGS_WRITABLE_KEYS costs more than it is worth (decision
@@ -77,7 +77,7 @@ export function toggleExpanded(keys, key) {
 }
 
 /**
- * Resolves a section key from a deep link (issue #278).
+ * Resolves a section key from a deep link.
  * For example, '#/data/rates' -> 'rates', '#/data/accounts' -> 'accounts'.
  * Unknown or malformed hashes yield null.
  */

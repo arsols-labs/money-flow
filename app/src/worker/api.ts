@@ -1,4 +1,4 @@
-// CRUD API v2 (S1-2, issue #196) — accounts, exchange rates, and settings reads.
+// CRUD API v2 — accounts, exchange rates, and settings reads.
 // Every route requires a valid session (verifySessionCookie) and is mounted in
 // index.ts as `app.route('/api/v2', apiV2)` — paths here have no prefix.
 import { Hono } from 'hono';
@@ -227,7 +227,7 @@ interface AccountRow {
   type: string | null;
   account_number: string | null;
   // No `| null`: since migration 0004 both columns are NOT NULL, and an empty value
-  // is already rejected by D1 itself (#234). Before that the type honestly reflected the schema; now
+  // is already rejected by D1 itself. Before that the type honestly reflected the schema; now
   // `| null` would describe a state that does not occur in the database.
   owner: string;
   country: string;
@@ -252,7 +252,7 @@ function toAccountJson(row: AccountRow, aliases?: AliasJson[]) {
     balance_updated_at: row.balance_updated_at,
     sort: row.sort,
     archived: row.archived === 1,
-    // Account aliases — for the "Data" UI (virtual-card binding, issue #339).
+    // Account aliases — for the "Data" UI (virtual-card binding).
     // An empty array when there are none, so the client always sees the field in one shape.
     aliases: aliases ?? [],
   };
@@ -271,14 +271,14 @@ apiV2.get('/accounts', async (c) => {
   return c.json({ accounts });
 });
 
-// ---------- account aliases (issue #339) ----------
+// ---------- account aliases ----------
 //
 // Virtual cards (`Visa *6125`, `DinaCard`) are bound to a real
 // account through account_aliases. The resolver (resolveOrPend) is the only point
-// where history import (#340) and automation (#341) turn a receipt's "charge account"
+// where history import and automation turn a receipt's "charge account"
 // into an account_id; on an unknown account it does not fail, but stores a row in
 // pending_account_strings (the /pending endpoints below), which is later handled by
-// the Hermes Scheduled Job (#341) via Telegram.
+// the Hermes Scheduled Job via Telegram.
 //
 // AliasError carries its own HTTP status — catch it separately from ValidationError.
 
@@ -346,13 +346,13 @@ apiV2.post('/accounts/resolve', async (c) => {
   return c.json({ account_id: accountId, pending: accountId === null });
 });
 
-// List of unbound accounts from receipts — for the Hermes Scheduled Job (#341).
+// List of unbound accounts from receipts — for the Hermes Scheduled Job.
 apiV2.get('/accounts/pending', async (c) => {
   return c.json({ pending: await listPending(c.env.DB) });
 });
 
 // Binding an unknown account to a real one: creates an alias and removes the row from
-// pending. Called by the owner's reply to a Telegram confirmation (#341).
+// pending. Called by the owner's reply to a Telegram confirmation.
 apiV2.post('/accounts/pending/:id/bind', async (c) => {
   const pendingId = parseIdParam(c.req.param('id'));
   if (pendingId === null) return fail(c, 'NOT_FOUND', 404);
@@ -585,7 +585,7 @@ apiV2.patch('/accounts/:id', async (c) => {
   return c.json({ account: toAccountJson(row) });
 });
 
-// Balance confirmation without editing the amount (issue #223). A separate route, not
+// Balance confirmation without editing the amount. A separate route, not
 // a field in the PATCH body, for three reasons at once. The action means the opposite of an edit:
 // it does NOT change the data, it attests to them — mixing it into the endpoint
 // that changes data would lose that distinction on the first reading of the code.
@@ -646,7 +646,7 @@ apiV2.delete('/accounts/:id', async (c) => {
 
 // ---------- exchange rates ----------
 //
-// Section invariant (issue #193): a currency that is referenced must
+// Section invariant: a currency that is referenced must
 // have a rate to the base. The schema cannot express it — a SQLite CHECK cannot see another
 // table, and v2 has no triggers on purpose — so it is held here: DELETE does not
 // remove the rate of a currency in use, and GET shows currencies in use that lack a rate.
@@ -752,7 +752,7 @@ const BASE_CURRENCY_SQL = `(
  * The base currency from settings, or `null` when the value is unusable. It has no
  * rate of its own and must not have one — it is the unit of conversion, so the rate to
  * itself is one by definition. Three consequences follow: it never lands in `missing`;
- * giving it a rate is forbidden — `PUT` answers 400 (#228);
+ * giving it a rate is forbidden — `PUT` answers 400;
  * and an accidental fx_rates row for it may be deleted even while the currency is in use
  * (otherwise an input mistake could not be repaired). Entry is closed and exit is left
  * open on purpose: rows created before the ban, or by a direct database edit, would otherwise
@@ -786,7 +786,7 @@ async function readBaseCurrency(db: D1Database): Promise<string | null> {
  * Currencies referenced at least once in the database. Archived accounts count
  * the same as active ones on purpose: in v2, archive is a row flag, not a write-off
  * of money. The money is still on the account, one PATCH can unarchive it, and
- * any total it lands in still needs a rate. The original scenario #193 is built
+ * any total it lands in still needs a rate. The original scenario is built
  * exactly on "archived rows do not hold the reference data".
  */
 async function currenciesInUse(db: D1Database): Promise<Set<string>> {
@@ -889,10 +889,10 @@ apiV2.delete('/fx-rates/:code', async (c) => {
 
 // ---------- planned operations ----------
 //
-// One-off operations with a definite date (S1-3, issue #197). The row currency
+// One-off operations with a definite date. The row currency
 // is independent of the account currency — the same as accounts and expenses in CURRENCY_TABLES
 // above: the currency column is its own, changing one does not change the other, and they
-// do not have to match. The account dimension lock (issue #232) does not
+// do not have to match. The account dimension lock does not
 // apply to planned_items: the ROADMAP rule locks the account card, not the operations
 // that reference it.
 
@@ -1025,7 +1025,7 @@ async function findDuplicateExpenseId(
 /**
  * Operation kind from the sign of the planned item. A planned item has no `kind`: minus is an expense,
  * plus is income. A refund (`refund`) cannot be derived from this — a plan has none,
- * and issue #267 does not ask for one.
+ * and the product does not need one.
  */
 function kindFromPlannedAmount(amountMinor: number): 'expense' | 'income' {
   return amountMinor < 0 ? 'expense' : 'income';
@@ -1404,11 +1404,11 @@ apiV2.patch('/planned-items/:id', async (c) => {
       return fail(c, 'PLANNED_ITEM_LINKED_FACT', 409, { fields: changedProtected.join(', ') });
     }
   }
-  // An old checkbox with no operation (before #267), and a repeated done: true after
+  // An old checkbox with no operation (legacy data), and a repeated done: true after
   // the fact was deleted, take the same path as the first completion, but ONLY when
   // done: true is sent explicitly. Otherwise an ordinary edit of fields (title,
   // category) on a completed planned item tries to materialize an operation and
-  // fails on a currency mismatch with the account (#282).
+  // fails on a currency mismatch with the account.
   const needsMaterialize = updates.has('done') && updates.get('done') === 1 && !existingOp && !existingFulfillment;
   const becomingOpen = current.done === 1 && next.done === 0;
 
@@ -2115,7 +2115,7 @@ function recurringSnapshotMatches(
     && value.active === row.active;
 }
 
-// Closing a recurring-payment period (issue #280): it creates a fact operation
+// Closing a recurring-payment period: it creates a fact operation
 // (source = 'recurring'), moves the account balance, and shifts the sliding anchor
 // `next_due_date` to the next occurrence (nextOccurrence).
 //
@@ -2526,7 +2526,7 @@ apiV2.post('/recurring-items/:id/fulfill-existing', async (c) => {
   }, 201);
 });
 
-// Skipping a recurring-payment period (issue #280): shifts the anchor to the next
+// Skipping a recurring-payment period: shifts the anchor to the next
 // occurrence without creating an operation and without changing the balance.
 apiV2.post('/recurring-items/:id/skip-period', async (c) => {
   const id = parseIdParam(c.req.param('id'));
@@ -2633,7 +2633,7 @@ function recurringCancelRewindTarget(
     : null;
 }
 
-// Cancel a recurring period fulfillment (issue #565): drop the durable
+// Cancel a recurring period fulfillment: drop the durable
 // occurrence history and any operation links without inventing balances.
 // The leftover operation, if any, becomes an ordinary deletable expense.
 // When this period is still the latest resolved occurrence and the rule
@@ -2710,7 +2710,7 @@ apiV2.post('/recurring-items/:id/cancel-period-fulfillment', async (c) => {
 
 // ---------- operations ----------
 //
-// Expenses, income, and refunds in one table (S1-5a, issue #200; owner decision
+// Expenses, income, and refunds in one table (owner decision
 // of 2026-08-12, which cancelled the spec's former premise that "an expense has no account"). Three rules,
 // without which the rest of this section reads as arbitrary:
 //
@@ -2735,7 +2735,7 @@ apiV2.post('/recurring-items/:id/cancel-period-fulfillment', async (c) => {
 // the screen shows the future value before save, so the effect is visible.
 //
 // `balance_updated_at` is NOT moved when that happens, and that too is a decision: the mark
-// means "I reconciled with the bank" (issue #223), and a correction we computed
+// means "I reconciled with the bank", and a correction we computed
 // is not a reconciliation. Moving the mark would clear the "time to
 // reconcile" reminder at the exact moment the gap with the bank is growing.
 
@@ -3088,7 +3088,7 @@ apiV2.patch('/operations/:id', async (c) => {
       // Without this check, moving "1,500.00 RSD" onto a dollar account would answer 200
       // and leave `amount_minor` unchanged: 1,500 dinars would silently become
       // 1,500 dollars, with no column changed. Caught by an independent
-      // run of rule 13. The dimension lock (#232) does not close this path — it
+      // run of rule 13. The dimension lock does not close this path — it
       // forbids changing the currency OF THE ACCOUNT, not moving an operation onto an account in another
       // currency.
       //
@@ -3430,7 +3430,7 @@ apiV2.delete('/transfers/:id', async (c) => {
   return c.body(null, 204);
 });
 
-// Atomic edit of a transfer (#401): instead of forbidding a PATCH of each leg
+// Atomic edit of a transfer: instead of forbidding a PATCH of each leg
 // on its own, both operations are updated in one batch. Balances are adjusted with the same
 // live subqueries as PATCH /operations (each reads the live row,
 // not a snapshot, which closes lost updates under concurrent edits). Changing
@@ -3585,7 +3585,7 @@ apiV2.put('/transfers/:id', async (c) => {
 // ---------- forecast ----------
 //
 // The engine (forecast/build.ts) is a pure function with no D1. All data loading
-// lives in forecast/load.ts (issue #198, S1-4). The route below only joins the two
+// lives in forecast/load.ts. The route below only joins the two
 // and serializes BigInt fields to ordinary JS numbers — the same technique as
 // balance_minor and rate_e9 elsewhere in API v2. Amounts here always fit in
 // Number.isSafeInteger, and JSON.stringify cannot serialize a bigint at all.
@@ -3789,7 +3789,7 @@ apiV2.put('/settings/:key', async (c) => {
   return c.json({ settings: await readAllSettings(c.env.DB) });
 });
 
-// ---------- analytics (S1-5b) ----------
+// ---------- analytics ----------
 
 apiV2.post('/analytics', async (c) => {
   let startDate: string | null = null;
@@ -3899,16 +3899,16 @@ apiV2.post('/analytics', async (c) => {
   }
 });
 
-// ---------- Backup export/import (issue #515) ----------
+// ---------- Backup export/import ----------
 apiV2.route('/backup', backupApi);
 
-// ---------- Instance reset (issue #579) ----------
+// ---------- Instance reset ----------
 apiV2.route('/data', dataApi);
 
-// ---------- Passkeys Management (issue #507) ----------
+// ---------- Passkeys Management ----------
 apiV2.route('/passkeys', passkeysApi);
 
-// ---------- MCP Access & Audit (S2-2, issue #262) ----------
+// ---------- MCP Access & Audit ----------
 apiV2.route('/mcp', mcpApi);
 
 export default apiV2;

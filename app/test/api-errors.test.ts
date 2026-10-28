@@ -17,7 +17,7 @@ import sr from '../src/ui/locales/sr.json';
 
 const ERROR_LOCALES = { en, ru, de, fr, es, pt, sr } as const;
 
-describe('API error catalog (issue #513, #548)', () => {
+describe('API error catalog', () => {
   it('every catalog code has an English message and matching i18n keys', () => {
     for (const code of API_ERROR_CODES) {
       expect(API_ERROR_MESSAGES[code].length, code).toBeGreaterThan(0);

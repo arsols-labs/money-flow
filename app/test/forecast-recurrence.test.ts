@@ -1,4 +1,4 @@
-// Unit tests of recurring-payment expansion (issue #198, S1-4). Adapted
+// Unit tests of recurring-payment expansion. Adapted
 // from the golden tests in archive/v2-codex (app/test/readmodel.test.ts, describe
 // 'forecast golden') to the v2 schema: RecurringRule has no start_date, the day anchor
 // is taken directly from day_of_month/month_of_year (see the docblock in
@@ -224,7 +224,7 @@ describe('expandRecurring — the MAX_OCCURRENCES ceiling', () => {
   });
 });
 
-describe('expandRecurringRule — overdue occurrences and debt (issue #279)', () => {
+describe('expandRecurringRule — overdue occurrences and debt', () => {
   it('anchor a month ago, asOf = today: 2 overdue (a month ago + today) and the following dates', () => {
     const r = rule({ frequency: 'monthly', day_of_month: 15, next_due_date: '2026-07-15' });
     const asOf = '2026-08-15';

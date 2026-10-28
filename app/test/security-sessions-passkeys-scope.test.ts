@@ -24,7 +24,7 @@ async function sessionCookie(opts?: { iat?: number; cid?: string }): Promise<str
   return setCookie.split(';')[0]!;
 }
 
-describe('security #539', () => {
+describe('security hardening', () => {
   beforeEach(async () => {
     await env.KV.delete('auth_epoch');
     await env.DB.prepare(
