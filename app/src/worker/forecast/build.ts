@@ -68,10 +68,10 @@ export function buildForecast(input: BuildForecastInput): BuildForecastResult {
     input;
 
   if (!Number.isInteger(horizonDays) || horizonDays < 1 || horizonDays > 366) {
-    throw new RangeError('buildForecast: horizonDays должен быть целым числом 1..366');
+    throw new RangeError('buildForecast: horizonDays must be an integer 1..366');
   }
   if (!Number.isInteger(cashFlowDays) || cashFlowDays < 1) {
-    throw new RangeError('buildForecast: cashFlowDays должен быть целым числом >= 1');
+    throw new RangeError('buildForecast: cashFlowDays must be an integer >= 1');
   }
   const cashFlowIndex = Math.min(cashFlowDays, horizonDays) - 1;
 

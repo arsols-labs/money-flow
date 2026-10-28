@@ -1,0 +1,125 @@
+// Demo Worker config template (demo.money-flow.arsols.com). Public-eligible: placeholder ids.
+// Replace <DEMO_KV_ID> (KV and OAUTH_KV intentionally share one namespace) and <DEMO_D1_ID>.
+// Secrets are set out-of-band by name only (SESSION_SECRET, SETUP_TOKEN); never commit values.
+// Deploy from app/ (dry-run first; Wrangler needs Node >= 22):
+//   npm ci && npm run build && npx -y node@22 ./node_modules/.bin/wrangler deploy --config wrangler.demo.jsonc --dry-run
+//   npm ci && npm run build && npx -y node@22 ./node_modules/.bin/wrangler deploy --config wrangler.demo.jsonc
+// Keep the Durable Object migration tag exactly "v1-demo-session".
+{
+ "name": "money-flow-demo",
+ "main": "src/worker/index.ts",
+ "compatibility_date": "2026-08-08",
+ "compatibility_flags": [
+  "global_fetch_strictly_public"
+ ],
+ "workers_dev": false,
+ "preview_urls": false,
+ "assets": {
+  "directory": "dist/client",
+  "binding": "ASSETS",
+  "not_found_handling": "single-page-application",
+  "run_worker_first": [
+   "/api/*",
+   "/mcp",
+   "/mcp/*",
+   "/.well-known/*",
+   "/setup/passkey",
+   "/setup/passkey/"
+  ]
+ },
+ "kv_namespaces": [
+  {
+   "binding": "KV",
+   "id": "<DEMO_KV_ID>"
+  },
+  {
+   "binding": "OAUTH_KV",
+   "id": "<DEMO_KV_ID>"
+  }
+ ],
+ "d1_databases": [
+  {
+   "binding": "DB",
+   "database_name": "money-flow-demo-db",
+   "database_id": "<DEMO_D1_ID>"
+  }
+ ],
+ "durable_objects": {
+  "bindings": [
+   {
+    "name": "DEMO_SESSION",
+    "class_name": "DemoSession"
+   }
+  ]
+ },
+ "migrations": [
+  {
+   "tag": "v1-demo-session",
+   "new_sqlite_classes": [
+    "DemoSession"
+   ]
+  }
+ ],
+ "rules": [
+  {
+   "type": "Text",
+   "globs": [
+    "migrations/*.sql",
+    "scripts/*.sql"
+   ],
+   "fallthrough": true
+  }
+ ],
+ "vars": {
+  "APP_DOMAIN": "demo.money-flow.arsols.com",
+  "DEMO_MODE": "1"
+ },
+ "ratelimits": [
+  {
+   "name": "RATE_LIMIT_OAUTH_REGISTER",
+   "namespace_id": "200001",
+   "simple": {
+    "limit": 10,
+    "period": 60
+   }
+  },
+  {
+   "name": "RATE_LIMIT_AUTH_SETUP",
+   "namespace_id": "200002",
+   "simple": {
+    "limit": 8,
+    "period": 60
+   }
+  },
+  {
+   "name": "RATE_LIMIT_AUTH_LOGIN",
+   "namespace_id": "200003",
+   "simple": {
+    "limit": 20,
+    "period": 60
+   }
+  },
+  {
+   "name": "RATE_LIMIT_MCP_DISPATCH",
+   "namespace_id": "200004",
+   "simple": {
+    "limit": 60,
+    "period": 60
+   }
+  },
+  {
+   "name": "RATE_LIMIT_DEMO_SESSION",
+   "namespace_id": "200005",
+   "simple": {
+    "limit": 30,
+    "period": 60
+   }
+  }
+ ],
+ "routes": [
+  {
+   "pattern": "demo.money-flow.arsols.com",
+   "custom_domain": true
+  }
+ ]
+}

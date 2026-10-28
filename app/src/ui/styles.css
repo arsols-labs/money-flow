@@ -12,35 +12,33 @@ body { background: var(--bg, #0F1115); transition: background-color 0.2s ease, c
   --grid: #23272F;
   --text: #EDEFF3;
   --text-muted: #8D93A1;
-  /* Lighter than the quietest token would suggest: real text uses it
-     (the date under a balance, form labels, the footer), and the old #5C6270
-     was 2.85:1 on a card, below AA even for non-text. The threshold is
-     enforced by test/palette.test.ts. Do not pick the numbers by hand. */
+  /* Lighter than the "quietest" token would suggest: it sets real text
+     (the date under a balance, form labels, footer), and the old #5C6270 gave
+     2.85:1 on a card — below AA even for non-text objects. The threshold is held by
+     test/palette.test.ts; do not tune the numbers by hand. */
   --text-faint: #7E8495;
-  /* Forecast line colors: Overall and the country palette (issue #198).
-     RUS/USA/SRB keep their v1 values so the chart does not shift for people
-     who already know the shades. Other countries are colored by index.
-     See forecast.js. */
+  /* Forecast line colors — "Total" and the country palette (issue #198). RUS/USA/SRB
+     keep their v1 values so the chart does not "move" for people already
+     used to the shades; other countries are colored by index — see forecast.js. */
   --overall: #9AA3B5;
   --rus: #D98757;
   --usa: #5B8FC7;
   --srb: #6FBF8B;
   --safe: #6FBF8B;
   --warning: #E0B65F;
-  /* The old #D9534F was 4.39:1 on a card, so expense amounts in lists failed
-     AA (issue #252). Lightened just enough for the threshold to hold on the
-     lightest dark-theme background, `--bg-hover` over a card. */
+  /* The old #D9534F gave 4.39:1 on a card — expense amounts in lists did not
+     pass AA (issue #252). Lightened just enough for the threshold to hold
+     even on the lightest dark-theme background — `--bg-hover` over a card. */
   --danger: #DE6B67;
   --primary: #EDEFF3;
-  /* Fonts. IBM Plex: a grotesque with tabular figures and a matching mono,
-     so money in columns does not shift when values update. The fallbacks are
-     not decorative: the web font loads from another domain and may not arrive,
-     and the system grotesque must keep the same metrics or the UI jumps on
-     the first frame. */
+  /* Fonts. IBM Plex: a grotesque with tabular figures and its paired monospace —
+     money in columns does not "dance" on refresh. The fallbacks are not decorative:
+     the web font loads from an external domain and may not arrive, and the system
+     grotesque must give the same metrics, or the interface jumps on the first frame. */
   --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  /* Sticky header height. Shell.jsx sets the value from the real block size.
-     This is only a fallback for the first frame, before that effect runs. */
+  /* Sticky header height. Shell.jsx sets the value from the actual
+     block size; this is only the first-frame fallback, before the effect runs. */
   --appbar-h: 92px;
 }
 
@@ -56,17 +54,16 @@ html[data-theme="light"] {
   --text-faint: #525866;
   --overall: #464D5D;
   --primary: #17191E;
-  /* All three are darker than before. On the light theme the threshold is set
-     by the darker `--bg` and by the colored background of the Expense/Income
-     buttons, not by the card. `--warning` at 3.19:1 failed AA entirely.
-     `--safe` and `--danger` were barely over (4.53 against a 4.50 threshold)
-     and fell to 4.18 on `--bg`. */
+  /* All three are darker than before: in the light theme the threshold is set not by the card but by the darker
+     `--bg` and the buttons' own colored background ("Expense"/"Income").
+     `--warning` at 3.19:1 did not pass AA at all, `--safe` and `--danger` were
+     borderline (4.53 against a 4.50 threshold) and dropped to 4.18 on `--bg`. */
   --safe: #157147;
   --danger: #C12231;
   --warning: #A75B05;
 }
 
-/* ---------- Window size classes and navigation ---------- */
+/* ---------- Window Size Classes and navigation ---------- */
 .app {
   font-family: var(--font-sans);
   background: var(--bg);
@@ -92,7 +89,7 @@ html[data-theme="light"] {
   width: 100%;
 }
 
-/* Navigation rail (Medium and Expanded, >= 600px) */
+/* Navigation Rail (Medium & Expanded >= 600px) */
 .nav-rail {
   width: 72px;
   flex-shrink: 0;
@@ -360,9 +357,9 @@ html[data-theme="light"] {
   border-color: var(--border-hover);
 }
 .topbar-btn--icon { padding: 8px 10px; width: 34px; }
-/* The currency sign is a font glyph, not a library icon, so its size is set
-   here rather than by a `size` prop. The monospace font keeps the button
-   width steady for "$" and for a multi-letter sign. */
+/* The currency sign is not a library icon but a font glyph, so its size is set
+   here, not via the `size` prop. The monospace font keeps the button width even
+   for both "$" and the compound "zł". */
 .topbar-btn--currency { font-family: var(--font-mono); padding: 8px 6px; }
 .currency-glyph { font-size: 16px; font-weight: 600; line-height: 1; }
 .currency-flag { font-size: 15px; line-height: 1; }
@@ -391,8 +388,8 @@ html[data-theme="light"] {
 
 /* ---------- sections (tabs) ---------- */
 
-/* The section strip lives inside the sticky .appbar (see above). It is no
-   longer sticky itself: two sticky elements with the same `top` would overlap. */
+/* The section strip lives inside the sticky .appbar (see above) — it no longer has
+   its own sticky: two sticky elements with a shared `top` would overlap each other. */
 .tabs {
   display: flex; background: var(--bg-card); border: 1px solid var(--border);
   border-radius: 10px; padding: 3px; gap: 3px;
@@ -406,9 +403,9 @@ html[data-theme="light"] {
 .tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab--active { background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 7px 9px; }
 
-/* The More menu (Data / Access, issue #329) takes exactly one cell next to
-   Pulse and Analytics: flex 1, like the other tabs, not a content-sized width.
-   Otherwise the strip stops being even. */
+/* The "More" menu (Data / Access, issue #329) takes exactly one cell next
+   to Pulse and Analytics — flex: 1 like the other tabs, not auto width from
+   content, otherwise the strip stops being even. */
 .tab-more { flex: 1; display: flex; }
 .tab-more .tab { width: 100%; }
 .dropdown-menu--tabs { left: 0; right: auto; min-width: 160px; }
@@ -440,8 +437,8 @@ html[data-theme="light"] {
   display: flex; flex-direction: column; gap: 14px; text-align: center; align-items: center;
 }
 .auth-card h1 { font-size: 20px; font-weight: 600; margin: 0; }
-/* Eyebrow label above auth-screen titles (Login.jsx, PasskeySetup.jsx).
-   It uses the font token, not a literal, so it moves with the theme. */
+/* Eyebrow caption above the auth screen titles (Login.jsx, PasskeySetup.jsx).
+   Uses the font token, not a literal, so it moves along with the theme. */
 .eyebrow { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted); }
 .auth-hint { font-size: 13px; color: var(--text-muted); margin: 0; line-height: 1.5; }
 .auth-error { font-size: 12px; color: var(--danger); word-break: break-word; }
@@ -488,11 +485,11 @@ html[data-theme="light"] {
   display: flex; gap: 2px; margin-top: 4px; justify-content: flex-end;
 }
 
-/* ---------- Data screen ---------- */
+/* ---------- "Data" screen ---------- */
 
-/* Vertical rhythm of the screen: the same gap between blocks in every
-   section. Individual cards do not set their own margins, or the rhythm
-   breaks exactly where someone forgot a margin (see ui-patterns.md). */
+/* Vertical rhythm of the screen: the same gap between blocks in all
+   sections. Individual cards get no margins — otherwise the rhythm
+   breaks exactly where someone forgot a margin (ui-patterns.md spec). */
 .screen { display: flex; flex-direction: column; gap: 14px; }
 .data-screen { display: flex; flex-direction: column; gap: 14px; }
 .data-loading, .data-error-panel {
@@ -505,22 +502,22 @@ html[data-theme="light"] {
   background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 14px;
   display: flex; flex-direction: column; gap: 10px;
 }
-/* Data section header. Same pattern as .card-head (below): title on the
-   left, controls on the right. The class is separate for historical reasons,
-   but the rules are shared so sections stay aligned. */
+/* "Data" section header — the same pattern as .card-head (see below): title
+   on the left, controls on the right. The class is separate for historical reasons, but
+   the rules are shared so sections do not drift apart. */
 .data-section-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; }
 .data-section-header h2 { margin: 0; font-size: 15px; font-weight: 600; }
 
-/* Heading of a collapsible block (issue #260). The button inside the h2 is
-   reset to look like a plain heading: no border, no background, font size and
-   weight come from the h2 (`font: inherit`). The chevron carries the state.
+/* Collapsible block title (issue #260). The button inside the h2 is reset to
+   look like a plain heading: no border, no background, font size and weight
+   come from the h2 itself (`font: inherit`); the chevron carries all state signal.
 
-   Hover dims the color instead of highlighting it, unlike `.data-archive-toggle`
-   below, which goes from `--text-muted` to `--text`. The heading is already
-   in the primary color, and nothing in the palette is brighter than `--text`.
+   Hover dims the color instead of highlighting it — unlike `.data-archive-toggle`
+   below, which goes from `--text-muted` to `--text`. The title is already set
+   in the main color, and nothing in the palette is brighter than `--text`: there is nothing to highlight with.
 
-   `outline` is left in place on purpose: the browser focus ring is the only
-   sign of where the keyboard is. The project does not draw its own. */
+   `outline` is intentionally not reset: the browser focus ring here is
+   the only sign of where the keyboard is; the project has none of its own. */
 .data-section-toggle {
   display: flex; align-items: center; gap: 6px;
   margin: 0; padding: 0; border: 0; background: none;
@@ -528,36 +525,35 @@ html[data-theme="light"] {
 }
 .data-section-toggle:hover { color: var(--text-muted); }
 
-/* The block body stays in the DOM and is hidden by an attribute. The
-   `display: none` from [hidden] in UA styles loses to any `display` we set,
-   so hiding is written explicitly. Otherwise the flex container below would
-   override hidden and a collapsed block would stay on screen. */
+/* The block body stays in the DOM and is hidden by the attribute. `display: none` from [hidden]
+   in UA styles is weaker than any of our `display` values, so hiding is spelled out explicitly —
+   otherwise the flex container below would override hidden and the collapsed block would stay
+   on screen. */
 .data-section-body { display: flex; flex-direction: column; gap: 10px; }
 .data-section-body[hidden] { display: none; }
 .data-hint { margin: -4px 0 0; font-size: 12px; color: var(--text-faint); }
-/* Same approach as .data-warning below: the border and background carry the
-   color, and the text stays normal. After the palette fix (#252) colored text
-   here would pass AA, but the approach stays. A 12px message in a saturated
-   color is harder to read than the same text in the normal color inside a
-   colored border.
+/* Same technique as .data-warning below: the border and background carry the color, and the text
+   is normal. After the palette fix (#252) colored text would pass AA here, but
+   the technique stays — a 12px message in a saturated color reads worse than the same
+   text in the normal color inside a colored border.
 
-   The background is the token itself at 10%. A separate rgba() literal next
-   to it would be a second copy of the color that silently drifts from the
-   theme (that already happened: a literal left over from the old `--danger`
-   painted a reddish plate under a dark-red border on the light theme). */
+   The background is the token itself diluted to 10%: keeping a separate rgba() literal
+   next to it means a second copy of the color that silently drifts from the theme
+   (that happened — the literal was left over from the old `--danger` and in the light theme gave
+   a reddish plate under a dark red border). */
 .data-error {
   background: color-mix(in srgb, var(--danger) 10%, transparent);
   border: 1px solid var(--danger); color: var(--text);
   border-radius: 8px; padding: 8px 10px; font-size: 12px;
 }
 
-/* A currency in use with no exchange rate. The tone is a warning, not an
-   error (.data-error): this is fixable data, not a failed request.
+/* A currency in use without a rate. The tone is a warning, not an error (.data-error):
+   this is a fixable data state, not a request failure.
 
-   Only the border and the icon use the warning color. The text stays normal.
-   That started because `--warning` on the light theme failed AA both on the
-   plate and on the card (2.96:1 and 3.19:1). The palette is fixed (#252), but
-   the approach stays, for the same reason as .data-error above. */
+   Only the border and the icon use the warning color; the text is normal.
+   Originally this was because `--warning` in the light theme did not pass AA
+   on the background or on the card itself (2.96:1 and 3.19:1). The palette is fixed
+   (#252), but the technique is kept — for the same reasons as .data-error above. */
 .data-warning {
   display: flex; align-items: flex-start; gap: 8px;
   background: color-mix(in srgb, var(--warning) 10%, transparent);
@@ -568,9 +564,8 @@ html[data-theme="light"] {
 .data-warning-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .data-warning-body p { margin: 0; }
 .data-warning-actions { display: flex; flex-wrap: wrap; gap: 10px; }
-/* :hover is declared explicitly. Otherwise this rule would lose to the shared
-   `.link-btn:hover` (same specificity, later in the file) and the buttons
-   would not react. */
+/* :hover is declared explicitly — otherwise this rule would override the shared `.link-btn:hover`
+   (same specificity, but it is lower in the file), and the buttons would not react. */
 .data-warning-actions .link-btn { color: var(--text-muted); }
 .data-warning-actions .link-btn:hover { color: var(--text); }
 
@@ -583,12 +578,12 @@ html[data-theme="light"] {
 .data-list > .data-row + .data-row { border-top: 1px solid var(--border); }
 .data-list--archived {}
 
-/* ---------- Data: search and filter (#377) ---------- */
+/* ---------- Data: search/filter (#377) ---------- */
 
-/* Sticky panel, as on Analytics: it stays put while a long section scrolls.
-   top uses the real sticky-header height (`--appbar-h`, measured by Shell.jsx).
-   A hand-picked number with slack disagreed with the real height and left a
-   gap or an overlap. z-index is below the header and above the cards so
+/* Sticky panel as in "Analytics": it does not scroll away in a long section.
+   top follows the actual sticky header height (`--appbar-h`, measured by
+   Shell.jsx): a number picked "with margin" drifted from the real height and
+   left a gap or caused overlap. z-index is below the header but above the cards —
    content does not show through. */
 .data-filter-bar {
   position: sticky; top: var(--appbar-h); z-index: 10;
@@ -607,10 +602,10 @@ html[data-theme="light"] {
 
 .data-row { display: flex; flex-direction: column; padding: 10px 0; }
 
-/* Archived rows are dimmed by reassigning tokens (issue #269). Do not use
-   `opacity`: `--text-faint` is already at the AA 4.5:1 boundary, and any text
-   under transparency falls below the bar. Reassigning tokens keeps contrast
-   (each of them is >= 4.5:1). */
+/* Dimming archived rows by reassigning tokens (issue #269).
+   `opacity` cannot be used: `--text-faint` is already at the AA 4.5:1 boundary,
+   and under transparency any text drops below the norm. Reassigning tokens
+   guarantees contrast is preserved (all of them are >= 4.5:1). */
 .data-row--archived {
   --text: var(--text-muted);
   --text-muted: var(--text-faint);
@@ -620,7 +615,7 @@ html[data-theme="light"] {
   --overall: var(--text-muted);
 }
 
-/* Top account row: name and meta stacked on the left, balance and date on the right. */
+/* Top row of an account: name+meta stacked on the left, balance+date on the right. */
 .data-row-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; cursor: pointer; }
 .data-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .data-row-title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; color: var(--text); }
@@ -637,7 +632,7 @@ html[data-theme="light"] {
 .receipt-url-link:hover { color: var(--text); }
 
 .data-row-value { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
-/* inline-flex so the "time to reconcile" icon sits on the same line as the date. */
+/* inline-flex so the "time to reconcile" icon sits on one line with the date. */
 .data-row-sub { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-faint); }
 .data-due--overdue { color: var(--danger); font-weight: 500; }
 .data-due--today { color: var(--warning); font-weight: 500; }
@@ -646,40 +641,39 @@ html[data-theme="light"] {
 .data-due--future { color: var(--text-faint); }
 
 
-/* "Same amount" confirms a balance without editing the amount (#223). Smaller
-   than a normal link-btn and without a permanent underline: the button sits on
-   every account and must not compete with the balance above it. The color is
-   not dimmed to `--text-faint`, which the neighboring date uses. The date is
-   static text; the button has to stay noticeable. `--text-muted` from
-   `.link-btn` is 6.50 (light) and 5.65 (dark). Contrast was also a reason:
-   `--text-faint` was 2.85:1 on the dark theme. Since #252 it passes AA on its
-   own, so only the hierarchy remains. */
+/* "Same amount" — balance confirmation without changing the amount (#223). Smaller
+   than a regular link-btn and without a permanent underline: the button sits at every
+   account and must not compete for attention with the balance above it. Its color
+   is NOT dimmed to `--text-faint`, used by the neighboring date: the date is
+   static text, while the button must be noticeable. `--text-muted` from
+   `.link-btn` gives 6.50 (light) and 5.65 (dark). Originally contrast was
+   also a reason — `--text-faint` gave 2.85:1 in the dark theme — but since #252
+   it passes AA by itself, and only hierarchy remains. */
 .data-confirm-balance {
   display: inline-flex; align-items: center; gap: 4px;
   font-size: 11px; text-decoration: none; margin-top: 2px;
 }
 .data-confirm-balance:hover { color: var(--text); text-decoration: underline; }
 
-/* An exchange rate is one block (no separate data-row-top): name, meta, and the delete button in a row. */
+/* Exchange rate — one block (no separate data-row-top), name+meta and the delete button in a row. */
 .data-row--rate { flex-direction: row; align-items: flex-start; justify-content: space-between; }
 .data-row--rate .data-row-main { flex-direction: column; gap: 2px; }
 .data-rate-expr { display: inline-flex; align-items: baseline; gap: 4px; }
 
 .data-row--stale .data-stale-icon { color: var(--warning); }
-/* Highlight only the row that holds the date, or the warning points at the
-   wrong thing. For a rate that is the meta ("updated ... rate is stale"). For
-   an account it is `data-row-sub` on the right under the balance. The meta on
-   the left lists bank, type, owner, and country, which are fine. Without the
-   `data-row--rate` narrowing, the whole left account column turned warning
-   color and read as "something is wrong with the account" (seen in a live
-   pass, #223). */
+/* Only the row that holds the date is highlighted — otherwise the warning
+   points at the wrong thing. For a rate it is the meta (`updated … · rate is stale`), for an account it is
+   `data-row-sub` on the right under the balance, while the meta on the left lists the bank, type,
+   owner and country, none of which changed. Without narrowing to
+   `data-row--rate` the whole left column of the account turned warning-colored and
+   read as "something is wrong with the account" (spotted in a live run, #223). */
 .data-row--rate.data-row--stale .data-row-meta { color: var(--warning); }
 .data-row--stale .data-row-sub { color: var(--warning); }
 
-/* The base-currency rate row (#228) uses the same highlight as a stale rate:
-   icon and meta in the warning color. A separate modifier, not a reuse of
-   `data-row--stale`, because the reason is different (the currency must not
-   have a rate at all, rather than "the rate has not been updated"). */
+/* Base currency rate row (#228) — the same highlight as a stale
+   rate: icon and meta in the warning color. A separate modifier rather than
+   reusing `data-row--stale`, because the reason is different (the currency
+   must not have a rate at all, not "the rate has not been updated for a long time"). */
 .data-row--rate-invalid .data-stale-icon { color: var(--warning); }
 .data-row--rate-invalid .data-row-meta { color: var(--warning); }
 .data-rate-expr .data-rate-value { font-size: 13px; font-weight: 600; padding: 0 4px; }
@@ -721,7 +715,7 @@ html[data-theme="light"] {
 }
 .inline-editable-error { font-size: 11px; color: var(--danger); text-align: right; max-width: 140px; }
 
-/* ---------- forms (create or edit an account or a rate) ---------- */
+/* ---------- forms (create/edit account, rate) ---------- */
 
 .data-form {
   display: flex; flex-direction: column; gap: 8px; background: var(--bg); border: 1px solid var(--border);
@@ -735,19 +729,18 @@ html[data-theme="light"] {
 }
 .data-form-field input:focus, .data-form-field select:focus { outline: none; border-color: var(--border-hover); }
 .data-form-error { font-size: 12px; color: var(--danger); }
-/* Warning under a field, in orange: "currency changed, check the amount". */
+/* Warning under a field — orange: "currency changed, check the amount". */
 .data-form-hint { font-size: 11px; color: var(--warning); }
-/* Hint under a field: ordinary muted text. It needs its own class because
-   color carries meaning here. Painting the hint "empty means the day comes
-   from the date" in the warning color would cheapen the real warnings that
-   sit next to it in the same forms. */
+/* Hint under a field — normal muted text. A separate class is needed
+   precisely because color carries meaning here: coloring the hint "empty — the day
+   is taken from the date" in the warning color would devalue the real warnings
+   that sit next to it in the same forms. */
 .data-form-note { font-size: 11px; color: var(--text-faint); }
 .data-form-actions { display: flex; gap: 8px; align-items: center; margin-top: 2px; }
 
 /* ---------- account alias editor (issue #339) ---------- */
-/* Nested in the account edit form and separated by a top border so it does
-   not blend into the account fields. Colors match the form: it is part of
-   the same card. */
+/* Nested in the account edit form; visually separated by a top border so it does not
+   blend with the account fields. Same colors as the form — it is part of the same card. */
 .alias-editor {
   border-top: 1px solid var(--border); padding-top: 10px; margin-top: 2px;
   display: flex; flex-direction: column; gap: 8px;
@@ -769,7 +762,7 @@ html[data-theme="light"] {
 }
 .alias-add input:focus { outline: none; border-color: var(--border-hover); }
 
-/* ---------- planned and recurring: Expense/Income switch ---------- */
+/* ---------- planned/recurring: Expense/Income toggle ---------- */
 
 .data-kind-toggle { display: flex; gap: 6px; }
 .data-kind-btn {
@@ -778,10 +771,9 @@ html[data-theme="light"] {
 }
 .data-kind-btn:hover:not(:disabled) { border-color: var(--border-hover); }
 .data-kind-btn:disabled { opacity: 0.6; cursor: default; }
-/* The background is the token at 10/12%, not an rgba literal. This is the
-   only place where a colored token carries TEXT on top of its own background,
-   and the 4.5 threshold is measured from that background. The plate sits on
-   `--bg` (the .data-form background), not on the card. */
+/* The background is the token itself at 10/12%, not an rgba literal: this is the only place where
+   a colored token carries TEXT over its own background, and the 4.5 threshold is computed
+   against it. The background sits over `--bg` (the .data-form background), not the card. */
 .data-kind-btn--active.data-kind-btn--expense {
   border-color: var(--danger); color: var(--danger);
   background: color-mix(in srgb, var(--danger) 10%, transparent);
@@ -795,30 +787,30 @@ html[data-theme="light"] {
   background: color-mix(in srgb, var(--overall) 12%, transparent);
 }
 
-/* Planned and recurring amounts carry color on the amount itself, not only
-   on the minus sign (unlike accounts, whose amounts are not signed). Expense
-   and income should be distinguishable at a glance, not only after reading
-   the number. */
+/* Planned/recurring amount — the amount itself carries the color (unlike
+   accounts, where the amount is never signed), not only the minus: expense and income
+   must differ at a glance, not only after reading the number. */
 .data-amount { font-family: var(--font-mono); font-size: 14px; font-weight: 600; }
 .data-amount--expense { color: var(--danger); }
 .data-amount--income { color: var(--safe); }
 
-/* The date in a planned-operation row title is not its own column. It is a
-   monospace accent before the name. */
+/* Date in the planned item row title — not a separate column, just
+   a monospace accent before the title. */
 .data-row-date { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); flex-shrink: 0; }
 
 /* The "done" checkbox sits inside a clickable row, so its click is already
-   stopped in JS (stopPropagation). Here it only needs space away from the text. */
+   stopped in JS (stopPropagation); here it only gets spacing from the text. */
 .data-row-check { margin: 0 2px 0 0; cursor: pointer; flex-shrink: 0; }
 
-/* ---------- Pulse: metrics, forecast, payments, accounts (issue #198) ----------
-   Port of the Pulse layout onto v2 theme tokens. */
+/* ---------- "Pulse": metrics, forecast, payments, accounts (issue #198) ----------
+   Port of app/src/ui/styles.css — the same layout on v2 theme tokens. */
 
-/* Card grid: exactly two columns above 560px, and one below. Not `auto-fit`:
-   the layout has to be predictable, because CardGrid (components.jsx) closes
-   the gaps by stretching a card that would otherwise sit alone on the last
-   row. A floating column count would need the same math from the real width,
-   which means watching resize in JS for a cosmetic effect. */
+/* Card grid — exactly two columns on anything wider than 560px, and one below.
+   Not `auto-fit`: the layout must be predictable, because "holes" in
+   it are closed by CardGrid (components.jsx) — it stretches a card that
+   would otherwise be alone in the last row. With a floating column count the same
+   calculation would have to use the actual width, i.e. JS would have to watch
+   resize for cosmetics. */
 .headline-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: stretch; }
 .card-cell { display: flex; }
 .card-cell > * { flex: 1; min-width: 0; }
@@ -829,11 +821,11 @@ html[data-theme="light"] {
   padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; min-width: 0;
 }
 .metric-card--big { grid-column: 1 / -1; }
-/* A label and its control are one row (owner requirement, 2026-08-21). The
-   label is pinned left, the control right, with a stretch between them, so
-   neighboring card headers line up on both edges regardless of label length.
-   The minimum height keeps a card without a control from sitting shorter than
-   a neighbor that has one, so the row does not jump. */
+/* A label and its control are one row (owner requirement
+   2026-08-21). The label is pinned left, the control right, with a spacer between them:
+   this way neighboring card headers align on both edges regardless of
+   label length. The minimum height keeps a card without a control from being
+   shorter than a neighbor with one, so the row does not "jump". */
 .metric-card-head {
   display: flex; align-items: center; justify-content: space-between; gap: 6px;
   min-height: 30px; margin-bottom: 2px;
@@ -875,8 +867,8 @@ html[data-theme="light"] {
 .tone-neutral { color: var(--text); }
 
 .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
-/* Card header: title on the left, controls on the right, all on one row.
-   Shared by every section: Pulse, Analytics, and Data (see
+/* Card header: title on the left, controls on the right, all in one row.
+   Shared by all sections — "Pulse", "Analytics", "Data" (spec
    docs/design/ui-components.md). */
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 30px; }
 .card-head-actions {
@@ -894,9 +886,8 @@ html[data-theme="light"] {
 .card-title { font-size: 15px; font-weight: 600; margin: 0; display: inline; }
 .section-subtitle { display: inline; font-size: 12px; color: var(--text-muted); font-weight: 400; }
 
-/* .collapsible-heading is an h2 outside the button; reset the browser
-   margin and font. WAI-ARIA accordion pattern: the h2 wraps the button,
-   not the other way around. */
+/* .collapsible-heading — h2 outside the button; reset of browser margin/font.
+   WAI-ARIA Accordion pattern: the h2 wraps the button, not the other way round. */
 .collapsible-heading { margin: 0; font-size: inherit; font-weight: inherit; flex: 1; min-width: 0; display: flex; }
 .collapsible-head {
   flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; background: none;
@@ -923,8 +914,8 @@ html[data-theme="light"] {
 .pulse-list-control-label { color: var(--text-faint); font-size: 11px; }
 .pulse-list-more { margin-top: 9px; }
 
-/* Chart wrapper: height is set here, not inline in JSX. ResponsiveContainer
-   needs a height from its parent, and sizes stay in one place. */
+/* Chart wrapper: the height is set here, not inline in JSX — ResponsiveContainer
+   needs a height from its parent, and we keep sizes in one place. */
 .chart-box { width: 100%; height: 260px; margin-top: 12px; }
 .chart-box--short { height: 200px; }
 
@@ -955,8 +946,8 @@ html[data-theme="light"] {
 .group-toggle button { background: none; border: none; color: var(--text-muted); font-size: 12px; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-family: inherit; min-height: 34px; }
 .group-toggle button.active { background: var(--bg-card); color: var(--text); }
 
-/* Shared Pulse button choice. The outer wrapper absorbs overflow. The inner
-   segmented group stays intact and does not wrap the options. */
+/* The single button picker of "Pulse". The outer wrapper takes the overflow,
+   the inner segmented group stays whole and does not wrap options. */
 .pulse-segmented-scroller {
   min-width: 0; max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain;
   scrollbar-width: none; -webkit-overflow-scrolling: touch;
@@ -979,9 +970,9 @@ html[data-theme="light"] {
 .account-group-header { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
 .account-group-total { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text); }
 .account-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-/* A lone card on the last row stretches across both columns. Same gap
-   problem as CardGrid, but these cards are uniform, so the rule is plain CSS
-   with no counting in JS. */
+/* A lone card in the last row stretches across both columns — the same
+   fight against "holes" as in CardGrid, but here the cards are uniform, and the rule
+   is expressed in pure CSS without counting in JS. */
 .account-cards > .account-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
 .account-card {
   background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
@@ -990,15 +981,15 @@ html[data-theme="light"] {
 .account-name { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-native { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 14px; font-weight: 600; }
 .account-usd { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--text-faint); margin-top: 2px; }
-/* An account with no rate to the base currency (balance_base_minor === null)
-   gets a warning border instead of being dimmed by share. A silent zero in
-   the equivalent would read as "balance is zero", not "no rate is set". That
-   account is left out of the group total. See AccountsGrid in Pulse.jsx. */
+/* An account without a rate to the base currency (balance_base_minor === null) — a warning
+   border instead of share-based dimming: a silent zero in the equivalent
+   would read as "the balance is zero", not "the rate is not set". Such an account
+   is not included in the group total — see AccountsGrid in Pulse.jsx. */
 .account-card--no-rate { border-color: var(--warning); }
 .account-no-rate { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--warning); margin-top: 2px; }
 
-/* Rates footer (issue #421). Collapsed to one row of signs and numbers. The
-   full view with codes and dates opens on click. See FxFooter in components.jsx. */
+/* Exchange rate footer (issue #421). Collapsed to one row of signs and numbers; the full
+   view with codes and dates opens on click — see FxFooter in components.jsx. */
 .footer { display: flex; flex-direction: column; gap: 6px; align-items: center; padding: 4px 0 0; font-size: 11px; color: var(--text-faint); }
 .fx-summary {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center;
@@ -1021,7 +1012,7 @@ html[data-theme="light"] {
 
 .empty-state { color: var(--text-muted); font-size: 13px; padding: 10px 0; }
 
-/* ---------- Adaptive dashboard for Pulse, Analytics, and Data ---------- */
+/* ---------- Adaptive dashboard for "Pulse", "Analytics" and "Data" ---------- */
 .pulse-dashboard,
 .analytics-dashboard,
 .data-dashboard {
@@ -1162,7 +1153,7 @@ html[data-theme="light"] {
   }
 }
 
-/* ---------- Dashboard settings modal ---------- */
+/* ---------- Dashboard customization modal ---------- */
 .dashboard-modal-backdrop {
   position: fixed;
   inset: 0;
@@ -1544,7 +1535,7 @@ html[data-theme="light"] {
   gap: 10px;
 }
 
-/* ---------- Adaptive list-detail for Operations ---------- */
+/* ---------- Adaptive List-Detail for Operations ---------- */
 .ops-adaptive-container {
   container-type: inline-size;
 }
@@ -1640,11 +1631,11 @@ html[data-theme="light"] {
   .data-row-top { flex-wrap: wrap; }
   .inline-editable-input { width: 90px; }
   .account-cards { grid-template-columns: 1fr; }
-  /* On mobile the metric grid keeps 2 columns for paired figures (Net Worth
-     and Cash Flow). Mobile-wide cards (.card-cell--mobile-wide: Spent,
-     Minimum) and lone cards (.card-cell--wide) take the full row. The period
-     menu inside Spent is tightened on gaps and padding so it fits without
-     horizontal scrolling. */
+  /* On mobile the metrics grid keeps 2 columns for paired indicators
+     ("Net worth" and "Flow"), while mobile-wide cards (.card-cell--mobile-wide:
+     "Spent", "Lowest") and lone cards (.card-cell--wide) take
+     the full row width. The period picker in "Spent" is tuned for
+     gaps and padding so it fits fully without horizontal scrolling. */
   .headline-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
   .card-cell--wide { grid-column: 1 / -1; }
   .card-cell--mobile-wide { grid-column: 1 / -1; }
@@ -1658,14 +1649,14 @@ html[data-theme="light"] {
   .metric-sub { font-size: 11px; margin-top: 1px; }
 }
 
-/* Forecast warnings: the level is written in words, and the money scale stays
-   a second, visual signal of how deep the risk is. */
+/* Forecast warnings: the level is spelled out in words, while the money scale stays
+   a second, visual signal of risk depth. */
 .forecast-warnings h2 { margin: 0; font-size: 15px; }
 .warning-filters { width: 100%; margin-top: 12px; }
 .forecast-warnings-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
-/* The left bar and the row background are painted by the money scale in JS
-   (WarningRow): sharper risk means a redder row. This only reserves space for
-   the bar so rows do not jump sideways when the color changes. */
+/* The left stripe and row background are colored by the money scale from JS (WarningRow):
+   the sharper it is, the redder. Here only the space for the stripe is reserved,
+   so rows do not "jump" horizontally when the color changes. */
 .forecast-warning-row {
   display: grid; grid-template-columns: auto minmax(0, 1fr);
   gap: 10px; align-items: start; padding: 9px 10px; font-size: 13px;
@@ -1689,9 +1680,9 @@ html[data-theme="light"] {
 
 /* ---------- Analytics: filters and search (S1-5b) ---------- */
 
-/* top uses the real sticky-header height (`--appbar-h`, measured by
-   Shell.jsx): the filter panel sits directly under the header at any width,
-   not at a hand-picked number with slack. */
+/* top follows the actual sticky header height (`--appbar-h`, measured by
+   Shell.jsx): the filter panel sits exactly under the header at any width, not
+   at a number picked "with margin". */
 .filter-bar {
   position: sticky; top: var(--appbar-h); z-index: 10;
   background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px;
@@ -1734,8 +1725,8 @@ html[data-theme="light"] {
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 .chip--active { background: var(--text); color: var(--bg); border-color: var(--text); font-weight: 600; }
-/* The counter uses monospace and a muted token (not opacity: transparency
-   drops contrast below AA; see the ban in test/palette.test.ts). */
+/* Counter — monospace and a muted token (not opacity: transparency drops
+   contrast below AA, see the ban in test/palette.test.ts). */
 .chip-count { color: var(--text-faint); font-family: var(--font-mono); font-size: 10px; }
 .chip--active .chip-count { color: inherit; }
 .filter-panel { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--grid); padding-top: 10px; }
@@ -1761,8 +1752,8 @@ html[data-theme="light"] {
   font-family: inherit; font-size: 12px; cursor: pointer; color: inherit; border-radius: 7px;
   text-align: left;
 }
-/* Row highlights use theme tokens, not literal rgba. A literal got lighter
-   on the dark theme and darker on the light theme, so it worked backwards. */
+/* Row highlights use theme tokens, not rgba literals: a literal got lighter
+   in the dark theme and darker in the light one, i.e. it worked exactly backwards. */
 .bar-btn:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
 .bar-btn--active { background: color-mix(in srgb, var(--text) 7%, transparent); outline: 1px solid var(--border); }
 
@@ -1805,7 +1796,7 @@ html[data-theme="light"] {
 .receipt-line-total { font-family: var(--font-mono); white-space: nowrap; display: flex; flex-direction: column; align-items: flex-end; }
 .receipt-line-usd { font-size: 10px; color: var(--text-faint); }
 
-/* ---------- Recurring operations and plans (issue #290) ---------- */
+/* ---------- Recurring items and plans (issue #290) ---------- */
 
 .stat-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .stat-block { background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 10px 14px; }
@@ -2685,7 +2676,7 @@ html[data-theme="light"] {
   border-color: var(--text-muted);
 }
 
-/* One horizontal scrolling row of status chips with statistics */
+/* Single horizontally scrollable row of status chips with statistics */
 .mcp-status-filter-scroll {
   display: flex;
   align-items: center;
@@ -2766,7 +2757,7 @@ html[data-theme="light"] {
   color: var(--warning);
 }
 
-/* MCP call result column */
+/* MCP call Result column */
 .audit-result-cell {
   color: var(--text-muted);
   min-width: 180px;
@@ -2910,7 +2901,7 @@ html[data-theme="light"] {
   background: var(--border);
 }
 
-/* Tool-type tags */
+/* Tool type tags */
 .audit-tool-tag {
   display: inline-flex;
   align-items: center;

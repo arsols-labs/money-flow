@@ -4,14 +4,15 @@
  */
 
 import { MCP_WIDGET_RPC_SCRIPT } from './mcp-widget-rpc';
+import { MCP_WIDGET_I18N_SCRIPT } from './mcp-widget-i18n';
 
 export function getWriteConfirmHtml(): string {
   return `<!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Подтверждение записи — Money Flow</title>
+  <title data-i18n="confirm.title">Write confirmation</title>
   <style>
     :root {
       --bg: #f8fafc;
@@ -75,15 +76,16 @@ export function getWriteConfirmHtml(): string {
 </head>
 <body data-app="write-confirm">
   <div class="card">
-    <div class="badge" id="badge">ЗАПИСЬ НЕ ВЫПОЛНЕНА</div>
-    <div class="desc" id="desc">Нет запроса на подтверждение.</div>
-    <div class="muted" id="hint">Это не факт. Курс, операция или баланс не изменятся, пока вы не подтвердите.</div>
-    <button type="button" id="confirmBtn" disabled>Подтвердить</button>
+    <div class="badge" id="badge" data-i18n="confirm.notWritten">WRITE NOT PERFORMED</div>
+    <div class="desc" id="desc" data-i18n="confirm.noRequest">No confirmation request.</div>
+    <div class="muted" id="hint" data-i18n="confirm.hint">This is not a fact yet. No rate, operation or balance changes until you confirm.</div>
+    <button type="button" id="confirmBtn" disabled data-i18n="confirm.button">Confirm</button>
     <div id="status" style="margin-top:10px;"></div>
   </div>
   <script>
     (function () {
 ${MCP_WIDGET_RPC_SCRIPT}
+${MCP_WIDGET_I18N_SCRIPT}
       let pending = null;
 
       function pendingFromToolResult(result) {
@@ -109,7 +111,7 @@ ${MCP_WIDGET_RPC_SCRIPT}
       function applyPending(sc) {
         if (!sc || !sc.requestState || sc.written !== false) return;
         pending = sc;
-        document.getElementById('desc').textContent = sc.description || 'Подтвердите запись.';
+        document.getElementById('desc').textContent = sc.description || t('confirm.prompt');
         document.getElementById('confirmBtn').disabled = false;
       }
 
@@ -118,7 +120,7 @@ ${MCP_WIDGET_RPC_SCRIPT}
         const btn = document.getElementById('confirmBtn');
         const status = document.getElementById('status');
         btn.disabled = true;
-        status.textContent = 'Отправка…';
+        status.textContent = t('confirm.sending');
         try {
           const res = await sendRequest('tools/call', {
             name: pending.tool,
@@ -128,12 +130,13 @@ ${MCP_WIDGET_RPC_SCRIPT}
             })
           });
           if (res?.isError || res?.structuredContent?.written !== true) {
-            throw new Error(res?.structuredContent?.error || res?.content?.[0]?.text || 'Запись не подтверждена');
+            throw new Error(res?.structuredContent?.error || res?.content?.[0]?.text || t('confirm.notConfirmed'));
           }
-          document.getElementById('badge').textContent = 'ЗАПИСЬ ВЫПОЛНЕНА';
+          document.getElementById('badge').setAttribute('data-i18n', 'confirm.written');
+          document.getElementById('badge').textContent = t('confirm.written');
           document.getElementById('badge').style.color = 'var(--success)';
           status.className = 'ok';
-          status.textContent = 'Готово. Это факт: данные записаны.';
+          status.textContent = t('confirm.done');
         } catch (err) {
           status.className = 'err';
           status.textContent = err.message || String(err);
@@ -145,10 +148,11 @@ ${MCP_WIDGET_RPC_SCRIPT}
 
       (async function initialize() {
         try {
-          await sendRequest('ui/initialize', {
+          const initRes = await sendRequest('ui/initialize', {
             clientInfo: { name: 'money-flow-write-confirm', version: '1.0.0' },
             protocolVersion: '2026-01-26'
           }).catch(() => null);
+          setWidgetLocale(hostLocaleCandidates(initRes));
           sendNotification('ui/notifications/initialized', {});
         } catch (e) {}
       })();

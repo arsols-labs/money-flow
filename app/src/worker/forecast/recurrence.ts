@@ -33,7 +33,7 @@ const MAX_OCCURRENCES = 1000;
 function requiredDayOfMonth(r: RecurringRule): number {
   if (r.day_of_month === null) {
     throw new RangeError(
-      `recurrence: day_of_month обязателен для frequency=${r.frequency} (правило #${r.id}), но пуст — строка нарушает CHECK recurring_items_rule_anchors`,
+      `recurrence: day_of_month is required for frequency=${r.frequency} (rule #${r.id}) but is empty — the row violates CHECK recurring_items_rule_anchors`,
     );
   }
   return r.day_of_month;
@@ -43,7 +43,7 @@ function requiredDayOfMonth(r: RecurringRule): number {
 function requiredMonthOfYear(r: RecurringRule): number {
   if (r.month_of_year === null) {
     throw new RangeError(
-      `recurrence: month_of_year обязателен для frequency=yearly (правило #${r.id}), но пуст — строка нарушает CHECK recurring_items_rule_anchors`,
+      `recurrence: month_of_year is required for frequency=yearly (rule #${r.id}) but is empty — the row violates CHECK recurring_items_rule_anchors`,
     );
   }
   return r.month_of_year;
@@ -140,7 +140,7 @@ export function expandRecurringRule(
       overdueCount += 1;
       const next = nextOccurrence(r, cur);
       if (next <= cur) {
-        throw new RangeError('expandRecurring: nextOccurrence не сдвинул дату');
+        throw new RangeError('expandRecurring: nextOccurrence did not advance the date');
       }
       cur = next;
     }
@@ -154,14 +154,14 @@ export function expandRecurringRule(
     // is limited to 366 days, so the ceiling can be hit only by a caller error.
     if (guard >= MAX_OCCURRENCES) {
       throw new RangeError(
-        `expandRecurring: больше ${MAX_OCCURRENCES} вхождений до ${hardEnd}; окно или правило заданы неверно`,
+        `expandRecurring: more than ${MAX_OCCURRENCES} occurrences before ${hardEnd}; the window or the rule is wrong`,
       );
     }
     guard += 1;
     if (cur > asOfDate) futureDates.push(cur);
     const next = nextOccurrence(r, cur);
     if (next <= cur) {
-      throw new RangeError('expandRecurring: nextOccurrence не сдвинул дату');
+      throw new RangeError('expandRecurring: nextOccurrence did not advance the date');
     }
     cur = next;
   }

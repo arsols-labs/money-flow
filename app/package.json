@@ -1,6 +1,6 @@
 {
   "name": "money-flow",
-  "version": "2.26.5",
+  "version": "2.27.0",
   "private": true,
   "type": "module",
   "scripts": {

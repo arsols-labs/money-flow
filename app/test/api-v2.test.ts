@@ -3688,11 +3688,11 @@ describe('API v2: transfers between accounts (/api/v2/transfers)', () => {
 
     expect(body.transfer.from_operation.amount_minor).toBe(-10000);
     expect(body.transfer.from_operation.currency).toBe('USD');
-    expect(body.transfer.from_operation.item).toBe(`Перевод на «${rsd.name}»`);
+    expect(body.transfer.from_operation.item).toBe(`Transfer to "${rsd.name}"`);
 
     expect(body.transfer.to_operation.amount_minor).toBe(1080000);
     expect(body.transfer.to_operation.currency).toBe('RSD');
-    expect(body.transfer.to_operation.item).toBe(`Перевод с «${usd.name}»`);
+    expect(body.transfer.to_operation.item).toBe(`Transfer from "${usd.name}"`);
 
     expect(await balanceOf(usd.id)).toBe(90000);
     expect(await balanceOf(rsd.id)).toBe(1080000);
