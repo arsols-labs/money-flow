@@ -1,9 +1,9 @@
-// Account form suggestions (issue #235): the default name and the search for a similar account.
+// Account form suggestions: the default name and the search for a similar account.
 //
 // Neither suggestion forbids anything, and the cost of a mistake differs. The name is
 // a starting value: if it overwrote what was typed by hand, the owner would lose that input
 // silently. A similar account is a warning: a missed duplicate of the triple yields two
-// accounts that look the same, and the forecast (S1-4) would show their balances drifting
+// accounts that look the same, and the forecast would show their balances drifting
 // apart, while an extra warning on a name-only match trains the owner
 // to ignore it — the rule allows identical names.
 //

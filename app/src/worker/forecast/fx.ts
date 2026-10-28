@@ -1,4 +1,4 @@
-// Deterministic FX math v2 (issue #198): no floats —
+// Deterministic FX math v2: no floats —
 // integer (BigInt) arithmetic and banker's rounding ROUND_HALF_EVEN.
 //
 // A rate is stored as a positive integer mantissa + scale (base_per_unit = m / 10^s),

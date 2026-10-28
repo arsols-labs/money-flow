@@ -1,4 +1,4 @@
-// Pure helper functions for MCP Access & Audit (Issue #501)
+// Pure helper functions for MCP Access & Audit
 
 export const MCP_SECTIONS_STORAGE_KEY = 'mf_mcp_access_sections_v1';
 

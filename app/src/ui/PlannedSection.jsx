@@ -1,4 +1,4 @@
-// "Planned" section on the "Data" screen (S1-3, issue #197): one-off operations
+// "Planned" section on the "Data" screen: one-off operations
 // with a known date. Style and approach match the accounts section in Data.jsx: a form
 // with its own busy/error, actions without a form (the "done" mark, deletion)
 // go through runAction with a shared error banner, and every edit of one row
@@ -282,7 +282,7 @@ export default function PlannedSection({
   useLoadWhenExpanded(expanded, load, refreshNonce);
 
   // Deleting or editing an operation in the "Operations" block can clear done on
-  // a planned item (#282). The useLoadWhenExpanded hook loads the list once on
+  // a planned item. The useLoadWhenExpanded hook loads the list once on
   // expand; an operations revision updates the already loaded list quietly,
   // without resetting status to loading (the same approach as in OperationsSection).
   const loadedRef = useRef(false);

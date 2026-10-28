@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import mcpApp from '../src/worker/mcp-server';
 import type { Env } from '../src/worker/types';
 
-describe('MCP Server (S2-3 & S2-4)', () => {
+describe('MCP Server', () => {
   const typedEnv = env as unknown as Env;
   const clientId = 'client-mcp-test';
 
@@ -42,7 +42,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
     });
   });
 
-  describe('Handshake (#321, #457)', () => {
+  describe('Handshake', () => {
     it('responds to initialize with the negotiated 2026-07-28 protocolVersion and capabilities', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
@@ -246,7 +246,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
     });
   });
 
-  it('MF-21 read tool returns durable recurring fulfillment history', async () => {
+  it('read tool returns durable recurring fulfillment history', async () => {
     const account = await env.DB.prepare(
       `INSERT INTO accounts (name, currency, balance_minor, sort, archived, owner, country, balance_updated_at)
        VALUES ('RSD history', 'RSD', 100000, 1, 0, 'Alex', 'RS', '2026-08-15T12:00:00Z') RETURNING id`,
@@ -840,7 +840,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect((await env.DB.prepare('SELECT COUNT(*) AS count FROM recurring_items WHERE id = ?').bind(recurringItemId).first<{ count: number }>())?.count).toBe(0);
     });
 
-    it('#565: cancel period fulfillment unlinks evidence and lets operation_delete succeed', async () => {
+    it('cancel period fulfillment unlinks evidence and lets operation_delete succeed', async () => {
       const seeded = await env.DB.prepare(
         `INSERT INTO recurring_items (title, amount_minor, currency, account_id, category, frequency, interval_count, day_of_month, month_of_year, next_due_date, end_date, active)
          VALUES ('Ежедневные', -1000, 'EUR', ?, 'Food', 'daily', 1, NULL, NULL, '2026-09-20', NULL, 1)
@@ -890,7 +890,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect((await env.DB.prepare('SELECT COUNT(*) AS count FROM operations WHERE id = ?').bind(operationId).first<{ count: number }>())?.count).toBe(0);
     });
 
-    it('MF-21: links an existing operation to a plan only after MRTR and proves ledger invariants', async () => {
+    it('links an existing operation to a plan only after MRTR and proves ledger invariants', async () => {
       const planned = await env.DB.prepare(
         `INSERT INTO planned_items (date, title, amount_minor, currency, account_id, category, done)
          VALUES ('2026-09-04', 'Страховка', -2500, 'EUR', ?, 'Insurance', 0) RETURNING id`,
@@ -928,7 +928,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect((await env.DB.prepare('SELECT COUNT(*) AS count FROM operation_fulfillment_links').first<{ count: number }>())?.count).toBe(1);
     });
 
-    it('MF-21: links an exact operation group to one recurring occurrence with durable read-back', async () => {
+    it('links an exact operation group to one recurring occurrence with durable read-back', async () => {
       const recurring = await env.DB.prepare(
         `INSERT INTO recurring_items (title, amount_minor, currency, account_id, category, frequency, interval_count, day_of_month, month_of_year, next_due_date, end_date, active)
          VALUES ('Продукты', -1300, 'EUR', ?, 'Продукты', 'daily', 1, NULL, NULL, '2026-09-05', NULL, 1)
@@ -965,7 +965,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect((await env.DB.prepare('SELECT COUNT(*) AS count FROM recurring_period_fulfillments').first<{ count: number }>())?.count).toBe(1);
     });
 
-    it('MF-21: advertised auto_confirm executes planned link, recurring link, and skip for an authorized agent', async () => {
+    it('advertised auto_confirm executes planned link, recurring link, and skip for an authorized agent', async () => {
       const planned = await env.DB.prepare(
         `INSERT INTO planned_items (date, title, amount_minor, currency, account_id, category, done)
          VALUES ('2026-09-10', 'Auto plan', -1000, 'EUR', ?, 'Food', 0) RETURNING id`,
@@ -1349,7 +1349,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect((await env.DB.prepare('SELECT COUNT(*) AS count FROM recurring_items').first<{ count: number }>())?.count).toBe(0);
     });
 
-    it('#565: analytical 16/17 reject close_period and fulfill_existing before MRTR', async () => {
+    it('analytical 16/17 reject close_period and fulfill_existing before MRTR', async () => {
       await env.DB.batch([
         env.DB.prepare(
           `INSERT INTO recurring_items
@@ -1619,7 +1619,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(rejected.result.structuredContent.error).toContain('receipt_url');
     });
 
-    it('issue #574: same-PFR multi-line operation_add succeeds; exact line is 409 ValidationError, not UNCERTAIN', async () => {
+    it('same-PFR multi-line operation_add succeeds; exact line is 409 ValidationError, not UNCERTAIN', async () => {
       const pfr = 'JDEKKL35-GESE6HO0-136069';
       const receiptUrl = 'https://suf.purs.gov.rs/v/?vl=aroma-multiline';
       const lines = [
@@ -1842,7 +1842,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
   });
 
 
-  describe('S2-5: MCP Apps & UI Resources (SEP-1865)', () => {
+  describe('MCP Apps & UI Resources (SEP-1865)', () => {
     it('forecast_get tool includes _meta.ui with a link to ui://pulse', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
@@ -2048,7 +2048,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
     });
   });
 
-  describe('#324: structuredContent in every tools/call response', () => {
+  describe('structuredContent in every tools/call response', () => {
     let accountId: number;
 
     beforeEach(async () => {
@@ -2211,7 +2211,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(typeof body.result.structuredContent.error).toBe('string');
     });
 
-    it('#328: fx_rate_set without requestState does not write the rate; an audit row without a key is not success', async () => {
+    it('fx_rate_set without requestState does not write the rate; an audit row without a key is not success', async () => {
       await env.DB.prepare(
         `INSERT INTO fx_rates (code, rate_e9, updated_at) VALUES ('RSD', 9800000, '2026-08-12T14:34:29Z')`
       ).run();
@@ -2260,7 +2260,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(audit?.status).not.toBe('success');
     });
 
-    it('#328: fx_rate_set after requestState writes the rate and the audit is success', async () => {
+    it('fx_rate_set after requestState writes the rate and the audit is success', async () => {
       await env.DB.prepare(
         `INSERT INTO fx_rates (code, rate_e9, updated_at) VALUES ('RSD', 9800000, '2026-08-12T14:34:29Z')`
       ).run();
@@ -2320,7 +2320,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(audit?.tool_name).toBe('fx_rate_set');
     });
 
-    it('#328: tools/list states that the first call without requestState writes nothing', async () => {
+    it('tools/list states that the first call without requestState writes nothing', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2397,7 +2397,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body2.result.structuredContent.resultType).toBe('complete');
     });
 
-    it('#327: fx_rate_delete after requestState deletes the rate and returns success (a bodyless 204 does not break the response)', async () => {
+    it('fx_rate_delete after requestState deletes the rate and returns success (a bodyless 204 does not break the response)', async () => {
       await env.DB.prepare(
         `INSERT INTO fx_rates (code, rate_e9, updated_at) VALUES ('USD', 1090000000, '2026-08-12T14:34:29Z')`
       ).run();
@@ -2497,7 +2497,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
     });
   });
 
-  describe('#579: data_reset wipes the ledger after MRTR + RESET phrase', () => {
+  describe('data_reset wipes the ledger after MRTR + RESET phrase', () => {
     it('rejects a wrong phrase before issuing requestState', async () => {
       const ctx = { props: { scopes: ['write'], clientId } };
       const res = await mcpApp.fetch(new Request('http://localhost/mcp', {
@@ -2571,7 +2571,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
     });
   });
 
-  describe('#331: resultType in structuredContent, the write class, and MCP App confirm', () => {
+  describe('resultType in structuredContent, the write class, and MCP App confirm', () => {
     let accountId: number;
 
     beforeEach(async () => {
@@ -2734,7 +2734,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
     });
   });
 
-  describe('#325: tools/call log (read + MRTR)', () => {
+  describe('tools/call log (read + MRTR)', () => {
     it('accounts_list writes an audit success without an idempotency_key', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
@@ -2828,7 +2828,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
     });
   });
 
-  describe('#334: CallToolResult 2025-11-25 and annotations', () => {
+  describe('CallToolResult 2025-11-25 and annotations', () => {
     it('first write: only CallToolResult keys at the top level, with MRTR inside structuredContent', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
@@ -2881,7 +2881,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
     });
   });
 
-  describe('#338: transfer_add (MCP transfers between accounts, MRTR)', () => {
+  describe('transfer_add (MCP transfers between accounts, MRTR)', () => {
     let fromId: number;
     let toId: number;
 
@@ -3103,7 +3103,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
     });
   });
 
-  describe('#458: Mcp-Method and Mcp-Name HTTP routing headers (MCP 2026-07-28)', () => {
+  describe('Mcp-Method and Mcp-Name HTTP routing headers (MCP 2026-07-28)', () => {
     it('handles tools/list via the Mcp-Method header', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',

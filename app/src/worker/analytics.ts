@@ -1,11 +1,11 @@
-// Aggregation and calculation of data for the Analytics screen (S1-5b, issue #250, S1-5c, issue #251).
+// Aggregation and calculation of data for the Analytics screen.
 //
 // Runs on the server so that every operation row is not sent to the client.
 // Amounts in different currencies are converted into the base currency using
 // integer rate arithmetic (makeConverter / rate_e9), without float.
 // A currency without a rate does not break the calculation: the operation is
 // skipped, and the currency code is returned in missing_rates (behavior aligned
-// with S1-4, issue #198).
+// with the forecast).
 import type { Converter } from './forecast/convert';
 import { minorBigIntToNumber } from '../shared/money';
 import { ValidationError } from './api-error';

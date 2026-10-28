@@ -1,4 +1,4 @@
-// Backup export/import API (issue #515). Session guard lives on the parent
+// Backup export/import API. Session guard lives on the parent
 // /api/v2 app — these routes inherit it.
 import { Hono } from 'hono';
 import type { Env } from './types';

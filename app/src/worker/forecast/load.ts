@@ -1,4 +1,4 @@
-// Loading forecast data from D1 (issue #198, S1-4). The only place where the
+// Loading forecast data from D1. The only place where the
 // forecast engine talks to the database — buildForecast (build.ts) does not
 // see D1 at all, and that is deliberate: the core is tested without a
 // database, and all I/O lives here.
@@ -118,9 +118,9 @@ interface RecurringFlowRow {
  * Each output has its own horizon; source rows cover the larger one.
  *
  * Overdue recurring payments (`next_due_date <= asOfDate`):
- * Unlike planned items (where the "done" mark creates an operation per #267),
+ * Unlike planned items (where the "done" mark creates an operation),
  * recurring payments must not silently disappear at midnight on the due date
- * (#279). If the due date has arrived and the operation has not been created
+ * . If the due date has arrived and the operation has not been created
  * yet, every elapsed period is projected as a single amount
  * (overdueCount × amount_minor) onto the nearest day of the forecast series
  * (addDays(asOfDate, 1)). Later schedule dates on the horizon up to limitDate
@@ -184,7 +184,7 @@ export async function loadFlowsAndPayments(
     try {
       if (scaledMinor(r.amount_minor, 2) === null) continue;
       // The schedule separates past periods from today; the balance projection
-      // below retains its existing tomorrow catch-up semantics (#279).
+      // below retains its existing tomorrow catch-up semantics.
       const schedule = expandRecurringRule(rule, addDays(asOfDate, -1), paymentLimit);
       const payment = (date: string, count: number): ScheduledPayment | null => {
         const amount = scaledMinor(r.amount_minor, count);

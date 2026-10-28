@@ -5,7 +5,7 @@ import { RefreshProvider } from '../src/ui/RefreshContext.jsx';
 import FiscalReceiptsSection from '../src/ui/FiscalReceiptsSection.jsx';
 import i18n from '../src/ui/i18n.js';
 
-describe('Data fiscal receipts section (issue #557)', () => {
+describe('Data fiscal receipts section', () => {
   it('renders the Receipts section title and empty state without throwing', () => {
     const html = renderToStaticMarkup(
       React.createElement(

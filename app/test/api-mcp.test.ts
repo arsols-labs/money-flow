@@ -1,4 +1,4 @@
-// S2-2: API tests for the "Access" screen and the MCP audit log (issue #262)
+// API tests for the "Access" screen and the MCP audit log
 
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -7,7 +7,7 @@ import { createSessionCookie } from '../src/worker/auth';
 import { recordMcpAuditLog } from '../src/worker/api-mcp';
 import type { Env } from '../src/worker/types';
 
-describe('S2-2: MCP Access & Audit API', () => {
+describe('MCP Access & Audit API', () => {
   let cookie: string;
 
   beforeEach(async () => {
@@ -299,7 +299,7 @@ describe('S2-2: MCP Access & Audit API', () => {
       expect(secondLog.status).toBe('success');
     });
 
-    it('#325: the log created_at returns ISO with Z even from sqlite datetime(now)', async () => {
+    it('the log created_at returns ISO with Z even from sqlite datetime(now)', async () => {
       const clientId = 'https://claude.ai/metadata.json';
       await env.DB.prepare(
         `INSERT INTO oauth_clients (id, name, metadata_document_url, created_at)
@@ -321,7 +321,7 @@ describe('S2-2: MCP Access & Audit API', () => {
     });
   });
 
-  describe('#325: token timestamps in ISO with Z', () => {
+  describe('token timestamps in ISO with Z', () => {
     it('GET /access normalizes sqlite datetime(now) to ISO UTC', async () => {
       const clientId = 'https://claude.ai/mcp-metadata.json';
       await env.DB.prepare(

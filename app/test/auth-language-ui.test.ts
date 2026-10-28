@@ -6,7 +6,7 @@ import PasskeySetup from '../src/ui/PasskeySetup.jsx';
 import i18n from '../src/ui/i18n.js';
 import { SUPPORTED_LANGUAGES } from '../src/ui/language.js';
 
-describe('auth language switcher (issue #586)', () => {
+describe('auth language switcher', () => {
   afterEach(async () => {
     await i18n.changeLanguage('en');
   });

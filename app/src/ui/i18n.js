@@ -1,4 +1,4 @@
-// i18n infrastructure for UI v2 (issues #511, #512, #513, #586).
+// i18n infrastructure for UI v2.
 //
 // Screen dictionaries are locales/{en,ru,de,fr,es,pt,sr}.json. Imported from
 // main.jsx before the first render so useTranslation sees a ready instance.

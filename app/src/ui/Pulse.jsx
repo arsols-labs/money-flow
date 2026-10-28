@@ -1,5 +1,5 @@
 // "Pulse" — the main v2 screen: net worth, forecast, upcoming payments, accounts.
-// A port of app/src/ui/Pulse.jsx onto the /api/v2/forecast contract (issue #198): the server
+// A port of app/src/ui/Pulse.jsx onto the /api/v2/forecast contract: the server
 // already returns amounts in the base currency (overall_minor, by_country, *_base_minor),
 // so unlike v1 the client does not have to convert by rates itself —
 // only minor→major for display (see forecast.js).
@@ -45,7 +45,7 @@ import { intlLocale } from './language';
 // chartData() returns points already in MAJOR units (toMajor from forecast.js).
 // Axis labels and the min marker use formatMajorCompact: thousands grouping is required,
 // cents may be dropped. The fraction must not be cut with a `[.,]\d+` regex — in en-US that
-// eats the thousands place (`$17,521.60` → `$17.60`, issue #582).
+// eats the thousands place (`$17,521.60` → `$17.60`).
 
 const FORECAST_PERIODS = [
   { key: 'month', days: 30 },
@@ -105,7 +105,7 @@ export function PulseSegmentedControl({ options, value, onChange, ariaLabel, dis
 // August of the NEXT year, while it looks like today. That is exactly where this was
 // tripped over: the line "already negative · minimum -59.78 $ 12 Aug" on an account where
 // today is -0.38 $ was read as a calculation error, although it is the correct amount twelve
-// months out (issue #256). The "not the current year" condition is the same one
+// months out. The "not the current year" condition is the same one
 // formatRelativeDate already applies in money.js.
 function shortDate(value) {
   const d = typeof value === 'string' ? parseDateOnly(value) : new Date(value);
@@ -167,8 +167,8 @@ function ForecastChart({ data, baseCurrency, seriesItems }) {
               (en-US, symbol on the left); here it is "7 500 $" in ru-RU, symbol on the right and
               a non-breaking space in the groups. A negative offset together with
               width: 62 clipped its first character. The right margin is for the LAST
-              X-axis label: on the "Year" period it contains the year ("12 Aug 2027",
-              issue #256) and at a margin of 8 it ran into the edge. */}
+              X-axis label: on the "Year" period it contains the year ("12 Aug 2027")
+              and at a margin of 8 it ran into the edge. */}
           <ComposedChart data={data} margin={{ top: 12, right: 48, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="overallFillV2" x1="0" y1="0" x2="0" y2="1">
@@ -645,7 +645,7 @@ export function UpcomingSection({
   );
 }
 
-// Periods for the "Spent" block (issue #383). Ranges are counted from
+// Periods for the "Spent" block. Ranges are counted from
 // local midnight, like upcomingDayLabel — so "today" does not depend on
 // the server time zone. total_spent_minor from analytics_get arrives already in
 // the base currency (see analytics.ts), so the client only divides minor→major.
@@ -688,7 +688,7 @@ function spentDateRange(period) {
   return { start: ymdLocal(first), end: ymdLocal(today) };
 }
 
-// The "Spent" block (issue #383): spending for the selected period
+// The "Spent" block: spending for the selected period
 // (today/yesterday/week/month) in every currency, converted to the base one.
 // The source is analytics_get (total_spent_minor is already in the base currency; conversion
 // is done by the server through the shared BigInt converter, Law 3 — a single FX path).

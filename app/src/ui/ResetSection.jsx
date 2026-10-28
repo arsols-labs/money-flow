@@ -1,4 +1,4 @@
-// Reset / start-from-scratch on the Data screen (issue #579).
+// Reset / start-from-scratch on the Data screen.
 // Lives next to Backup; `#/data/reset` only scrolls here.
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';

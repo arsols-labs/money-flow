@@ -1,4 +1,4 @@
-// Tests for adaptive navigation and layouts by window size class (Compact, Medium, Expanded) — Issue #479.
+// Tests for adaptive navigation and layouts by window size class (Compact, Medium, Expanded).
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { env } from 'cloudflare:test';

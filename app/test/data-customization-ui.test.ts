@@ -11,7 +11,7 @@ import {
 } from '../src/ui/dataLayout';
 import i18n from '../src/ui/i18n';
 
-describe('Data customization UI & DataDashboard (Issue #493)', () => {
+describe('Data customization UI & DataDashboard', () => {
   const mockConfig = [
     { id: 'operations', visible: true, column: 'full' },
     { id: 'receipts', visible: true, column: 'full' },

@@ -1,4 +1,4 @@
-// Financial date calendar v2 (issue #198): a financial date is a YYYY-MM-DD
+// Financial date calendar v2: a financial date is a YYYY-MM-DD
 // string, independent of the viewing timezone. Every operation is integer
 // arithmetic, without locale Date parsing. Used by schedules (recurrence.ts)
 // and the forecast engine (build.ts, load.ts). The date convention is the

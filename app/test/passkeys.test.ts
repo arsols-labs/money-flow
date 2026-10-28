@@ -166,7 +166,7 @@ async function createMockAuthenticationResponse(options: {
   };
 }
 
-describe('Passkeys Management API (issue #507)', () => {
+describe('Passkeys Management API', () => {
   const BASE_URL = 'https://example.com';
   const RP_ID = 'example.com';
   const ORIGIN = 'https://example.com';

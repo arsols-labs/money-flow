@@ -1,4 +1,4 @@
-// Expanding recurring payments into dates (issue #198, S1-4) — moved from
+// Expanding recurring payments into dates — moved from
 // archive/v2-codex (app/src/worker/readmodel/forecast.ts) and adapted to the
 // v2 schema: there the day anchor was taken by default from the rule's
 // `start_date` (a column we do not have); here the anchor day/month are read

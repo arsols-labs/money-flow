@@ -113,7 +113,7 @@ describe('isTrustedOAuthRedirectUri', () => {
   });
 });
 
-describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
+describe('OAuth 2.1 Machine Clients & Consent', () => {
   let cookie: string;
 
   beforeEach(async () => {

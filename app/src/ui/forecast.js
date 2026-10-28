@@ -31,7 +31,7 @@ export function parseDateOnly(dateStr) {
 // The "green" threshold — a port of the formula from app/src/ui/Pulse.jsx:21-30, but the threshold
 // arrives as a parameter (low_balance_threshold_minor from /forecast), not
 // hardcoded as LOWEST_BALANCE_SAFE_USD: a configurable threshold is the
-// substance of the 2026-08-04 decision (issue #198).
+// substance of the 2026-08-04 decision.
 export function lowestBalanceColor(amountMinor, thresholdMinor) {
   // A zero threshold is a degenerate case of the formula (amount/threshold divides by
   // zero): the warning was zeroed out, and the only signal left is
@@ -209,7 +209,7 @@ export function forecastYDomain(points, extraKeys = []) {
 }
 
 // Line palette by country. v1 kept RUS/USA/SRB hardcoded in CSS variables
-// (--rus/--usa/--srb) — in v2 country is an arbitrary string (issue #198 removed
+// (--rus/--usa/--srb) — in v2 country is an arbitrary string (v2 removed
 // the tie to three countries), so a color is assigned by index from the shared
 // palette, while familiar codes keep their usual color so the chart does not
 // "move" for anyone already used to the v1 shades.

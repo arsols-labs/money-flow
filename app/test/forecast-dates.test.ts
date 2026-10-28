@@ -1,4 +1,4 @@
-// Unit tests of the financial date calendar (issue #198). Ported from
+// Unit tests of the financial date calendar. Ported from
 // archive/v2-codex (app/test/dates.test.ts): only the entry point changed
 // (src/worker/forecast/dates.ts) and isoDayOfWeek was removed — nothing in v2
 // uses it, so there is no reason to carry dead code.

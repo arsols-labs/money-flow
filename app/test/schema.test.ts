@@ -1,8 +1,7 @@
-// Smoke test of the D1 schema (S1-1, issue #195).
+// Smoke test of the D1 schema.
 //
 // What it must catch: the migration applies at all; the inventory of tables and
-// indexes matches the spec (an extra or missing table shows up immediately, not in
-// S1-3); the basic invariants are alive. Invariant checks are negative —
+// indexes matches the spec (an extra or missing table shows up immediately, not later); the basic invariants are alive. Invariant checks are negative —
 // "the right row inserted" proves nothing about a CHECK that
 // is written wrong and never fires.
 import { env } from 'cloudflare:test';
@@ -213,7 +212,7 @@ async function insertRecurringFulfillmentFixture(periodDueDate = '2026-09-01') {
   return { accountId, recurringId: recurring!.id, operationId: operation!.id };
 }
 
-describe('expectation fulfillments — atomic invariants MF-21', () => {
+describe('expectation fulfillments — atomic invariants', () => {
   it('rejects a second fact for the same recurring period', async () => {
     const fixture = await insertRecurringFulfillmentFixture();
     await expectRejected(
@@ -397,8 +396,8 @@ describe('accounts', () => {
   });
 });
 
-// Owner and country are required in the schema itself — migration 0004, issue #234.
-// Before that the same invariant was held only by the API (#232), and any second write path
+// Owner and country are required in the schema itself — migration 0004.
+// Before that the same invariant was held only by the API, and any second write path
 // slipped past: a hand edit of the DB, a code rollback, a debug script. The checks
 // here go through DIRECT SQL past the worker for exactly that reason — they prove the rejection
 // comes from the database, not from validation in api.ts.
@@ -437,10 +436,10 @@ describe('accounts — owner and country are required in the schema', () => {
   });
 });
 
-// The remaining `NOT NULL` columns of accounts — issue #247.
+// The remaining `NOT NULL` columns of accounts.
 //
 // They had NO behavioral test at all: `owner` and `country` are covered
-// only because task #234 wrote tests for them right here, and nobody wrote
+// only because the migration 0004 work wrote tests for them right here, and nobody wrote
 // any for the neighbors. A single DDL snapshot below held them, and it catches an edit
 // only when the edit landed in the migration and was forgotten in the snapshot: a coordinated removal
 // of `NOT NULL` in both places passed a green run — verified by mutations,
@@ -566,7 +565,7 @@ describe('accounts — NOT NULL on the remaining columns', () => {
 
   // Completeness of the lists above is held not by eyes but by the table itself: `table_info`
   // says which columns really are `NOT NULL` and which have a `DEFAULT`.
-  // The point is exactly why #247 was filed: a list nobody
+  // The point is exactly why this check exists: a list nobody
   // checks stays silent. A future migration that adds another `NOT NULL` — this test
   // goes red and demands a case, instead of leaving the column untested for years.
   it('covers every NOT NULL of the table except owner and country', async () => {
@@ -575,7 +574,7 @@ describe('accounts — NOT NULL on the remaining columns', () => {
       notnull: number;
       dflt_value: string | null;
     }>();
-    // `owner` and `country` are covered by the #234 block above; `id` is a rowid alias, and
+    // `owner` and `country` are covered by the migration 0004 block above; `id` is a rowid alias, and
     // `notnull` on such a PRIMARY KEY in SQLite is 0, so it does not need
     // to be excluded separately.
     const notNull = results.filter(
@@ -608,7 +607,7 @@ describe('accounts — NOT NULL on the remaining columns', () => {
 // no behavioral test.
 //
 // This list has changed, and it must be read as a claim about the file's CURRENT
-// state, not as a historical fact. Before issue #247 the snapshot was
+// state, not as a historical fact. Before this check the snapshot was
 // the only protection of ALL `NOT NULL` columns of the table, except `owner` and `country`;
 // now each of them is covered by a behavioral test in the "accounts —
 // NOT NULL on the remaining columns" block above, and each was verified by mutation. The header
@@ -620,7 +619,7 @@ describe('accounts — NOT NULL on the remaining columns', () => {
 // Of the CHECKS — `CHECK (length(trim(name)) > 0)` and `CHECK (archived IN (0, 1))`:
 // both are about the shape of a value, not about its presence, and they were not part
 // of the `NOT NULL` task. But the snapshot is not exhausted by checks, and narrowing the list to them
-// would lie in exactly the same way the list lied before #247.
+// would lie in exactly the same way the list lied before this check.
 // A coordinated edit in the migration and here still passes green for COLUMN
 // ORDER and for the DECLARED TYPE of a nullable column: swapping `bank` and
 // `type`, like replacing `bank TEXT` with `bank INTEGER`, yields a fully
@@ -628,8 +627,8 @@ describe('accounts — NOT NULL on the remaining columns', () => {
 // snapshot itself, and that is its point.
 //
 // These go red even without the snapshot: `currency GLOB`, each of the four conjuncts of
-// `balance_updated_at`, `PRIMARY KEY`, both `NOT NULL`s from #234, all six
-// `NOT NULL`s from #247, and `DEFAULT` on `balance_minor`, `sort`, and `archived`. What
+// `balance_updated_at`, `PRIMARY KEY`, both `NOT NULL`s from migration 0004, all six
+// remaining `NOT NULL`s, and `DEFAULT` on `balance_minor`, `sort`, and `archived`. What
 // normalization tolerates and what it does not is in the comment on RECURRING_ITEMS_DDL below;
 // no need to repeat it.
 //
@@ -800,7 +799,7 @@ describe('recurring_items — rule anchors', () => {
 const BASE_WITH_END_DATE = `INSERT INTO recurring_items
   (title, amount_minor, currency, account_id, frequency, interval_count, day_of_month, month_of_year, next_due_date, end_date)`;
 
-// The rule's end date — migration 0002, issue #211. `end_date` is inclusive:
+// The rule's end date — migration 0002. `end_date` is inclusive:
 // that is how the `expandRecurring` consumer reads it (`while (cur <= hardEnd)`).
 describe('recurring_items — end date', () => {
   const base = BASE_WITH_END_DATE;
@@ -885,9 +884,9 @@ describe('recurring_items — end date', () => {
   // its own name. Why the bound is still in the migration is in its header.
 });
 
-// The `..._after_anchor` contract for S1-3 and S1-4: the CHECK is alive on ANY UPDATE
+// The `..._after_anchor` contract for CRUD and the forecast: the CHECK is alive on ANY UPDATE
 // of the row. That constrains not only moving the anchor forward, but also shortening
-// the term retroactively — the second is unobvious and would have cost an S1-3 debugging session.
+// the term retroactively — the second is unobvious and would have cost a debugging session.
 describe('recurring_items — end date against the sliding anchor', () => {
   const base = BASE_WITH_END_DATE;
 
@@ -933,7 +932,7 @@ describe('recurring_items — end date against the sliding anchor', () => {
   });
 
   it('allows a retroactive close when the anchor and the term change in one UPDATE', async () => {
-    // The normal path for S1-3: the CHECK is evaluated after the whole UPDATE is applied,
+    // The normal path for CRUD: the CHECK is evaluated after the whole UPDATE is applied,
     // so the pair passes where each half is rejected on its own.
     const accountId = await insertAccount();
     await env.DB.prepare(
@@ -951,7 +950,7 @@ describe('recurring_items — end date against the sliding anchor', () => {
   });
 });
 
-// The month anchor of a yearly rule — migration 0003, issue #225. What is checked is
+// The month anchor of a yearly rule — migration 0003. What is checked is
 // SPECIFICALLY the month: the day of `next_due_date` is allowed to diverge from `day_of_month`, and
 // why is in the migration header. The tests below lock both halves of that decision.
 describe('recurring_items — yearly rule and its month anchor', () => {
@@ -973,8 +972,8 @@ describe('recurring_items — yearly rule and its month anchor', () => {
   });
 
   it('rejects a yearly rule whose next date is not in the anchor month', async () => {
-    // Exactly the row from issue #225: the anchor is February, the date is August. From there
-    // the S1-4 forecast diverges from itself — advanceByPeriods takes the month from
+    // Exactly the original problem row: the anchor is February, the date is August. From there
+    // the forecast diverges from itself — advanceByPeriods takes the month from
     // the date, nextOccurrence from month_of_year.
     const accountId = await insertAccount();
     await expectRejected(
@@ -984,7 +983,7 @@ describe('recurring_items — yearly rule and its month anchor', () => {
   });
 
   it('does not let an UPDATE move the anchor into another month — the CHECK is alive on it too', async () => {
-    // This is the S1-3 and S1-4 path: the sliding anchor is moved specifically by UPDATE, and
+    // This is the CRUD and forecast path: the sliding anchor is moved specifically by UPDATE, and
     // for a yearly rule it may be moved only inside the anchor month —
     // the month is what is checked, the day does not dictate it.
     const accountId = await insertAccount();
@@ -1017,7 +1016,7 @@ describe('recurring_items — yearly rule and its month anchor', () => {
   });
 
   it('allows a day that diverges from the day anchor — shifting one payment is legal', async () => {
-    // A deliberate boundary of task #225, not a missed case: both
+    // A deliberate boundary of the month-anchor rule, not a missed case: both
     // forecast consumers take the day from day_of_month, so they have nothing
     // to diverge on because of it — only the first occurrence differs, and that is the
     // sliding anchor itself. The test holds this decision: if the day starts being checked,
@@ -1034,7 +1033,7 @@ describe('recurring_items — yearly rule and its month anchor', () => {
     expect(row?.next_due_date).toBe('2027-02-15');
   });
 
-  it('allows changing the anchor month together with the date in one UPDATE — the S1-3 path', async () => {
+  it('allows changing the anchor month together with the date in one UPDATE — the CRUD path', async () => {
     // "Insurance was moved from February to August". It cannot be done in halves:
     // the CHECK is alive on UPDATE, so month_of_year alone is rejected, while
     // the pair passes — it is checked only after the whole UPDATE is applied.
@@ -1437,7 +1436,7 @@ describe('operations and receipts', () => {
     await expectRejected('DELETE FROM receipts WHERE id = ?', receiptId);
   });
 
-  // Issue #267: marking "done" produces an operation. source = planned is
+  // Marking "done" produces an operation. source = planned is
   // the origin, not "manual". Its receipt_id is empty, as for manual.
   it('writes an operation from a planned item without a receipt', async () => {
     const accountId = await insertAccount();
@@ -1784,7 +1783,7 @@ describe('operations — table rebuild by migration 0011', () => {
     );
   });
 
-  describe('oauth_clients, oauth_consents, oauth_tokens (S2-1, issue #261)', () => {
+  describe('oauth_clients, oauth_consents, oauth_tokens', () => {
     it('creates a client and rejects one without the required name', async () => {
       await env.DB.prepare(
         `INSERT INTO oauth_clients (id, name, metadata_document_url)
@@ -1846,7 +1845,7 @@ describe('operations — table rebuild by migration 0011', () => {
     });
   });
 
-  describe('mcp_audit_log and source = "agent" (S2-4, issue #264)', () => {
+  describe('mcp_audit_log and source = "agent"', () => {
     it('allows an operation with source = "agent" and no receipt_id', async () => {
       const accountId = await insertAccount();
       await env.DB.prepare(

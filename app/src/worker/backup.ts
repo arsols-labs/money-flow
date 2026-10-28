@@ -1,4 +1,4 @@
-// Full-user-state D1 backup (issue #515).
+// Full-user-state D1 backup.
 //
 // Dump is a versioned JSON envelope of user-owned tables. Auth/session tables
 // (oauth_*, mcp_audit_log) and R2 receipt files stay on the instance: they are
@@ -41,7 +41,7 @@ export const EXCLUDED_FROM_BACKUP = [
   'mcp_audit_log',
 ] as const;
 
-// Typed confirm token for in-app reset (issue #579). Stable across locales.
+// Typed confirm token for in-app reset. Stable across locales.
 export const RESET_CONFIRM_PHRASE = 'RESET';
 
 export const EMPTY_INSTANCE_SETTINGS = [

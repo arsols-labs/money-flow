@@ -1,4 +1,4 @@
-// "Receipts" section of the "Data" screen (issue #557): fiscal documents via PFR.
+// "Receipts" section of the "Data" screen: fiscal documents via PFR.
 //
 // Cards look like "Analytics / Receipts", but the key differs: a stored
 // fiscal_receipt_id, not store+date+account. This section does not touch Analytics.

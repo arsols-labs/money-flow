@@ -5,7 +5,7 @@ import { RefreshProvider } from '../src/ui/RefreshContext.jsx';
 import Shell from '../src/ui/Shell.jsx';
 import i18n from '../src/ui/i18n.js';
 
-describe('language switch on Shell chrome (issue #512)', () => {
+describe('language switch on Shell chrome', () => {
   afterEach(async () => {
     await i18n.changeLanguage('en');
   });

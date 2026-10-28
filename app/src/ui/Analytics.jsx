@@ -1,4 +1,4 @@
-// "Analytics" — spending from D1 operations (S1-5b, issue #250, S1-5c, issue #251).
+// "Analytics" — spending from D1 operations.
 // The search and filters at the top apply to every block on the page at once.
 // Aggregation is computed on the server by a separate route (POST /api/v2/analytics).
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
@@ -571,7 +571,7 @@ function ReceiptCard({ receipt, baseCurrency }) {
   );
 }
 
-// ---------- recurring operations and plans (issue #290) ----------
+// ---------- recurring operations and plans ----------
 
 function frequencyLabels(t) {
   return {

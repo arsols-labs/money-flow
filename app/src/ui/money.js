@@ -3,8 +3,8 @@
 // 100: `19.99 * 100 === 1998.9999999999998` — the classic float bug, which is
 // why this is written this way.
 
-// The ISO 4217 minor-unit scale is also needed by the worker (the forecast engine,
-// issue #198) — the single source is src/shared/currency.ts, and this file only
+// The ISO 4217 minor-unit scale is also needed by the worker (the forecast engine)
+// — the single source is src/shared/currency.ts, and this file only
 // re-exports it: other UI modules and test/money.test.ts use the public fractionDigits
 // export from this module, so it must not be broken. The comment with
 // the rationale for the table (rather than Intl) lives there; we do not keep a second copy.
@@ -89,7 +89,7 @@ export function formatMinor(minor, currency) {
  *
  * `compact: true` — no fractional part (axis ticks, a short min marker).
  * Thousands grouping must not be stripped here with a `[.,]\d+` regex: in en-US
- * `$17,521.60`.replace(/[.,]\d+/, '') yields `$17.60` (issue #582).
+ * `$17,521.60`.replace(/[.,]\d+/, '') yields `$17.60`.
  */
 export function formatMajor(value, currency, locale = currentIntlLocale(), options = {}) {
   const currencyDigits = fractionDigits(currency);

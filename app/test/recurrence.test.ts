@@ -1,4 +1,4 @@
-// Helpers for the "Planned"/"Recurring" sections (S1-3, issue #197).
+// Helpers for the "Planned"/"Recurring" sections.
 //
 // describeRecurrence is the only place where a rule's day and month are read from
 // next_due_date, not from separate form fields (day_of_month/month_of_year

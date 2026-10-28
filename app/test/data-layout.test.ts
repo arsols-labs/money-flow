@@ -25,7 +25,7 @@ interface BlockItem {
   column: string;
 }
 
-describe('dataLayout logic & persistence (Issue #493)', () => {
+describe('dataLayout logic & persistence', () => {
   let store: Record<string, string> = {};
 
   beforeEach(() => {
@@ -170,7 +170,7 @@ describe('dataLayout logic & persistence (Issue #493)', () => {
     expect(resolveDataBlockColumn({ id: 'forecast', column: 'auto', visible: true })).toBe('full');
   });
 
-  describe('filters and section expansion persistence (Issue #493)', () => {
+  describe('filters and section expansion persistence', () => {
     it('loads defaults when no filters stored', () => {
       const filters = loadDataFilters();
       expect(filters).toEqual(DEFAULT_DATA_FILTERS);

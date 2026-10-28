@@ -1,4 +1,4 @@
-// Pure forecast core (issue #198, S1-4) — not a single call to D1. All I/O
+// Pure forecast core — not a single call to D1. All I/O
 // lives in load.ts; buildForecast takes already loaded data and returns daily
 // series and warnings. The split is deliberate: the core is tested without a
 // database (test/forecast-build.test.ts), and the API (api.ts) only glues
@@ -335,7 +335,7 @@ export function buildForecast(input: BuildForecastInput): BuildForecastResult {
     // across the whole horizon is "empty", not "low balance". Without this an
     // empty account would warn forever, simply because 0 is below the
     // threshold, and in production such rows made up a quarter of the list
-    // (owner decision 2026-08-12, issue #256). As soon as a balance or even
+    // (owner decision 2026-08-12). As soon as a balance or even
     // one operation appears on the dimension, the series stops being zero and
     // the rule works as usual.
     if (startBalance === 0n && daily.every((v) => v === 0n)) return null;

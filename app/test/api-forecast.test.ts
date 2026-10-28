@@ -1,4 +1,4 @@
-// Forecast endpoints and settings writes (issue #198, S1-4) — a real workerd
+// Forecast endpoints and settings writes — a real workerd
 // on top of a real D1, using the same approach as test/api-v2.test.ts (the
 // session-cookie signature lives there and is not repeated in a comment here).
 import { env } from 'cloudflare:test';
@@ -223,7 +223,7 @@ describe('GET /forecast — end-to-end run on seeded data', () => {
     expect(body.accounts[0]).toMatchObject({ currency: 'CHF', balance_base_minor: null });
   });
 
-  it('an overdue recurring payment enters the forecast as one sum on the nearest day and does not lose future occurrences (issue #279)', async () => {
+  it('an overdue recurring payment enters the forecast as one sum on the nearest day and does not lose future occurrences', async () => {
     vi.useFakeTimers();
     try {
       // asOf = 2026-08-15
@@ -277,7 +277,7 @@ describe('GET /forecast — end-to-end run on seeded data', () => {
   });
 });
 
-describe('Pulse payment calendar (#470)', () => {
+describe('Pulse payment calendar', () => {
   it('includes outstanding past/today and a complete month even for a one-day forecast', async () => {
     vi.useFakeTimers();
     try {

@@ -1,4 +1,4 @@
-// Account aliases (issue #339) — behavioral tests of the resolver module and the API.
+// Account aliases — behavioral tests of the resolver module and the API.
 //
 // We check exactly what Law 1 and the issue contract catch: the resolver does NOT throw
 // on an unknown account (it puts the string in pending), an alias is unique by

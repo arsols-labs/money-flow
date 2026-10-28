@@ -1,4 +1,4 @@
-// S2-2: API for the Access screen and the MCP audit log (issue #262)
+// API for the Access screen and the MCP audit log
 
 import { Hono } from 'hono';
 import type { Env } from './types';

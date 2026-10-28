@@ -1,4 +1,4 @@
-// "Recurring" section on the "Data" screen (S1-3, issue #197, #280): recurrence
+// "Recurring" section on the "Data" screen: recurrence
 // rules without a specific date for each operation. The structure mirrors
 // PlannedSection.jsx: its own form, its own chain for row edits, closing a
 // period and skipping a period, pause/resume, and deletion.

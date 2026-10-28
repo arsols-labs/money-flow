@@ -1,4 +1,4 @@
-// S2-1: OAuth 2.1 provider and D1 storage of consents/tokens (issue #261)
+// OAuth 2.1 provider and D1 storage of consents/tokens
 
 import OAuthProvider, {
   AuthorizationError,

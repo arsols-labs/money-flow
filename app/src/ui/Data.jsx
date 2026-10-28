@@ -39,9 +39,9 @@ import { useRefreshNonce } from './RefreshContext';
 // The balance-reconciliation threshold follows the rates example, but is half as long, and that is not a matter of taste.
 // A rate moves by percents between entries and is edited rarely; a balance
 // is moved by salary, rent, and groceries, so in two weeks it has diverged from
-// the bank almost for certain, and the forecast (S1-4) starts from it.
+// the bank almost for certain, and the forecast starts from it.
 // A constant, not a settings control: add a separate knob only on
-// an explicit request (issue #223).
+// an explicit request.
 const STALE_BALANCE_DAYS = 14;
 
 function accountMeta(acc) {
@@ -51,7 +51,7 @@ function accountMeta(acc) {
 // existingAccounts is the list for the similar-account warning; only the
 // create form needs it, the edit form does not have it (and has no warning either).
 //
-// Aliases (issue #339) are attached to an account that already exists, so
+// Aliases are attached to an account that already exists, so
 // the editor is shown only on the edit form (initial is set). The API calls
 // themselves come from the imported `api` — a separate prop is not needed.
 function AccountForm({ initial, onSubmit, onCancel, submitLabel, existingAccounts = [] }) {
@@ -105,7 +105,7 @@ function AccountForm({ initial, onSubmit, onCancel, submitLabel, existingAccount
   }, [currencyMatchesInitial]);
 
   // The default name is "Type · Currency · Country", as soon as the triple is filled in
-  // (issue #235). Only on create: an existing account already has a name, and
+  //. Only on create: an existing account already has a name, and
   // substituting over it would wipe data rather than suggest. So on
   // the edit form the "touched" mark is set from the start.
   const nameTouchedRef = useRef(Boolean(initial));
@@ -248,7 +248,7 @@ function AccountForm({ initial, onSubmit, onCancel, submitLabel, existingAccount
   );
 }
 
-// Account alias editor (issue #339): binding virtual cards to a real
+// Account alias editor: binding virtual cards to a real
 // account. Lives inside the edit form of an existing account (`initial` is set) —
 // aliases only make sense on an account that has already been created.
 //
@@ -400,7 +400,7 @@ function AccountRow({
           </div>
           {/* One-tap confirmation: "checked with the bank, the amount is the same".
               Without it the freshness mark could be moved only by changing
-              the amount, that is by lying to oneself (issue #223). The button stands on every
+              the amount, that is by lying to oneself. The button stands on every
               account, not only a stale one: reconciliation is an ordinary action,
               and hiding it until the threshold would punish
               care. stopPropagation — because the whole row header
@@ -462,7 +462,7 @@ function RateForm({ baseCurrency, initialCode = '', onSubmit, onCancel }) {
       setError(t('data.rates.codeFormat'));
       return;
     }
-    // The client check does not replace the server check (#228, the PUT will reject it
+    // The client check does not replace the server check (the PUT will reject it
     // anyway) — it just saves a round trip on an obvious error.
     if (baseCurrency && codeNorm === baseCurrency) {
       setError(t('data.rates.baseSelf', { code: codeNorm }));
@@ -978,15 +978,15 @@ export default function Data({
   const [loadError, setLoadError] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [rates, setRates] = useState([]);
-  // Currencies in use that have no rate (issue #193). The server counts them: it
+  // Currencies in use that have no rate. The server counts them: it
   // alone sees every table that references a currency, not only accounts.
   const [missingRates, setMissingRates] = useState([]);
   // null — the base currency is not configured (`settings.base_currency` is unset or
   // unusable). A default of 'USD' here would be a lie: the screen would show
-  // "USD" even when the server itself does not know which currency is base (#228).
+  // "USD" even when the server itself does not know which currency is base.
   const [baseCurrency, setBaseCurrency] = useState(null);
 
-  // The low-balance warning threshold (issue #198) is read together with
+  // The low-balance warning threshold is read together with
   // the rest of the screen's data. null means "not loaded yet" (distinct from
   // a legitimate 0, which the parser of valid input can also return).
   const [thresholdMinor, setThresholdMinor] = useState(null);
@@ -1016,7 +1016,7 @@ export default function Data({
   const visibleAccounts = accounts.filter(matchesAccount);
   const visibleRates = rates.filter(matchesRate);
 
-  // Deep links to screen blocks when the hash changes live (issue #278).
+  // Deep links to screen blocks when the hash changes live.
   useEffect(() => {
     const handleHash = () => {
       const section = sectionFromHash(window.location.hash);

@@ -131,7 +131,7 @@ export const api = {
       body: JSON.stringify({ confirm: true, phrase: 'RESET' }),
     }),
 
-  // MCP Access & Audit (S2-2)
+  // MCP Access & Audit
   getMcpAccess: () => request('/api/v2/mcp/access'),
   createMcpClient: (payload) =>
     request('/api/v2/mcp/access/clients', { method: 'POST', body: JSON.stringify(payload) }),
@@ -141,7 +141,7 @@ export const api = {
     request(`/api/v2/mcp/access/clients/${encodeURIComponent(clientId)}`, { method: 'DELETE' }),
   getMcpAudit: () => request('/api/v2/mcp/audit'),
 
-  // Passkeys Management (issue #507)
+  // Passkeys Management
   listPasskeys: () => request('/api/v2/passkeys'),
   registerPasskeyOptions: () =>
     request('/api/v2/passkeys/register-options', { method: 'POST' }),

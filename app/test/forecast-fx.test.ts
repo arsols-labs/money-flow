@@ -1,4 +1,4 @@
-// Unit tests of FX decimal math (issue #198, "ROUND_HALF_EVEN"). Ported
+// Unit tests of FX decimal math ("ROUND_HALF_EVEN"). Ported
 // from archive/v2-codex (app/test/fx.test.ts): the entry point changed
 // (src/worker/forecast/fx.ts), and the convertMinorToUsd cases were dropped (in v2 the base
 // currency is configurable, not a hardcoded USD — see IDENTITY_RATE/rateFromE9).

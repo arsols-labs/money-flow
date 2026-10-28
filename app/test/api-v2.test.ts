@@ -1,4 +1,4 @@
-// CRUD API v2 (S1-2, issue #196) — accounts, FX rates, settings.
+// CRUD API v2 — accounts, FX rates, settings.
 // Hono is called directly (app.request), with no ASSETS binding and no network —
 // see the approach in vitest.config.ts / test/apply-migrations.ts.
 import { env } from 'cloudflare:test';
@@ -54,7 +54,7 @@ async function api(method: string, path: string, body?: unknown, withCookie = tr
   return app.request(path, init, env as unknown as Env);
 }
 
-// owner and country are filled in by default on purpose: they are required (#232), and
+// owner and country are filled in by default on purpose: they are required, and
 // without them every helper call would test validation instead of its own scenario.
 // Tests of that requirement itself hit the API directly, bypassing this helper.
 async function createAccount(overrides: Record<string, unknown> = {}) {
@@ -70,7 +70,7 @@ async function createAccount(overrides: Record<string, unknown> = {}) {
 }
 
 // A planned-item reference to an account is what closes the dimension lock. A direct
-// insert, not via planned-item CRUD (S1-3, issue #197): lock tests must not
+// insert, not via planned-item CRUD: lock tests must not
 // depend on the new API being correct — they check accounts, not operations.
 async function referenceAccount(accountId: unknown) {
   await env.DB.prepare(
@@ -81,7 +81,7 @@ async function referenceAccount(accountId: unknown) {
     .run();
 }
 
-// A planned/recurring item THROUGH the new API (S1-3, issue #197) — unlike
+// A planned/recurring item THROUGH the new API — unlike
 // referenceAccount, these helpers test the CRUD itself, not only the account lock.
 async function createPlannedItem(accountId: unknown, overrides: Record<string, unknown> = {}) {
   const res = await api('POST', '/api/v2/planned-items', {
@@ -109,7 +109,7 @@ async function createRecurringItem(accountId: unknown, overrides: Record<string,
 }
 
 // An account is required, currency is not accepted at all (it belongs to the account), the amount is a balance
-// delta: an expense is negative (issue #200, owner's decision 2026-08-12).
+// delta: an expense is negative (owner's decision 2026-08-12).
 async function createOperation(accountId: unknown, overrides: Record<string, unknown> = {}) {
   const res = await api('POST', '/api/v2/operations', {
     date: '2026-08-10',
@@ -123,11 +123,11 @@ async function createOperation(accountId: unknown, overrides: Record<string, unk
   return (await res.json()) as { operation: Record<string, unknown> };
 }
 
-// A direct rate insert that bypasses the API (#228: PUT for the base currency is now
+// A direct rate insert that bypasses the API (PUT for the base currency is now
 // rejected at the door) — models a row created before the fix or by editing
 // the DB directly. It lives at module level, not inside a single describe: the tests
 // that need it for setup are scattered across describe('fx-rates') and across
-// nested describes inside describe('FX rate coverage of currencies (issue #193)').
+// nested describes inside describe('FX rate coverage of currencies').
 async function insertRate(code: string, rateE9: string, updatedAt = '2026-08-01T00:00:00Z') {
   await env.DB.prepare('INSERT INTO fx_rates (code, rate_e9, updated_at) VALUES (?, ?, ?)')
     .bind(code, rateE9, updatedAt)
@@ -341,7 +341,7 @@ describe('accounts', () => {
 // The only sign of balance freshness is `balance_updated_at`, and before this
 // task the only way to move it was to change the amount. A separate route lets
 // you say "checked with the bank, the amount is the same" without distorting anything.
-describe('balance confirmation (issue #223)', () => {
+describe('balance confirmation', () => {
   const PATH = (id: unknown) => `/api/v2/accounts/${id}/confirm-balance`;
 
   it('moves balance_updated_at and touches nothing else', async () => {
@@ -396,7 +396,7 @@ describe('balance confirmation (issue #223)', () => {
     }
   });
 
-  // The dimension lock (#232) does not apply here: the check timestamp is not
+  // The dimension lock does not apply here: the check timestamp is not
   // an account dimension. Confirming the balance on an account with operations matters even more:
   // those are the accounts that take part in the forecast.
   it('works on an account occupied by an operation — the dimension lock does not apply to it', async () => {
@@ -470,7 +470,7 @@ describe('balance confirmation (issue #223)', () => {
 // type are immutable". The first operation here means any reference to the account from
 // planned_items or recurring_items — the same occupancy signal that already
 // blocks DELETE.
-describe('account dimension lock (issue #232)', () => {
+describe('account dimension lock', () => {
   const LOCKED: Array<[string, Record<string, unknown>]> = [
     ['owner', { owner: 'Другой' }],
     ['country', { country: 'USA' }],
@@ -793,8 +793,8 @@ describe('fx-rates', () => {
     expect(res.status).toBe(404);
   });
 
-  // #228: a rate for the base currency is nonsense (1 USD = 1 USD when the base is USD),
-  // and the S1-4 calculation core will not use it. Input is closed on PUT, and the row does
+  // A rate for the base currency is nonsense (1 USD = 1 USD when the base is USD),
+  // and the forecast calculation core will not use it. Input is closed on PUT, and the row does
   // not appear at all — not only status 400, but also absence from GET.
   it('PUT of the base currency → 400, and no row appears in fx_rates', async () => {
     const res = await api('PUT', '/api/v2/fx-rates/USD', { rate: '1' });
@@ -878,12 +878,12 @@ describe('fx-rates', () => {
   });
 });
 
-// Invariant of issue #193: a currency that something in the database references must have
+// Invariant: a currency that something in the database references must have
 // a rate to the base — otherwise its amounts cannot be converted. The schema cannot express this
 // (CHECK cannot see another table, and v2 has no triggers), so the API holds it:
 // DELETE will not remove the rate of a currency in use, and GET shows the ones that still
 // have no rate.
-describe('FX rate coverage of currencies (issue #193)', () => {
+describe('FX rate coverage of currencies', () => {
   async function fxState() {
     const res = await api('GET', '/api/v2/fx-rates');
     expect(res.status).toBe(200);
@@ -939,7 +939,7 @@ describe('FX rate coverage of currencies (issue #193)', () => {
     expect((await fxState()).missing).toEqual([]);
   });
 
-  // Exactly the scenario from #193: archive does not "release" the currency. The money on the account
+  // Exactly the original scenario: archive does not "release" the currency. The money on the account
   // is still there, unarchiving is one PATCH, and conversion will need the rate again.
   it('an archived account keeps its currency in missing just like an active one', async () => {
     const { account } = await createAccount({ currency: 'RSD' });
@@ -1007,7 +1007,7 @@ describe('FX rate coverage of currencies (issue #193)', () => {
   // use it. If the same occupancy check held that row, this
   // error could not be fixed — accounts in the base currency always exist.
   it('the base-currency rate can be deleted even when accounts in that currency exist', async () => {
-    // Setup via insertRate, not PUT: since #228, PUT for the base currency
+    // Setup via insertRate, not PUT: PUT for the base currency
     // is rejected at the door — here we model a row that is already in the database.
     await insertRate('USD', '1000000000');
     await createAccount({ currency: 'USD' });
@@ -1118,7 +1118,7 @@ describe('FX rate coverage of currencies (issue #193)', () => {
       expect((await api('DELETE', '/api/v2/fx-rates/usd')).status).toBe(204);
     });
 
-    // Changing the base currency is a separate question in issue #228: the ban and the allowances
+    // Changing the base currency is a separate question: the ban and the allowances
     // follow the CURRENT settings value, rather than sticking to the currency that
     // was the base when the row was inserted.
     it('changing the base currency no longer affects the rate ban (only USD is always forbidden)', async () => {
@@ -1141,7 +1141,7 @@ describe('FX rate coverage of currencies (issue #193)', () => {
       expect((await api('PUT', '/api/v2/fx-rates/eur', { rate: '1' })).status).toBe(200);
     });
 
-    // The other half of that same question from issue #228: the new base currency
+    // The other half of that same question: the new base currency
     // may have picked up a rate back when it was an ordinary currency. Such a row becomes
     // erroneous after the fact, and its fate is the same as one entered by hand:
     // GET shows it (otherwise the owner would never learn it is there), PUT does not update it,
@@ -1169,7 +1169,7 @@ describe('FX rate coverage of currencies (issue #193)', () => {
   });
 });
 
-describe('planned_items (issue #197)', () => {
+describe('planned_items', () => {
   it('create and read: the default currency comes from the account', async () => {
     const { account } = await createAccount({ currency: 'RSD' });
     const created = await createPlannedItem(account.id);
@@ -1342,7 +1342,7 @@ describe('planned_items (issue #197)', () => {
   });
 
   // A planned item created THROUGH CRUD closes the account dimension lock
-  // (issue #232) the same way a direct insert does — and blocks deleting the account.
+  // the same way a direct insert does — and blocks deleting the account.
   it('a planned item created through the API closes the account dimension lock and blocks deleting the account', async () => {
     const { account } = await createAccount();
     await createPlannedItem(account.id);
@@ -1355,7 +1355,7 @@ describe('planned_items (issue #197)', () => {
   });
 });
 
-describe('recurring_items (issue #197)', () => {
+describe('recurring_items', () => {
   it('create and read: the default currency comes from the account', async () => {
     const { account } = await createAccount({ currency: 'RSD' });
     const created = await createRecurringItem(account.id);
@@ -1863,7 +1863,7 @@ describe('recurring_items (issue #197)', () => {
   });
 
   // A recurring item created THROUGH CRUD closes the account dimension lock
-  // (issue #232) the same way a direct insert does — and blocks deleting the account.
+  // the same way a direct insert does — and blocks deleting the account.
   it('a recurring item created through the API closes the account dimension lock and blocks deleting the account', async () => {
     const { account } = await createAccount();
     await createRecurringItem(account.id);
@@ -1875,7 +1875,7 @@ describe('recurring_items (issue #197)', () => {
     expect(delRes.status).toBe(409);
   });
 
-  describe('close-period and skip-period (issue #280)', () => {
+  describe('close-period and skip-period', () => {
     it('close-period with default parameters: creates an operation with source=recurring, moves the balance, and shifts next_due_date', async () => {
       const { account } = await createAccount({ balance_minor: 100000, currency: 'RSD' });
       const { recurring_item: item } = await createRecurringItem(account.id, {
@@ -2169,7 +2169,7 @@ describe('recurring_items (issue #197)', () => {
     });
   });
 
-  describe('integration of closing a recurring period with the forecast (issue #280 + #279)', () => {
+  describe('integration of closing a recurring period with the forecast', () => {
     it('closing a period removes the overdue debt from the forecast, debits the balance, and leaves the future horizon complete', async () => {
       vi.useFakeTimers();
       try {
@@ -2223,7 +2223,7 @@ describe('recurring_items (issue #197)', () => {
   });
 });
 
-describe('operations (issue #200)', () => {
+describe('operations', () => {
   async function listOperations() {
     const res = await api('GET', '/api/v2/operations');
     expect(res.status).toBe(200);
@@ -2283,7 +2283,7 @@ describe('operations (issue #200)', () => {
     expect(await balanceOf(account.id)).toBe(579999);
   });
 
-  // The "checked with the bank" mark (issue #223) does not move because of our adjustment:
+  // The "checked with the bank" mark does not move because of our adjustment:
   // an amount we computed is not a reconciliation, and using it to clear the
   // "time to reconcile" reminder would lie exactly where the discrepancy accumulates.
   it('a balance adjustment does not move balance_updated_at', async () => {
@@ -2396,7 +2396,7 @@ describe('operations (issue #200)', () => {
     expect(await balanceOf(account.id)).toBe(100000);
   });
 
-  // Requirement of issue #200 — reject before the operations_source_matches_receipt CHECK.
+  // Requirement: reject before the operations_source_matches_receipt CHECK.
   // The schema safety net is illusory here: the INSERT writes NULL and 'manual'
   // as literals, so the submitted value never reaches the CHECK. Drop the check —
   // and the result is not a 500 but a quiet 201 with an empty receipt link, and `toEqual([])` catches that.
@@ -2505,7 +2505,7 @@ describe('operations (issue #200)', () => {
   // the amount has to be named again. Without this check, moving "1 500,00 RSD" onto
   // a dollar account returned 200 and left amount_minor as-is: dinars silently
   // became dollars without a single column changing. The dimension lock
-  // (#232) does not close this path — it forbids changing the currency OF THE ACCOUNT.
+  // does not close this path — it forbids changing the currency OF THE ACCOUNT.
   it('PATCH that moves to an account in another currency without an amount → 400, and nothing is touched', async () => {
     const rsd = await accountWithBalance(0, { currency: 'RSD' });
     const usd = await accountWithBalance(0, { name: 'Долларовый', currency: 'USD' });
@@ -2617,7 +2617,7 @@ describe('operations (issue #200)', () => {
     expect(await balanceOf(account.id)).toBe(100000);
   });
 
-  // The dimension lock (#232) is closed by operations the same way it is by planned items, and this
+  // The dimension lock is closed by operations the same way it is by planned items, and this
   // is not symmetry for its own sake: an operation currency is not stored, it is taken from the account
   // — changing the account currency would rewrite the meaning of every amount on it.
   it('an operation closes the account dimension lock and forbids deleting the account', async () => {
@@ -2867,7 +2867,7 @@ describe('race: the row was deleted between the PATCH read and the PATCH write',
   });
 });
 
-describe('MF-21 existing-operation fulfillment', () => {
+describe('existing-operation fulfillment', () => {
   it('links an existing operation to a planned item without changing provenance, count, or balance', async () => {
     const { account } = await createAccount({ balance_minor: 100000 });
     const accountId = account.id as number;
@@ -3030,7 +3030,7 @@ describe('MF-21 existing-operation fulfillment', () => {
     expect((await env.DB.prepare('SELECT balance_minor FROM accounts WHERE id = ?').bind(account.id).first<{ balance_minor: number }>())?.balance_minor).toBe(99000);
   });
 
-  describe('cancel-period-fulfillment (issue #565)', () => {
+  describe('cancel-period-fulfillment', () => {
     it('cancels a materialized period, leaves the operation, then delete succeeds', async () => {
       const { account } = await createAccount({ balance_minor: 100000 });
       const recurring = (await createRecurringItem(account.id, {
@@ -3178,7 +3178,7 @@ describe('MF-21 existing-operation fulfillment', () => {
     });
   });
 
-  describe('booking guards (issue #565)', () => {
+  describe('booking guards', () => {
     async function seedAnalyticalRule(accountId: number, id: 16 | 17, title: string) {
       await env.DB.prepare(
         `INSERT INTO recurring_items
@@ -3359,7 +3359,7 @@ describe('MF-21 existing-operation fulfillment', () => {
   });
 });
 
-describe('planned_items → operation (issue #267)', () => {
+describe('planned_items → operation', () => {
   async function listOperations() {
     const res = await api('GET', '/api/v2/operations');
     expect(res.status).toBe(200);
@@ -3517,7 +3517,7 @@ describe('planned_items → operation (issue #267)', () => {
     expect(await balanceOf(account.id)).toBe(75000);
   });
 
-  it('editing the title of a completed planned item that has no operation does not materialize the fact (#282)', async () => {
+  it('editing the title of a completed planned item that has no operation does not materialize the fact', async () => {
     const { account } = await createAccount({ currency: 'EUR', balance_minor: 100000 });
     const created = await createPlannedItem(account.id, { currency: 'EUR', amount_minor: -25000, title: 'Аренда' });
     // An old checkbox with no operation
@@ -3824,7 +3824,7 @@ describe('API v2: transfers between accounts (/api/v2/transfers)', () => {
     expect(((await patchItem.json()) as { operation: { item: string } }).operation.item).toBe('Новое описание');
   });
 
-  it('PUT /transfers/:id changes both amounts and recalculates the balances correctly (#401)', async () => {
+  it('PUT /transfers/:id changes both amounts and recalculates the balances correctly', async () => {
     const from = (await createAccount({ balance_minor: 100000, currency: 'RSD', name: 'Списание' })).account;
     const to = (await createAccount({ balance_minor: 50000, currency: 'RSD', name: 'Зачисление' })).account;
     const createRes = await api('POST', '/api/v2/transfers', {

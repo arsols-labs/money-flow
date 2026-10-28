@@ -1,5 +1,5 @@
 // ISO 4217 minor-unit scale — the shared source for the UI and the worker
-// (issue #198). It used to live only in src/ui/money.js; the forecast engine
+// . It used to live only in src/ui/money.js; the forecast engine
 // needs it to convert flows between currencies (see src/worker/forecast/build.ts),
 // so it is extracted here as one module (Law 3 — one source, not a second copy).
 

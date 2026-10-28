@@ -1,4 +1,4 @@
-// "Operations" section on the "Data" screen (S1-5a, issue #200): expenses, income, and
+// "Operations" section on the "Data" screen: expenses, income, and
 // refunds entered by hand. The structure matches "Planned": a form with its own
 // busy/error, actions without a form go through runAction with a shared banner, and edits
 // of one row are chained through serialize.
@@ -536,7 +536,7 @@ function OperationRow({ operation, accounts, expanded, onToggle, onUpdate, onDel
   );
 }
 
-// A transfer is shown as one row (#378): date, "Transfer", source account →
+// A transfer is shown as one row: date, "Transfer", source account →
 // destination account, and both sides' amounts. Expanding shows both operations
 // (the debit and the credit) together with a button that deletes the whole pair.
 export function TransferRow({ out, inn, accounts, expanded, onToggle, onDelete, onUpdate = () => {} }) {
@@ -861,7 +861,7 @@ export default function OperationsSection({
   const [operations, setOperations] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
   const [showNew, setShowNew] = useState(false);
-  // Pagination (issue #379): 10 latest by default; a limit select of
+  // Pagination: 10 latest by default; a limit select of
   // 10/20/50/100/all; "Show more" adds 10 to what is visible.
   const [internalLimit, setInternalLimit] = useState(10);
   const limit = propLimit !== undefined ? propLimit : internalLimit;
@@ -880,7 +880,7 @@ export default function OperationsSection({
     setVisibleCount(n === 'all' ? Number.MAX_SAFE_INTEGER : n);
   };
 
-  // The list to display (issue #377 #378 #379):
+  // The list to display:
   // 1) a search filter (item/store/category/account) — client-side over
   //    the list already loaded;
   // 2) grouping of transfer_out/transfer_in pairs into one transfer card;
@@ -930,7 +930,7 @@ export default function OperationsSection({
 
   useLoadWhenExpanded(expanded, load, refreshNonce);
 
-  // A planned checkbox creates or deletes a fact in another block (#267). The hook above
+  // A planned checkbox creates or deletes a fact in another block. The hook above
   // loads the list once; without this, a revision would leave an open block with
   // the old list until a reload. A quiet refresh, without "loading…": a flicker
   // of someone else's section is worse than a slightly stale frame for one network frame.

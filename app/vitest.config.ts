@@ -24,7 +24,7 @@ export default defineConfig({
     sqlTextPlugin(),
     cloudflareTest(async () => {
       const migrations = await readD1Migrations(path.join(import.meta.dirname, 'migrations'));
-      // The palette is checked by a test against the CSS itself (issue #252).
+      // The palette is checked by a test against the CSS itself.
       // The file is read here, not in the test: workerd has neither `node:fs`
       // nor a working `?raw` import. That import returns an empty string and
       // the check fails silently.
@@ -44,7 +44,7 @@ export default defineConfig({
             // Test binding: the setup file applies the migrations.
             TEST_MIGRATIONS: migrations,
             // Stand-in secret for signing the session cookie in API v2 tests
-            // (S1-2). The value is not a secret; this is a test environment.
+            // The value is not a secret; this is a test environment.
             SESSION_SECRET: 'test-session-secret-not-a-real-secret',
             SETUP_TOKEN: 'test-setup-token',
             PALETTE_CSS: paletteCss,

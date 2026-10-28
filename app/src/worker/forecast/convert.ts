@@ -1,4 +1,4 @@
-// Amount conversion between currencies through rates against the base (issue #198, S1-4).
+// Amount conversion between currencies through rates against the base.
 //
 // A separate module, not a private function of build.ts, because two callers
 // convert and they do it differently: the forecast core (build.ts) converts

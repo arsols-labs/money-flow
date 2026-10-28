@@ -1,4 +1,4 @@
-// Account aliases (issue #339) — a resolver from virtual cards to a real
+// Account aliases — a resolver from virtual cards to a real
 // account, and work with the list of "unknown" accounts from receipts.
 //
 // Two responsibilities, one table for each:
@@ -6,7 +6,7 @@
 //   * pending_account_strings — an account from a receipt that is not bound yet.
 //
 // The resolver (`resolveOrPend`) is the only point through which history
-// import (#340) and automation (#341) turn a receipt's charge account into a
+// import and automation turn a receipt's charge account into a
 // v2 account. By contract it NEVER throws on an unknown account: it either
 // returns account_id, or puts the string into pending and returns null
 // (Law 1 — a silent import failure is worse than an explicit "needs confirmation" mark).
@@ -120,7 +120,7 @@ export async function resolveOrPend(db: D1Database, raw: unknown): Promise<numbe
   const norm = normalizeAlias(raw);
   if (!norm) return null;
 
-  // It does not resolve — mark it for confirmation by the owner (Scheduled Job #341).
+  // It does not resolve — mark it for confirmation by the owner (the scheduled job).
   // INSERT OR IGNORE: a repeated first-seen of the same account does not spawn duplicates.
   const text = typeof raw === 'string' ? raw.trim() : '';
   if (text.length > 0) {
@@ -194,7 +194,7 @@ export async function removeAlias(db: D1Database, accountId: number, aliasId: nu
   }
 }
 
-/** List of all unbound accounts from receipts (for Scheduled Job #341). */
+/** List of all unbound accounts from receipts (for the scheduled job). */
 export async function listPending(db: D1Database): Promise<PendingStringJson[]> {
   const { results } = await db
     .prepare(

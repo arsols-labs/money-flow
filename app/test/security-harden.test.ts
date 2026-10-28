@@ -25,7 +25,7 @@ async function generatePkce() {
   return { verifier, challenge };
 }
 
-describe('security harden (#533)', () => {
+describe('security harden', () => {
   beforeEach(() => {
     resetRateLimitMemoryForTests();
   });

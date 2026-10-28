@@ -1,4 +1,4 @@
-// Hono helpers and typed errors for the #513 API error envelope.
+// Hono helpers and typed errors for the API error envelope.
 import type { Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import {
