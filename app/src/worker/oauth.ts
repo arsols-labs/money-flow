@@ -7,6 +7,7 @@ import OAuthProvider, {
   type OAuthHelpers,
   type OAuthProviderOptions,
 } from '@cloudflare/workers-oauth-provider';
+import { logOAuth } from './oauth-log';
 import type { Env } from './types';
 
 export const DEFAULT_APP_ORIGIN = 'https://localhost';
@@ -16,6 +17,23 @@ export const OAUTH_SCOPES_SUPPORTED = ['read', 'write'];
 
 /** User id written into every workers-oauth-provider grant (single-user app). */
 export const OAUTH_OWNER_USER_ID = 'owner';
+
+/** Access tokens stay at the provider default of one hour. */
+export const OAUTH_ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
+
+/**
+ * Explicit refresh lifetime (workers-oauth-provider 1.2.1 default is 30 days).
+ * `expiresAt` is set at authorization-code exchange to now + this value.
+ * `refreshTokenIdleTTL` is left unset, so a refresh does not move that expiry.
+ * Rotation stays the library default: the current refresh token and the single
+ * previous one (`previousRefreshTokenId`) are both accepted. Presenting either
+ * rotates again and keeps the presented token as the previous one. It does not
+ * revoke the grant. Any older refresh token is `invalid_grant`.
+ */
+export const OAUTH_REFRESH_TOKEN_TTL_SECONDS = 90 * 24 * 60 * 60;
+
+/** Logged length of a grant id. The rest of the id, and the token secret, stay off the log. */
+export const OAUTH_GRANT_ID_LOG_PREFIX_LENGTH = 8;
 
 const LOOPBACK_REDIRECT_HOSTS = new Set(['127.0.0.1', 'localhost']);
 const GOOGLE_ACCOUNT_LINKING_HOSTS = new Set([
@@ -110,7 +128,8 @@ export function getOAuthProviderOptions(
   defaultHandler: ExportedHandler<Env>,
   apiHandler?: any,
   origin?: string,
-  env?: Env
+  env?: Env,
+  tokenLog?: TokenErrorLogFields,
 ): OAuthProviderOptions<Env> {
   const issuerUri = getOAuthIssuerUri(origin, env);
   const resourceUri = getOAuthResourceUri(origin, env);
@@ -130,6 +149,26 @@ export function getOAuthProviderOptions(
     tokenEndpoint: '/api/auth/oauth/token',
     clientRegistrationEndpoint: '/api/auth/oauth/register',
     clientIdMetadataDocumentEnabled: true,
+    accessTokenTTL: OAUTH_ACCESS_TOKEN_TTL_SECONDS,
+    refreshTokenTTL: OAUTH_REFRESH_TOKEN_TTL_SECONDS,
+    tokenExchangeCallback: (options) => {
+      if (options.grantType !== 'refresh_token') return;
+      logOAuth('info', 'oauth.token_refreshed', {
+        clientId: options.clientId,
+        grantIdPrefix: options.grantId.slice(0, OAUTH_GRANT_ID_LOG_PREFIX_LENGTH),
+      });
+    },
+    onError: ({ status, code, description, internal }) => {
+      logOAuth('warn', 'oauth.token_error', {
+        status,
+        code,
+        description,
+        reason: internal?.reason,
+        grantType: tokenLog?.grantType,
+        clientId: tokenLog?.clientId,
+        grantIdPrefix: tokenLog?.grantIdPrefix,
+      });
+    },
     scopesSupported: OAUTH_SCOPES_SUPPORTED,
     resourceMetadata: {
       resource: resourceUri,
@@ -147,9 +186,10 @@ export function createOAuthProvider(
   defaultHandler: ExportedHandler<Env>,
   apiHandler?: any,
   origin?: string,
-  env?: Env
+  env?: Env,
+  tokenLog?: TokenErrorLogFields,
 ) {
-  const options = getOAuthProviderOptions(defaultHandler, apiHandler, origin, env);
+  const options = getOAuthProviderOptions(defaultHandler, apiHandler, origin, env, tokenLog);
   return new OAuthProvider<Env>(options);
 }
 
@@ -172,7 +212,84 @@ type GrantSummary = {
   id: string;
   clientId: string;
   createdAt?: number;
+  /** Present on grants written by workers-oauth-provider 1.x. Absent on older rows. */
+  redirectUri?: string;
 };
+
+/** workers-oauth-provider auth code = `${userId}:${grantId}:${secret}` (see completeAuthorization). */
+export function grantIdFromAuthorizeRedirect(redirectTo: string): string | null {
+  const code = new URL(redirectTo).searchParams.get('code');
+  const parts = code?.split(':') ?? [];
+  return parts.length === 3 && parts[1] ? parts[1] : null;
+}
+
+/**
+ * Fields safe to log for a token-endpoint error.
+ * The provider's `onError` hook does not receive the request body, so the token
+ * route parses these before forwarding. The credential itself is never returned.
+ */
+export type TokenErrorLogFields = {
+  grantType?: string;
+  clientId?: string;
+  grantIdPrefix?: string;
+};
+
+/** First characters of the grant id inside `userId:grantId:secret`, when the shape matches. */
+export function grantIdPrefixFromCredential(credential: string | null | undefined): string | undefined {
+  if (!credential) return undefined;
+  const parts = credential.split(':');
+  if (parts.length !== 3 || !parts[1]) return undefined;
+  return parts[1].slice(0, OAUTH_GRANT_ID_LOG_PREFIX_LENGTH);
+}
+
+export async function tokenRequestLogFields(request: Request): Promise<TokenErrorLogFields> {
+  const contentType = (request.headers.get('content-type') || '').split(';')[0]!.trim().toLowerCase();
+  let params = new URLSearchParams();
+  try {
+    if (
+      contentType === 'application/x-www-form-urlencoded' ||
+      contentType === 'multipart/form-data'
+    ) {
+      const form = await request.formData();
+      for (const [key, value] of form.entries()) {
+        if (typeof value === 'string' && !params.has(key)) params.set(key, value);
+      }
+    } else if (contentType === 'application/json') {
+      const body = (await request.json()) as Record<string, unknown>;
+      for (const [key, value] of Object.entries(body)) {
+        if (typeof value === 'string') params.set(key, value);
+      }
+    }
+  } catch {
+    params = new URLSearchParams();
+  }
+
+  const grantType = params.get('grant_type') || undefined;
+  const clientId = params.get('client_id') || clientIdFromBasicAuth(request.headers.get('authorization'));
+  const credential =
+    grantType === 'refresh_token'
+      ? params.get('refresh_token')
+      : grantType === 'authorization_code'
+        ? params.get('code')
+        : params.get('refresh_token') || params.get('code') || params.get('token');
+  return {
+    grantType,
+    clientId,
+    grantIdPrefix: grantIdPrefixFromCredential(credential),
+  };
+}
+
+function clientIdFromBasicAuth(header: string | null): string | undefined {
+  if (!header) return undefined;
+  const match = /^Basic\s+(\S+)$/i.exec(header.trim());
+  if (!match?.[1]) return undefined;
+  try {
+    const clientId = atob(match[1]).split(':')[0];
+    return clientId ? decodeURIComponent(clientId) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export async function listAllUserGrants(
   helpers: OAuthHelpers,
@@ -187,6 +304,7 @@ export async function listAllUserGrants(
         id: grant.id,
         clientId: grant.clientId,
         createdAt: grant.createdAt,
+        redirectUri: grant.redirectUri,
       });
     }
     cursor = page.cursor;
@@ -194,16 +312,81 @@ export async function listAllUserGrants(
   return items;
 }
 
-/** Newest provider grant for this client, or null if KV has none. */
-export async function resolveLatestGrantId(
+/**
+ * After a confirmed grant, retire older provider grants for the same client and
+ * redirect URI. A different redirect URI on the same client id is left alone.
+ * The D1 audit row is marked revoked only after that grant's KV revoke succeeds.
+ */
+export async function revokeOlderGrantsForClient(
   helpers: OAuthHelpers,
+  db: D1Database,
   clientId: string,
+  redirectUri: string,
+  keepGrantId: string,
   userId: string = OAUTH_OWNER_USER_ID,
-): Promise<string | null> {
-  const matches = (await listAllUserGrants(helpers, userId)).filter((g) => g.clientId === clientId);
-  if (matches.length === 0) return null;
-  matches.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
-  return matches[0]!.id;
+): Promise<void> {
+  const grants = await listAllUserGrants(helpers, userId);
+  for (const grant of grants) {
+    if (grant.clientId !== clientId) continue;
+    if (grant.redirectUri !== redirectUri) continue;
+    if (grant.id === keepGrantId) continue;
+    await helpers.revokeGrant(grant.id, userId);
+    await revokeOAuthTokenInDb(db, grant.id);
+  }
+}
+
+export type OAuthGrantRecord = {
+  grantId: string;
+  clientId: string;
+  clientName: string;
+  metadataUrl?: string;
+  scopes: string[];
+  redirectUri: string;
+  ip?: string;
+  country?: string;
+};
+
+/** Deterministic consent id so a retry upserts the same row. */
+export async function oauthConsentId(clientId: string, redirectUri: string): Promise<string> {
+  return sha256Hex(`${clientId}|${redirectUri}`);
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Client, consent, and grant audit rows in one D1 batch (one implicit transaction).
+ * Upserts are idempotent for a retry of the same client, redirect URI, and grant id.
+ */
+export async function recordOAuthGrantAtomic(db: D1Database, a: OAuthGrantRecord): Promise<void> {
+  const consentId = await oauthConsentId(a.clientId, a.redirectUri);
+  await db.batch([
+    db.prepare(
+      `INSERT INTO oauth_clients (id, name, metadata_document_url, created_at)
+       VALUES (?, ?, ?, datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         metadata_document_url = excluded.metadata_document_url`,
+    ).bind(a.clientId, a.clientName, a.metadataUrl ?? null),
+    db.prepare(
+      `INSERT INTO oauth_consents (id, client_id, scopes, redirect_uri, created_at, updated_at)
+       VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET
+         scopes = excluded.scopes,
+         updated_at = datetime('now')`,
+    ).bind(consentId, a.clientId, JSON.stringify(a.scopes), a.redirectUri),
+    db.prepare(
+      `INSERT INTO oauth_tokens (id, client_id, scopes, created_at, last_ip, last_country)
+       VALUES (?, ?, ?, datetime('now'), ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         scopes = excluded.scopes,
+         revoked_at = NULL,
+         last_ip = COALESCE(excluded.last_ip, oauth_tokens.last_ip),
+         last_country = COALESCE(excluded.last_country, oauth_tokens.last_country)`,
+    ).bind(a.grantId, a.clientId, JSON.stringify(a.scopes), a.ip ?? null, a.country ?? null),
+  ]);
 }
 
 /**

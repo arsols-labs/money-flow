@@ -9,7 +9,15 @@
     "noEmit": true,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "allowJs": true,
+    "resolveJsonModule": true
   },
-  "include": ["src/worker/**/*.ts", "src/worker/**/*.d.ts", "src/shared/**/*.ts"]
+  "include": [
+    "src/worker/**/*.ts",
+    "src/worker/**/*.d.ts",
+    "src/shared/**/*.ts",
+    "src/ui/language.js",
+    "src/ui/locales/*.json"
+  ]
 }

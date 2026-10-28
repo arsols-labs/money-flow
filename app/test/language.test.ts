@@ -11,8 +11,10 @@ import {
   detectBrowserLanguage,
   intlLocale,
   isSupportedLanguage,
+  acceptLanguageTags,
   mapLocaleTag,
   peekStoredLanguage,
+  resolveRequestLanguage,
   persistLanguage,
   readStoredLanguage,
   resolveInitialLanguage,
@@ -193,5 +195,24 @@ describe('browser locale detect (issue #586)', () => {
     chooseLanguage('sr', store);
     expect(store.dump()).toEqual({ mf_lang: 'sr' });
     expect(resolveInitialLanguage(store, { languages: ['de-DE'] })).toBe('sr');
+  });
+
+  it('resolves a request from a mapped preference, then Accept-Language, then English', () => {
+    expect(resolveRequestLanguage({ preference: 'ru', acceptLanguage: 'en' })).toBe('ru');
+    expect(resolveRequestLanguage({ preference: 'de-AT', acceptLanguage: 'en' })).toBe('de');
+    expect(resolveRequestLanguage({ preference: 'ja', acceptLanguage: 'fr' })).toBe('fr');
+    expect(resolveRequestLanguage({ acceptLanguage: 'pt-BR,en;q=0.8' })).toBe('pt');
+    expect(resolveRequestLanguage({ acceptLanguage: 'sr-Latn-RS' })).toBe('sr');
+    expect(resolveRequestLanguage({ acceptLanguage: 'ja,de;q=0.5' })).toBe('de');
+    expect(resolveRequestLanguage({ acceptLanguage: 'ja' })).toBe('en');
+    expect(resolveRequestLanguage({ acceptLanguage: '*' })).toBe('en');
+    expect(resolveRequestLanguage({})).toBe(DEFAULT_LANGUAGE);
+    expect(acceptLanguageTags('fr-CH, fr;q=0.9, en;q=0.8, *;q=0.5')).toEqual([
+      'fr-CH',
+      'fr',
+      'en',
+      '*',
+    ]);
+    expect(acceptLanguageTags('en;q=0, de;q=0.4')).toEqual(['de']);
   });
 });

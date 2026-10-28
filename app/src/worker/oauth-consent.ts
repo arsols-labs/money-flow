@@ -1,7 +1,15 @@
 // S2-1: Consent page logic and CSRF protection (issue #261)
 
+import { LANGUAGE_STORAGE_KEY, resolveRequestLanguage } from '../ui/language.js';
 import { timingSafeEqualString } from './crypto-eq';
 import { escapeHtml } from './html';
+import de from '../ui/locales/de.json';
+import en from '../ui/locales/en.json';
+import es from '../ui/locales/es.json';
+import fr from '../ui/locales/fr.json';
+import pt from '../ui/locales/pt.json';
+import ru from '../ui/locales/ru.json';
+import sr from '../ui/locales/sr.json';
 
 export interface ConsentPageData {
   clientId: string;
@@ -23,12 +31,65 @@ export interface ConsentPageData {
  * Keep byte-identical with CONSENT_SUBMIT_ONCE_CSP_HASH (verified in tests).
  * Preserves the clicked `action` in a hidden field before disabling buttons
  * (disabled submitters are omitted from form data in some browsers).
+ * Language-neutral: the submitting label is read from data-submitting-label
+ * on #consent-form, so this source and its CSP hash do not vary by locale.
  */
 export const CONSENT_SUBMIT_ONCE_JS =
-  "document.getElementById('consent-form').addEventListener('submit',function(e){var f=e.currentTarget;if(f.getAttribute('data-busy')==='1'){e.preventDefault();return;}f.setAttribute('data-busy','1');var s=e.submitter;if(s&&s.name){var h=document.createElement('input');h.type='hidden';h.name=s.name;h.value=s.value;f.appendChild(h);}var bs=f.querySelectorAll('button');for(var i=0;i<bs.length;i++){bs[i].disabled=true;}var a=f.querySelector('.btn-allow');if(a&&(!s||s.value==='allow')){a.textContent='Подтверждаем…';}});";
+  "document.getElementById('consent-form').addEventListener('submit',function(e){var f=e.currentTarget;if(f.getAttribute('data-busy')==='1'){e.preventDefault();return;}f.setAttribute('data-busy','1');var s=e.submitter;if(s&&s.name){var h=document.createElement('input');h.type='hidden';h.name=s.name;h.value=s.value;f.appendChild(h);}var bs=f.querySelectorAll('button');for(var i=0;i<bs.length;i++){bs[i].disabled=true;}var a=f.querySelector('.btn-allow');if(a&&(!s||s.value==='allow')){var label=f.getAttribute('data-submitting-label');if(label)a.textContent=label;}});";
 
 /** CSP `script-src` hash of {@link CONSENT_SUBMIT_ONCE_JS} (SHA-256, base64). */
-export const CONSENT_SUBMIT_ONCE_CSP_HASH = 'sha256-4ow1BBW1yb3WDAPVVpTtkrIBABtAmXdCFiwzyyFHsJg=';
+export const CONSENT_SUBMIT_ONCE_CSP_HASH = 'sha256-ECOKsiHtCZ2yTzQQlQCIoMK6VR1qsTLBekakhaRavyI=';
+
+const CONSENT_CATALOGS = { en, ru, de, fr, es, pt, sr } as const;
+
+export type ConsentLocale = keyof typeof CONSENT_CATALOGS;
+
+export interface ConsentRenderOptions {
+  /** Explicit locale. Wins over the cookie and Accept-Language. */
+  locale?: string | null;
+  cookieHeader?: string | null;
+  acceptLanguage?: string | null;
+}
+
+/**
+ * First matching cookie value, or null when the name is absent or empty.
+ */
+export function readCookieValue(cookieHeader: string | null | undefined, name: string): string | null {
+  if (!cookieHeader) return null;
+  for (const part of cookieHeader.split(';')) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const eq = trimmed.indexOf('=');
+    const key = (eq === -1 ? trimmed : trimmed.slice(0, eq)).trim();
+    if (key !== name) continue;
+    const raw = eq === -1 ? '' : trimmed.slice(eq + 1).trim();
+    if (!raw) return null;
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  }
+  return null;
+}
+
+function asConsentLocale(value: unknown): ConsentLocale | null {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(CONSENT_CATALOGS, value)
+    ? value as ConsentLocale
+    : null;
+}
+
+/**
+ * mf_lang cookie when mapLocaleTag accepts it, otherwise Accept-Language,
+ * otherwise English. Mapping is resolveRequestLanguage from language.js.
+ */
+export function resolveConsentLocale(
+  cookieHeader?: string | null,
+  acceptLanguage?: string | null,
+): ConsentLocale {
+  const preference = readCookieValue(cookieHeader, LANGUAGE_STORAGE_KEY);
+  return asConsentLocale(resolveRequestLanguage({ preference, acceptLanguage })) ?? 'en';
+}
 
 /**
  * Creates a signed one-time CSRF token for the consent form with a short lifetime.
@@ -84,6 +145,20 @@ export async function verifyConsentCsrfToken(
   return timingSafeEqualString(sigHex, expectedSigHex);
 }
 
+/** How long a successful consent keeps its single-use marker. KV has no compare-and-swap. */
+export const CONSENT_ONCE_TTL_SECONDS = 600;
+
+/**
+ * KV key for one use of a consent CSRF token. Keyed on the HMAC, not the timestamp,
+ * so the key does not contain state or the redirect URI.
+ * Returns null when the token has no signature component.
+ */
+export function consentOnceKey(csrfToken: string): string | null {
+  const sigHex = csrfToken.split('.')[1];
+  if (!sigHex || !/^[0-9a-f]+$/i.test(sigHex)) return null;
+  return `consent_once:${sigHex}`;
+}
+
 /**
  * Extracts the host from a Client ID Metadata Document URL to protect against fake connectors (confused deputy).
  */
@@ -99,13 +174,16 @@ export function extractClientHost(clientId: string): string {
 /**
  * Renders the protected consent HTML page.
  */
-export function renderConsentHtml(data: ConsentPageData): string {
+export function renderConsentHtml(data: ConsentPageData, options: ConsentRenderOptions = {}): string {
+  const locale = asConsentLocale(options.locale)
+    ?? resolveConsentLocale(options.cookieHeader, options.acceptLanguage);
+  const copy = CONSENT_CATALOGS[locale].oauth.consent;
   const isHttpsHost = data.clientId.startsWith('https://');
   const hostBadgeClass = isHttpsHost ? 'host-verified' : 'host-local';
 
   const scopesHtml = data.scope
     .map((s) => {
-      const desc = s === 'read' ? 'Чтение данных (счета, операции, аналитика)' : s === 'write' ? 'Запись данных (создание и изменение операций)' : s;
+      const desc = s === 'read' ? copy.scopeRead : s === 'write' ? copy.scopeWrite : s;
       return `
         <label class="scope-item">
           <input type="checkbox" name="scope" value="${escapeHtml(s)}" checked />
@@ -125,11 +203,11 @@ export function renderConsentHtml(data: ConsentPageData): string {
     : '';
 
   return `<!DOCTYPE html>
-<html lang="ru">
+<html lang="${locale}">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Money Flow — Авторизация клиента</title>
+  <title>${escapeHtml(copy.title)}</title>
   <style>
     :root {
       --bg: #090a0f;
@@ -227,20 +305,19 @@ export function renderConsentHtml(data: ConsentPageData): string {
     .btn-deny { background: transparent; border: 1px solid var(--border); color: var(--text-muted); }
     .btn-deny:hover:not(:disabled) { background: rgba(255, 255, 255, 0.05); color: var(--text); }
   </style>
-  <script>${CONSENT_SUBMIT_ONCE_JS}</script>
 </head>
 <body>
   <div class="card">
-    <h1>Авторизация приложения</h1>
-    <p class="subtitle">Машинный клиент запрашивает доступ к вашему Money Flow</p>
+    <h1>${escapeHtml(copy.heading)}</h1>
+    <p class="subtitle">${escapeHtml(copy.subtitle)}</p>
 
     <div class="client-info">
       <div class="client-name">${escapeHtml(data.clientName)}</div>
-      <span class="client-host ${hostBadgeClass}">Хост: ${escapeHtml(data.clientHost)}</span>
+      <span class="client-host ${hostBadgeClass}">${escapeHtml(copy.host)} ${escapeHtml(data.clientHost)}</span>
       <div class="redirect-info"><strong>Redirect URI:</strong> ${escapeHtml(data.redirectUri)}</div>
     </div>
 
-    <form id="consent-form" method="POST" action="${escapeHtml(data.actionUrl || '/api/auth/oauth/authorize')}">
+    <form id="consent-form" method="POST" action="${escapeHtml(data.actionUrl || '/api/auth/oauth/authorize')}" data-submitting-label="${escapeHtml(copy.submitting)}">
       <input type="hidden" name="csrf_token" value="${escapeHtml(data.csrfToken)}" />
       <input type="hidden" name="client_id" value="${escapeHtml(data.clientId)}" />
       <input type="hidden" name="redirect_uri" value="${escapeHtml(data.redirectUri)}" />
@@ -251,16 +328,17 @@ export function renderConsentHtml(data: ConsentPageData): string {
       ${resourcesHtml}
       <input type="hidden" name="scope_control" value="1" />
 
-      <div class="scopes-header">Запрашиваемые права (скоупы):</div>
+      <div class="scopes-header">${escapeHtml(copy.scopesHeading)}</div>
       <div class="scopes-list">
         ${scopesHtml}
       </div>
 
       <div class="actions">
-        <button type="submit" name="action" value="deny" class="btn-deny">Отклонить</button>
-        <button type="submit" name="action" value="allow" class="btn-allow">Разрешить доступ</button>
+        <button type="submit" name="action" value="deny" class="btn-deny">${escapeHtml(copy.deny)}</button>
+        <button type="submit" name="action" value="allow" class="btn-allow">${escapeHtml(copy.allow)}</button>
       </div>
     </form>
+    <script>${CONSENT_SUBMIT_ONCE_JS}</script>
   </div>
 </body>
 </html>`;
