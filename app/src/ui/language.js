@@ -43,6 +43,53 @@ export function mapLocaleTag(tag) {
 }
 
 /**
+ * Accept-Language ranges, highest q first. Equal q keeps header order.
+ * Ranges with q <= 0 are dropped. `*` is kept so mapLocaleTag can skip it.
+ * @param {unknown} header
+ * @returns {string[]}
+ */
+export function acceptLanguageTags(header) {
+  if (typeof header !== 'string') return [];
+  /** @type {{ tag: string, q: number, index: number }[]} */
+  const ranges = [];
+  for (const part of header.split(',')) {
+    const pieces = part.split(';');
+    const tag = (pieces[0] ?? '').trim();
+    if (!tag) continue;
+    let q = 1;
+    for (const param of pieces.slice(1)) {
+      const eq = param.indexOf('=');
+      if (eq === -1) continue;
+      const key = param.slice(0, eq).trim().toLowerCase();
+      if (key !== 'q') continue;
+      const parsed = Number(param.slice(eq + 1).trim());
+      if (Number.isFinite(parsed)) q = parsed;
+    }
+    if (!(q > 0)) continue;
+    ranges.push({ tag, q, index: ranges.length });
+  }
+  ranges.sort((a, b) => (b.q - a.q) || (a.index - b.index));
+  return ranges.map((range) => range.tag);
+}
+
+/**
+ * Explicit preference when mapLocaleTag accepts it; otherwise the first
+ * matching Accept-Language range; otherwise English.
+ * An unmapped preference is ignored, same as an invalid stored mf_lang.
+ * @param {{ preference?: unknown, acceptLanguage?: unknown }} [input]
+ * @returns {typeof SUPPORTED_LANGUAGES[number]}
+ */
+export function resolveRequestLanguage(input = {}) {
+  const fromPreference = mapLocaleTag(input.preference);
+  if (fromPreference) return fromPreference;
+  for (const tag of acceptLanguageTags(input.acceptLanguage)) {
+    const mapped = mapLocaleTag(tag);
+    if (mapped) return mapped;
+  }
+  return DEFAULT_LANGUAGE;
+}
+
+/**
  * @typedef {{
  *   languages?: readonly string[] | null,
  *   language?: string | null,

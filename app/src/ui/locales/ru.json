@@ -1097,5 +1097,19 @@
     "RESET_FAILED": "Could not reset the instance",
     "DEMO_PASSKEY_DISABLED": "Passkey enrollment is disabled on the public demo",
     "DEMO_LEDGER_UNAVAILABLE": "The demo ledger is unavailable"
+  },
+  "oauth": {
+    "consent": {
+      "title": "Money Flow — Авторизация клиента",
+      "heading": "Авторизация приложения",
+      "subtitle": "Машинный клиент запрашивает доступ к вашему Money Flow",
+      "host": "Хост:",
+      "scopesHeading": "Запрашиваемые права (скоупы):",
+      "scopeRead": "Чтение данных (счета, операции, аналитика)",
+      "scopeWrite": "Запись данных (создание и изменение операций)",
+      "deny": "Отклонить",
+      "allow": "Разрешить доступ",
+      "submitting": "Подтверждаем…"
+    }
   }
 }

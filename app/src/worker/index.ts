@@ -22,12 +22,12 @@ import mcpApp from './mcp-server';
 import {
   createOAuthProvider,
   getOAuthHelpers,
+  grantIdFromAuthorizeRedirect,
   isRegisteredRedirectOrLoopbackVariant,
-  recordOAuthClient,
-  recordOAuthConsent,
-  recordOAuthToken,
-  resolveLatestGrantId,
-  revokeProviderGrantsForClient,
+  recordOAuthGrantAtomic,
+  revokeOlderGrantsForClient,
+  tokenRequestLogFields,
+  type TokenErrorLogFields,
   OAUTH_OWNER_USER_ID,
   OAUTH_SCOPES_SUPPORTED,
   AuthorizationError,
@@ -36,11 +36,14 @@ import {
 import { browserMutationRejection } from './csrf';
 import type { OAuthHelpers } from '@cloudflare/workers-oauth-provider';
 import {
+  CONSENT_ONCE_TTL_SECONDS,
+  consentOnceKey,
   createConsentCsrfToken,
   verifyConsentCsrfToken,
   extractClientHost,
   renderConsentHtml,
 } from './oauth-consent';
+import { errInfo, logOAuth } from './oauth-log';
 import { AppError, fail, failCaught } from './api-error';
 import { timingSafeEqualString } from './crypto-eq';
 import { clientIpFromHeaders, consumeRateLimit, RATE_LIMITS, type RateLimitBinding } from './rate-limit';
@@ -258,6 +261,26 @@ app.post('/api/auth/logout', async (c) => {
 
 // ---------- OAuth 2.1 Provider & Consent (S2-1, issue #261) ----------
 
+function oauthRequestId(c: { req: { header: (name: string) => string | undefined } }): string | undefined {
+  return c.req.header('cf-ray') || undefined;
+}
+
+function oauthRedirectHost(redirectUri: string): string | undefined {
+  try {
+    const host = new URL(redirectUri).host;
+    return host || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function oauthKv(env: Env): KVNamespace {
+  return env.OAUTH_KV || env.KV;
+}
+
+const CONSENT_ALREADY_CONFIRMING_HTML =
+  '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Already confirming</title></head><body><p>Already confirming. Return to the app.</p></body></html>';
+
 async function getTrustedOAuthHelpers(env: Env, rawRequest: Request): Promise<OAuthHelpers> {
   let clientId: string | null = null;
   let redirectUri: string | null = null;
@@ -439,6 +462,15 @@ app.get('/api/auth/oauth/authorize', async (c) => {
     codeChallenge: oauthRequest.codeChallenge,
     codeChallengeMethod: oauthRequest.codeChallengeMethod,
     actionUrl: c.req.url,
+  }, {
+    cookieHeader: c.req.header('Cookie'),
+    acceptLanguage: c.req.header('Accept-Language'),
+  });
+
+  logOAuth('info', 'oauth.consent_shown', {
+    clientId: oauthRequest.clientId,
+    redirectHost: oauthRedirectHost(oauthRequest.redirectUri),
+    reqId: oauthRequestId(c),
   });
 
   return new Response(html, {
@@ -537,6 +569,13 @@ app.post('/api/auth/oauth/authorize', async (c) => {
     });
   }
 
+  logOAuth('info', 'oauth.consent_submit', {
+    action,
+    clientId,
+    redirectHost: oauthRedirectHost(redirectUri),
+    reqId: oauthRequestId(c),
+  });
+
   if (action === 'deny') {
     const redirect = new URL(oauthRequest.redirectUri);
     redirect.searchParams.set('error', 'access_denied');
@@ -569,92 +608,146 @@ app.post('/api/auth/oauth/authorize', async (c) => {
     return c.redirect(redirect.toString(), 302);
   }
 
-  const { redirectTo } = await oauthHelpers.completeAuthorization({
-    request: oauthRequest,
-    userId: OAUTH_OWNER_USER_ID,
-    metadata: {
-      clientName: client.clientName || client.clientId,
-      clientHost: extractClientHost(client.clientId),
-    },
-    scope: grantedScopes,
-    props: {
-      userId: OAUTH_OWNER_USER_ID,
-      scopes: grantedScopes,
+  const onceKey = consentOnceKey(csrfToken);
+  if (!onceKey) {
+    return new Response('Invalid or expired CSRF token', {
+      status: 400,
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        ...consentSecurityHeaders(),
+      },
+    });
+  }
+  const seen = await oauthKv(c.env).get(onceKey);
+  if (seen) {
+    logOAuth('warn', 'oauth.duplicate_submit', {
       clientId: client.clientId,
-    },
-  });
+      redirectHost: oauthRedirectHost(oauthRequest.redirectUri),
+      reqId: oauthRequestId(c),
+    });
+    return new Response(CONSENT_ALREADY_CONFIRMING_HTML, {
+      status: 409,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        ...consentSecurityHeaders(),
+      },
+    });
+  }
+  await oauthKv(c.env).put(onceKey, '1', { expirationTtl: CONSENT_ONCE_TTL_SECONDS });
 
-  // RFC 9207: issuer identification on a successful authorization response.
-  // The library sets iss conditionally and resolves the issuer from the
-  // request origin (the token endpoint is configured as a path), so a
-  // non-canonical origin can make iss wrong or missing. Set iss
-  // unconditionally, byte-for-byte equal to the issuer in the
-  // authorization-server metadata (no trailing slash).
-  const currentOrigin = resolveOrigin(c);
-  const authorizeRedirect = new URL(redirectTo);
-  authorizeRedirect.searchParams.set('iss', currentOrigin);
-
-  const isUrl = client.clientId.startsWith('https://');
-  const ip = c.req.header('cf-connecting-ip');
-  const country = c.req.header('cf-ipcountry');
+  let grantId: string | null = null;
   try {
-    const grantId = await resolveLatestGrantId(oauthHelpers, client.clientId);
-    if (!grantId) throw new Error('grant id not found after authorization');
-    await recordOAuthClient(
-      c.env.DB,
-      client.clientId,
-      client.clientName || client.clientId,
-      isUrl ? client.clientId : undefined,
-    );
-    await recordOAuthConsent(
-      c.env.DB,
-      client.clientId,
-      grantedScopes,
-      oauthRequest.redirectUri,
-    );
-    await recordOAuthToken(
-      c.env.DB,
+    const { redirectTo } = await oauthHelpers.completeAuthorization({
+      request: oauthRequest,
+      userId: OAUTH_OWNER_USER_ID,
+      // Do not revoke a working grant before the new one is recorded.
+      revokeExistingGrants: false,
+      metadata: {
+        clientName: client.clientName || client.clientId,
+        clientHost: extractClientHost(client.clientId),
+      },
+      scope: grantedScopes,
+      props: {
+        userId: OAUTH_OWNER_USER_ID,
+        scopes: grantedScopes,
+        clientId: client.clientId,
+      },
+    });
+
+    grantId = grantIdFromAuthorizeRedirect(redirectTo);
+    if (!grantId) throw new Error('auth code has no grant id');
+    logOAuth('info', 'oauth.grant_created', {
+      reqId: oauthRequestId(c),
+      clientId: client.clientId,
       grantId,
-      client.clientId,
-      grantedScopes,
-      undefined,
-      ip ?? undefined,
-      country ?? undefined,
+    });
+
+    const isUrl = client.clientId.startsWith('https://');
+    await recordOAuthGrantAtomic(c.env.DB, {
+      grantId,
+      clientId: client.clientId,
+      clientName: client.clientName || client.clientId,
+      metadataUrl: isUrl ? client.clientId : undefined,
+      scopes: grantedScopes,
+      redirectUri: oauthRequest.redirectUri,
+      ip: c.req.header('cf-connecting-ip') ?? undefined,
+      country: c.req.header('cf-ipcountry') ?? undefined,
+    });
+    logOAuth('info', 'oauth.grant_recorded', {
+      reqId: oauthRequestId(c),
+      clientId: client.clientId,
+      grantId,
+    });
+
+    // RFC 9207: set iss unconditionally, byte-for-byte equal to the issuer
+    // from AS metadata (no trailing slash). The library sets it only sometimes
+    // and resolves it from the request origin. Also send Authorization-Response-Iss;
+    // some MCP clients read the header rather than the query.
+    const currentOrigin = resolveOrigin(c);
+    const authorizeRedirect = new URL(redirectTo);
+    authorizeRedirect.searchParams.set('iss', currentOrigin);
+    const authorizeResponse = c.redirect(authorizeRedirect.toString(), 302);
+    authorizeResponse.headers.set('Authorization-Response-Iss', currentOrigin);
+    logOAuth('info', 'oauth.redirect_sent', {
+      status: 302,
+      redirectHost: oauthRedirectHost(oauthRequest.redirectUri),
+      reqId: oauthRequestId(c),
+    });
+    const recordedGrantId = grantId;
+    safeExecutionCtx(c).waitUntil(
+      revokeOlderGrantsForClient(
+        oauthHelpers,
+        c.env.DB,
+        client.clientId,
+        oauthRequest.redirectUri,
+        recordedGrantId,
+      ).catch((revokeError) => {
+        logOAuth('warn', 'oauth.old_grant_revoke_failed', {
+          reqId: oauthRequestId(c),
+          clientId: client.clientId,
+          err: errInfo(revokeError),
+        });
+      }),
     );
-    await c.env.DB.prepare(
-      `UPDATE oauth_tokens
-       SET revoked_at = datetime('now')
-       WHERE client_id = ? AND id != ? AND revoked_at IS NULL`,
-    )
-      .bind(client.clientId, grantId)
-      .run();
+    return authorizeResponse;
   } catch (e) {
-    console.error('recordOAuthToken grant mapping failed:', e);
-    try {
-      await revokeProviderGrantsForClient(oauthHelpers, client.clientId);
-    } catch (revokeError) {
-      console.error('revoke after grant mapping failure failed:', revokeError);
+    logOAuth('error', 'oauth.grant_record_failed', {
+      reqId: oauthRequestId(c),
+      clientId: client.clientId,
+      grantId,
+      err: errInfo(e),
+    });
+    if (grantId) {
+      await oauthHelpers.revokeGrant(grantId, OAUTH_OWNER_USER_ID).catch((re) => {
+        logOAuth('error', 'oauth.grant_revoke_after_fail_failed', {
+          reqId: oauthRequestId(c),
+          grantId,
+          err: errInfo(re),
+        });
+      });
     }
+    // The marker was taken before completeAuthorization. Release it so the same
+    // form can be submitted again. A successful allow keeps the marker.
+    await oauthKv(c.env).delete(onceKey).catch((deleteError) => {
+      logOAuth('warn', 'oauth.consent_once_release_failed', {
+        reqId: oauthRequestId(c),
+        clientId: client.clientId,
+        err: errInfo(deleteError),
+      });
+    });
     return fail(c, 'OAUTH_GRANT_RECORD_FAILED', 503);
   }
-
-  // RFC 9207: issuer identification on a successful authorization response.
-  // Put iss in the query parameter (already set above) and in the
-  // Authorization-Response-Iss HTTP header (draft RFC 9207). Some MCP clients
-  // expect the header rather than the query parameter.
-  const authorizeResponse = c.redirect(authorizeRedirect.toString(), 302);
-  authorizeResponse.headers.set('Authorization-Response-Iss', currentOrigin);
-  return authorizeResponse;
 });
 
 // Before the catch-all routes: delegate to OAuthProvider for RFC 9728, RFC 8414, token, register, and mcp
-function getOAuthProviderForRequest(req: Request, env?: Env) {
+function getOAuthProviderForRequest(req: Request, env?: Env, tokenLog?: TokenErrorLogFields) {
   const origin = resolveOrigin({ req, env });
   return createOAuthProvider(
     { fetch: (r, e, ctx) => app.fetch(r, e, ctx) },
     mcpApp,
     origin,
-    env
+    env,
+    tokenLog,
   );
 }
 
@@ -696,7 +789,13 @@ app.all('/.well-known/*', async (c) => {
 });
 
 app.all('/api/auth/oauth/token', async (c) => {
-  return getOAuthProviderForRequest(c.req.raw, c.env).fetch(c.req.raw, c.env, safeExecutionCtx(c) as any);
+  // Clone before the provider reads the body. onError does not receive the request.
+  const tokenLog = await tokenRequestLogFields(c.req.raw.clone());
+  return getOAuthProviderForRequest(c.req.raw, c.env, tokenLog).fetch(
+    c.req.raw,
+    c.env,
+    safeExecutionCtx(c) as any,
+  );
 });
 
 app.all('/api/auth/oauth/register', async (c) => {

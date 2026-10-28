@@ -1,16 +1,26 @@
-// @cloudflare/vitest-plugin@1.3.6 rewrites every `import.meta.url` textually
-// before workerd parses a module. Vitest 5 stores that text inside a string
-// hint in dist/module-evaluator.js. The blind replace closes the string and
-// workerd reports SyntaxError: Unexpected identifier 'file'.
-// Real `import.meta.url` expressions must still be rewritten; text inside
-// quotes must not. Remove this script when a plugin release stops rewriting
-// string contents.
-import { readFileSync, writeFileSync } from 'node:fs';
+// @cloudflare/vitest-plugin@1.3.6 rewrote every `import.meta.url` textually
+// before workerd parsed a module. Vitest 5 stores that text inside a string
+// hint in dist/module-evaluator.js. The blind replace closed the string and
+// workerd reported SyntaxError: Unexpected identifier 'file'.
+//
+// @cloudflare/vitest-plugin@1.4.x fixed this upstream: withImportMetaUrl now
+// uses es-module-lexer and only rewrites real `import.meta.url` expressions.
+// This script therefore handles three known states and fails on anything else:
+//   1. upstream lexer-based rewrite (1.4.x+)  -> no-op
+//   2. already patched by this script          -> no-op (idempotent)
+//   3. naive textual replaceAll (1.3.x)        -> apply the string-aware patch
+// Remove this script (and the postinstall hook) once 1.3.x is no longer
+// supported anywhere in the repo.
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
+const TAG = 'patch-vitest-plugin-import-meta';
 const MARKER = 'string-aware import.meta.url rewrite';
-const target = new URL(
-  '../node_modules/@cloudflare/vitest-plugin/dist/pool/index.mjs',
-  import.meta.url,
+const target = fileURLToPath(
+  new URL(
+    '../node_modules/@cloudflare/vitest-plugin/dist/pool/index.mjs',
+    import.meta.url,
+  ),
 );
 
 const naive = `function withImportMetaUrl(contents, url$2) {
@@ -48,14 +58,76 @@ const patched = `function withImportMetaUrl(contents, url$2) {
 	return out;
 }`;
 
-const source = readFileSync(target, 'utf8');
-if (source.includes(MARKER)) {
-  process.exit(0);
+/** Returns the source text of withImportMetaUrl, or null if absent. */
+export function extractWithImportMetaUrl(source) {
+  const start = source.search(/(?:async\s+)?function\s+withImportMetaUrl\s*\(/);
+  if (start === -1) return null;
+  const open = source.indexOf('{', start);
+  if (open === -1) return null;
+  let depth = 0;
+  for (let i = open; i < source.length; i++) {
+    if (source[i] === '{') depth++;
+    else if (source[i] === '}') {
+      depth--;
+      if (depth === 0) return source.slice(start, i + 1);
+    }
+  }
+  return null;
 }
-if (!source.includes(naive)) {
-  console.error(
-    `patch-vitest-plugin-import-meta: ${target} no longer contains the expected withImportMetaUrl. Update the patch or drop it if the plugin already skips string literals.`,
-  );
-  process.exit(1);
+
+/**
+ * Classifies the plugin bundle.
+ * @returns {'patched' | 'naive' | 'upstream-fixed' | 'unknown'}
+ */
+export function classify(source) {
+  if (source.includes(MARKER)) return 'patched';
+  if (source.includes(naive)) return 'naive';
+  const fn = extractWithImportMetaUrl(source);
+  if (
+    fn &&
+    !/replaceAll\(\s*["']import\.meta\.url["']/.test(fn) &&
+    // es-module-lexer marks `import.meta` with d === -2.
+    /\.d\s*!==\s*-2/.test(fn)
+  ) {
+    return 'upstream-fixed';
+  }
+  return 'unknown';
 }
-writeFileSync(target, source.replace(naive, patched));
+
+function main() {
+  if (!existsSync(target)) {
+    // Dev dependencies are not installed (e.g. `npm ci --omit=dev`).
+    console.log(`${TAG}: @cloudflare/vitest-plugin is not installed; nothing to patch.`);
+    return 0;
+  }
+  const source = readFileSync(target, 'utf8');
+  const state = classify(source);
+  switch (state) {
+    case 'patched':
+      return 0;
+    case 'upstream-fixed':
+      console.log(
+        `${TAG}: plugin already rewrites only real import.meta.url expressions (es-module-lexer); no patch needed.`,
+      );
+      return 0;
+    case 'naive':
+      writeFileSync(target, source.replace(naive, patched));
+      if (classify(readFileSync(target, 'utf8')) !== 'patched') {
+        console.error(`${TAG}: failed to apply the patch to ${target}.`);
+        return 1;
+      }
+      console.log(`${TAG}: applied string-aware import.meta.url rewrite.`);
+      return 0;
+    default:
+      console.error(
+        `${TAG}: ${target} has an unrecognized withImportMetaUrl. ` +
+          'Neither the 1.3.x textual replaceAll nor the 1.4.x es-module-lexer rewrite matched. ' +
+          'Check whether the plugin still rewrites import.meta.url inside string literals, then update or drop this patch.',
+      );
+      return 1;
+  }
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  process.exitCode = main();
+}
