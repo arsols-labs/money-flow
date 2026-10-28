@@ -901,14 +901,14 @@ describe('MCP Server', () => {
       ).bind(accountId).first<{ id: number }>();
       const args = { planned_item_id: planned!.id, operation_id: operation!.id };
       const pending = await callWrite('planned_item_fulfill_existing', {
-        ...args, idempotency_key: 'idem-mf-21-planned-existing',
+        ...args, idempotency_key: 'idem-fulfill-existing-planned-existing',
       }, 744);
       expect(pending.result.structuredContent).toMatchObject({ resultType: 'input_required', written: false });
       expect((await env.DB.prepare('SELECT COUNT(*) AS count FROM operation_fulfillment_links').first<{ count: number }>())?.count).toBe(0);
 
       const complete = await callWrite('planned_item_fulfill_existing', {
         ...args,
-        idempotency_key: 'idem-mf-21-planned-existing',
+        idempotency_key: 'idem-fulfill-existing-planned-existing',
         requestState: pending.result.structuredContent.requestState,
       }, 745);
       expect(complete.result.isError, JSON.stringify(complete.result)).toBeUndefined();
@@ -922,7 +922,7 @@ describe('MCP Server', () => {
       expect((await env.DB.prepare('SELECT balance_minor FROM accounts WHERE id = ?').bind(accountId).first<{ balance_minor: number }>())?.balance_minor).toBe(100000);
 
       const replay = await callWrite('planned_item_fulfill_existing', {
-        ...args, idempotency_key: 'idem-mf-21-planned-existing',
+        ...args, idempotency_key: 'idem-fulfill-existing-planned-existing',
       }, 746);
       expect(replay.result.structuredContent.written).toBe(true);
       expect((await env.DB.prepare('SELECT COUNT(*) AS count FROM operation_fulfillment_links').first<{ count: number }>())?.count).toBe(1);
@@ -947,7 +947,7 @@ describe('MCP Server', () => {
         recurring_item_id: recurring!.id,
         period_due_date: '2026-09-05',
         operation_ids: [second!.id, first!.id],
-      }, 'idem-mf-21-recurring-existing', 747);
+      }, 'idem-fulfill-existing-recurring-existing', 747);
       expect(completed.result.structuredContent).toMatchObject({
         operation_count_unchanged: true,
         balance_unchanged: true,
@@ -978,7 +978,7 @@ describe('MCP Server', () => {
         planned_item_id: planned!.id,
         operation_id: plannedOperation!.id,
         auto_confirm: true,
-        idempotency_key: 'idem-mf-21-auto-planned',
+        idempotency_key: 'idem-fulfill-existing-auto-planned',
       }, 748);
       expect(plannedResult.result.structuredContent).toMatchObject({
         resultType: 'complete', written: true, operation_count_unchanged: true, balance_unchanged: true,
@@ -998,7 +998,7 @@ describe('MCP Server', () => {
         period_due_date: '2026-09-11',
         operation_ids: [recurringOperation!.id],
         auto_confirm: true,
-        idempotency_key: 'idem-mf-21-auto-recurring',
+        idempotency_key: 'idem-fulfill-existing-auto-recurring',
       }, 749);
       expect(fulfilled.result.structuredContent).toMatchObject({
         resultType: 'complete', written: true,
@@ -1009,7 +1009,7 @@ describe('MCP Server', () => {
       const skipped = await callWrite('recurring_item_skip_period', {
         recurring_item_id: recurring!.id,
         auto_confirm: true,
-        idempotency_key: 'idem-mf-21-auto-skip',
+        idempotency_key: 'idem-fulfill-existing-auto-skip',
       }, 750);
       expect(skipped.result.structuredContent).toMatchObject({
         resultType: 'complete', written: true,
@@ -1020,7 +1020,7 @@ describe('MCP Server', () => {
       const invalidControl = await callWrite('recurring_item_skip_period', {
         recurring_item_id: recurring!.id,
         auto_confirm: 'yes',
-        idempotency_key: 'idem-mf-21-auto-invalid',
+        idempotency_key: 'idem-fulfill-existing-auto-invalid',
       }, 751);
       expect(invalidControl.result.isError).toBe(true);
       expect(invalidControl.result.structuredContent.error).toMatch(/auto_confirm.*boolean/);
