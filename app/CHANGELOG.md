@@ -2,6 +2,12 @@
 
 All notable changes to the Money Flow app are documented here.
 
+## 2.27.4 - 2026-10-28
+
+### Changed
+
+- Internal maintenance: test configuration, skill documentation, test identifiers, and early database migration comments are now in English with neutral wording. Database schema and app behavior are unchanged.
+
 ## 2.27.3 - 2026-10-28
 
 ### Changed

@@ -43,7 +43,7 @@ export default defineConfig({
           bindings: {
             // Test binding: the setup file applies the migrations.
             TEST_MIGRATIONS: migrations,
-            // Stand-in secret for signing the session cookie in API v2 tests
+            // Stand-in secret for signing the session cookie in API v2 tests.
             // The value is not a secret; this is a test environment.
             SESSION_SECRET: 'test-session-secret-not-a-real-secret',
             SETUP_TOKEN: 'test-setup-token',

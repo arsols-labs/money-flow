@@ -205,6 +205,6 @@ snapshot into this skill.
   routes materialize another operation. If a period was closed or linked by
   mistake, undo the fulfillment with `recurring_item_cancel_period_fulfillment`
   before deleting or relinking the leftover operation.
-- When the server lacks either MF-21 existing-operation fulfillment tool,
+- When the server lacks either existing-operation fulfillment tool,
   return `needs-link-capability` for that exact route. Do not delete the
   expectation, rewrite operation provenance, or double-charge the balance.
