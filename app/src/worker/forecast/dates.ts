@@ -34,7 +34,7 @@ function splitIsoDate(value: string): IsoDate {
 
 export function parseIsoDate(value: string): IsoDate {
   if (!isIsoDateString(value)) {
-    throw new RangeError(`parseIsoDate: не валидная YYYY-MM-DD дата: ${JSON.stringify(value)}`);
+    throw new RangeError(`parseIsoDate: not a valid YYYY-MM-DD date: ${JSON.stringify(value)}`);
   }
   return splitIsoDate(value);
 }
@@ -44,7 +44,7 @@ export function formatIsoDate({ year, month, day }: IsoDate): string {
   // matching ISO_DATE_RE and compared incorrectly with every other date. The
   // other functions in the module throw RangeError — this one stayed silent.
   if (!Number.isInteger(year) || year < 1 || year > 9999) {
-    throw new RangeError(`formatIsoDate: год вне диапазона 0001–9999: ${year}`);
+    throw new RangeError(`formatIsoDate: year out of range 0001–9999: ${year}`);
   }
   const y = String(year).padStart(4, '0');
   const m = String(month).padStart(2, '0');
@@ -74,7 +74,7 @@ export function daysInMonth(year: number, month: number): number {
     case 2:
       return isLeapYear(year) ? 29 : 28;
     default:
-      throw new RangeError(`daysInMonth: месяц вне диапазона: ${month}`);
+      throw new RangeError(`daysInMonth: month out of range: ${month}`);
   }
 }
 
@@ -105,7 +105,7 @@ export function epochDayToIsoDate(epochDay: number): string {
 }
 
 export function addDays(date: string, days: number): string {
-  if (!Number.isInteger(days)) throw new RangeError('addDays: days должен быть целым');
+  if (!Number.isInteger(days)) throw new RangeError('addDays: days must be an integer');
   return epochDayToIsoDate(isoDateToEpochDay(date) + days);
 }
 
@@ -120,7 +120,7 @@ export function diffDays(dateA: string, dateB: string): number {
  */
 export function clampedDate(year: number, month: number, dayOfMonth: number): string {
   if (!Number.isInteger(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 31) {
-    throw new RangeError(`clampedDate: day_of_month вне диапазона 1–31: ${dayOfMonth}`);
+    throw new RangeError(`clampedDate: day_of_month out of range 1–31: ${dayOfMonth}`);
   }
   const day = Math.min(dayOfMonth, daysInMonth(year, month));
   return formatIsoDate({ year, month, day });

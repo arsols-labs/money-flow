@@ -5,14 +5,15 @@
  */
 
 import { MCP_WIDGET_RPC_SCRIPT } from './mcp-widget-rpc';
+import { MCP_WIDGET_I18N_SCRIPT } from './mcp-widget-i18n';
 
 export function getPulseHtml(): string {
   return `<!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Пульс — Money Flow</title>
+  <title data-i18n="pulse.title">Pulse</title>
   <style>
     :root {
       --bg: #f8fafc;
@@ -379,20 +380,20 @@ export function getPulseHtml(): string {
     <div class="header">
       <div class="title-group">
         <div class="title">
-          <span>⚡ Пульс</span>
-          <span class="badge" id="horizonBadge">30 дней</span>
+          <span>⚡ <span data-i18n="pulse.title">Pulse</span></span>
+          <span class="badge" id="horizonBadge">30 days</span>
         </div>
       </div>
       <div class="actions">
-        <button class="btn-icon" id="themeBtn" title="Переключить тему">🌓</button>
-        <button class="btn-icon" id="refreshBtn" title="Обновить данные">🔄 Обновить</button>
+        <button class="btn-icon" id="themeBtn" title="Toggle theme" data-i18n-title="common.toggleTheme">🌓</button>
+        <button class="btn-icon" id="refreshBtn" title="Refresh data" data-i18n-title="pulse.refreshData">🔄 <span data-i18n="common.refresh">Refresh</span></button>
       </div>
     </div>
 
     <div id="contentArea">
       <div class="loading-state">
         <div class="spinner"></div>
-        <div>Загрузка пульта диагностики...</div>
+        <div data-i18n="pulse.loading">Loading diagnostics...</div>
       </div>
     </div>
   </div>
@@ -402,6 +403,7 @@ export function getPulseHtml(): string {
   <script>
     (function() {
 ${MCP_WIDGET_RPC_SCRIPT}
+${MCP_WIDGET_I18N_SCRIPT}
       let currentTheme = 'auto';
 
       // Theme handler
@@ -445,7 +447,7 @@ ${MCP_WIDGET_RPC_SCRIPT}
       function formatMoney(minor, currency = 'USD') {
         if (minor === null || minor === undefined) return '—';
         const amount = minor / 100;
-        return new Intl.NumberFormat('ru-RU', {
+        return new Intl.NumberFormat(intlLocale(), {
           style: 'currency',
           currency: currency,
           minimumFractionDigits: 0,
@@ -472,7 +474,7 @@ ${MCP_WIDGET_RPC_SCRIPT}
       function renderPulse(data) {
         const baseCur = data.base_currency || 'USD';
         const horizon = data.horizon_days || 30;
-        document.getElementById('horizonBadge').textContent = \`\${horizon} дней\`;
+        document.getElementById('horizonBadge').textContent = t('common.days', { n: horizon });
 
         const netWorth = data.net_worth_minor || 0;
         const cashFlow = data.cash_flow_minor || 0;
@@ -490,7 +492,7 @@ ${MCP_WIDGET_RPC_SCRIPT}
             return \`<div class="alert \${cls}">
               <span>\${icon}</span>
               <div>
-                <strong>\${escapeHtml(w.dimension_label || w.dimension || 'Предупреждение')}:</strong> \${escapeHtml(w.message)}
+                <strong>\${escapeHtml(w.dimension_label || w.dimension || t('pulse.warning'))}:</strong> \${escapeHtml(w.message)}
                 \${w.date ? \` (\${formatDate(w.date)})\` : ''}
               </div>
             </div>\`;
@@ -498,7 +500,7 @@ ${MCP_WIDGET_RPC_SCRIPT}
         } else {
           warningsHtml = \`<div class="alert alert-success">
             <span>✅</span>
-            <div>Все финансовые потоки в норме, кассовых разрывов не обнаружено.</div>
+            <div>\${t('pulse.allClear')}</div>
           </div>\`;
         }
 
@@ -527,25 +529,25 @@ ${MCP_WIDGET_RPC_SCRIPT}
           <!-- Metrics Grid -->
           <div class="metrics-grid">
             <div class="card">
-              <div class="card-label">Net Worth (Капитал)</div>
+              <div class="card-label">\${t('pulse.netWorth')}</div>
               <div class="card-value">\${formatMoney(netWorth, baseCur)}</div>
-              <div class="card-sub">Базовая валюта: \${escapeHtml(baseCur)}</div>
+              <div class="card-sub">\${escapeHtml(t('pulse.baseCurrency', { c: baseCur }))}</div>
             </div>
 
             <div class="card">
-              <div class="card-label">Поток за \${data.cash_flow_days || 30} дн.</div>
+              <div class="card-label">\${t('pulse.flow', { n: data.cash_flow_days || 30 })}</div>
               <div class="card-value \${cashFlow >= 0 ? 'val-positive' : 'val-negative'}">
                 \${cashFlow >= 0 ? '+' : ''}\${formatMoney(cashFlow, baseCur)}
               </div>
-              <div class="card-sub">\${cashFlow >= 0 ? 'Приток капитала' : 'Отток капитала'}</div>
+              <div class="card-sub">\${cashFlow >= 0 ? t('pulse.inflow') : t('pulse.outflow')}</div>
             </div>
 
             <div class="card">
-              <div class="card-label">Минимум впереди</div>
+              <div class="card-label">\${t('pulse.lowestAhead')}</div>
               <div class="card-value \${lowest && lowest.amount_minor < 0 ? 'val-negative' : ''}">
                 \${lowest ? formatMoney(lowest.amount_minor, baseCur) : '—'}
               </div>
-              <div class="card-sub">\${lowest ? \`Дата минимума: \${formatDate(lowest.date)}\` : 'Без просадок'}</div>
+              <div class="card-sub">\${lowest ? t('pulse.lowestOn', { d: formatDate(lowest.date) }) : t('pulse.noDips')}</div>
             </div>
           </div>
 
@@ -557,7 +559,7 @@ ${MCP_WIDGET_RPC_SCRIPT}
           <!-- Forecast Chart -->
           <div class="chart-card">
             <div class="chart-header">
-              <div class="chart-title">Прогноз баланса (\${horizon} дней)</div>
+              <div class="chart-title">\${t('pulse.forecast', { n: horizon })}</div>
               <div class="countries-grid">\${countryPillsHtml}</div>
             </div>
             <div class="chart-svg-wrap" id="chartContainer">
@@ -567,7 +569,7 @@ ${MCP_WIDGET_RPC_SCRIPT}
 
           <!-- Accounts -->
           <div>
-            <div class="section-title">Счета и остатки (\${accounts.length})</div>
+            <div class="section-title">\${t('pulse.accounts', { n: accounts.length })}</div>
             <div class="accounts-list" style="margin-top: 6px;">
               \${accountsHtml}
             </div>
@@ -681,7 +683,7 @@ ${MCP_WIDGET_RPC_SCRIPT}
         document.getElementById('contentArea').innerHTML = \`
           <div class="loading-state">
             <div class="spinner"></div>
-            <div>Загрузка прогноза и метрик Пульса...</div>
+            <div>\${t('pulse.loadingForecast')}</div>
           </div>
         \`;
 
@@ -701,15 +703,15 @@ ${MCP_WIDGET_RPC_SCRIPT}
           if (data && (data.net_worth_minor !== undefined || data.series)) {
             renderPulse(data);
           } else {
-            throw new Error('Некорректный формат ответа от forecast_get');
+            throw new Error(t('pulse.badFormat'));
           }
         } catch (err) {
           document.getElementById('contentArea').innerHTML = \`
             <div class="error-state">
               <div style="font-size: 24px; margin-bottom: 6px;">⚠️</div>
-              <div style="font-weight: 600; margin-bottom: 4px;">Ошибка загрузки данных Пульса</div>
+              <div style="font-weight: 600; margin-bottom: 4px;">\${t('pulse.loadError')}</div>
               <div style="font-size: 11px;">\${escapeHtml(err.message || err)}</div>
-              <button class="btn-icon" style="margin-top: 10px;" onclick="location.reload()">Повторить</button>
+              <button class="btn-icon" style="margin-top: 10px;" onclick="location.reload()">\${t('common.retry')}</button>
             </div>
           \`;
         }
@@ -723,6 +725,7 @@ ${MCP_WIDGET_RPC_SCRIPT}
             protocolVersion: '2026-01-26'
           }).catch(() => null);
 
+          setWidgetLocale(hostLocaleCandidates(initRes));
           if (initRes?.theme) {
             setTheme(initRes.theme);
           }

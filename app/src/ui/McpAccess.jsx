@@ -1,4 +1,4 @@
-// S2-2: Access screen and MCP call log (issue #262)
+// Access screen and MCP call log.
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -338,7 +338,7 @@ export default function McpAccess({ demoMode = false }) {
   const [revokingId, setRevokingId] = useState(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
-  // Collapsible sections persisted in localStorage
+  // Collapsible blocks persisted in localStorage
   const [sectionsState, setSectionsState] = useState(loadMcpSectionsState);
 
   const toggleSection = (key) => {
@@ -349,7 +349,7 @@ export default function McpAccess({ demoMode = false }) {
     });
   };
 
-  // Filters, search, sort, and pagination for the call log
+  // Call log filters, search, sorting and pagination
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // all | success | error | pending
   const [clientFilter, setClientFilter] = useState('all');
@@ -445,7 +445,7 @@ export default function McpAccess({ demoMode = false }) {
     return Array.from(set).sort();
   }, [logs]);
 
-  // Call-log statistics
+  // Log statistics
   const successCount = useMemo(() => logs.filter((l) => l.status === 'success').length, [logs]);
   const errorCount = useMemo(() => logs.filter((l) => l.status === 'error').length, [logs]);
   const pendingCount = useMemo(() => logs.filter((l) => l.status === 'pending').length, [logs]);
@@ -515,7 +515,7 @@ export default function McpAccess({ demoMode = false }) {
         <div className="card loading-state">{t('access.loading')}</div>
       ) : (
         <>
-          {/* Section 1: Devices and passkeys (issue #507) */}
+          {/* Block 1: Devices and passkeys */}
           <PasskeysSection
             open={sectionsState.passkeysOpen}
             onToggle={() => toggleSection('passkeysOpen')}
@@ -523,7 +523,7 @@ export default function McpAccess({ demoMode = false }) {
             demoMode={demoMode}
           />
 
-          {/* Section 2: Connections */}
+          {/* Block 2: Connections */}
           <CollapsibleSection
             title={t('access.connections.title')}
             subtitle={String(activeClients.length)}
@@ -639,7 +639,7 @@ export default function McpAccess({ demoMode = false }) {
             )}
           </CollapsibleSection>
 
-          {/* Section 2: Call log */}
+          {/* Block 3: Call log */}
           <CollapsibleSection
             title={t('access.audit.title')}
             subtitle={String(logs.length)}
@@ -656,7 +656,7 @@ export default function McpAccess({ demoMode = false }) {
               </div>
             ) : (
               <>
-                {/* Toolbar: search, filters, and status statistics */}
+                {/* Toolbar: search, filters and status statistics */}
                 <div className="mcp-audit-toolbar">
                   <div className="mcp-audit-toolbar-top">
                     <div className="mcp-audit-search-box">
@@ -725,7 +725,7 @@ export default function McpAccess({ demoMode = false }) {
                     </div>
                   </div>
 
-                  {/* One horizontal scrolling row of status chips with inline statistics */}
+                  {/* Single horizontally scrollable row of status chips with built-in statistics */}
                   <div className="mcp-status-filter-scroll" role="group" aria-label={t('access.audit.statusAria')}>
                     <button
                       type="button"

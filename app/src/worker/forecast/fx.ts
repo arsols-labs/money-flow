@@ -35,7 +35,7 @@ const TEN = 10n;
 
 function pow10(exp: number): bigint {
   if (!Number.isInteger(exp) || exp < 0) {
-    throw new RangeError(`pow10: неотрицательная целая степень ожидалась, получено ${exp}`);
+    throw new RangeError(`pow10: expected a non-negative integer exponent, got ${exp}`);
   }
   return TEN ** BigInt(exp);
 }
@@ -46,7 +46,7 @@ function pow10(exp: number): bigint {
  */
 export function divideRoundHalfEven(numerator: bigint, denominator: bigint): bigint {
   if (denominator <= 0n) {
-    throw new RangeError('divideRoundHalfEven: знаменатель должен быть > 0');
+    throw new RangeError('divideRoundHalfEven: denominator must be > 0');
   }
   const negative = numerator < 0n;
   const n = negative ? -numerator : numerator;
@@ -84,18 +84,18 @@ export function convertMinor(
 
 function assertRate(rate: FxRate, label: string): void {
   if (rate.mantissa <= 0n) {
-    throw new RangeError(`FX ${label}: mantissa должна быть > 0`);
+    throw new RangeError(`FX ${label}: mantissa must be > 0`);
   }
   // Upper bound of 12: the only producer of rates in v2 is rateFromE9
   // (scale is always 9), and the bound protects pow10() from unchecked input —
   // without it a jump in scale goes straight into 10n ** BigInt(scale).
   if (!Number.isInteger(rate.scale) || rate.scale < 0 || rate.scale > 12) {
-    throw new RangeError(`FX ${label}: scale должен быть целым в диапазоне 0–12`);
+    throw new RangeError(`FX ${label}: scale must be an integer in the range 0–12`);
   }
 }
 
 function assertExponent(exponent: number, label: string): void {
   if (!Number.isInteger(exponent) || exponent < 0 || exponent > 8) {
-    throw new RangeError(`FX ${label}: exponent валюты должен быть в диапазоне 0–8`);
+    throw new RangeError(`FX ${label}: currency exponent must be in the range 0–8`);
   }
 }

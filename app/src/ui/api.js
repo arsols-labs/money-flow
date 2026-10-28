@@ -55,14 +55,14 @@ export const api = {
   updateAccount: (id, patch) =>
     request(`/api/v2/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteAccount: (id) => request(`/api/v2/accounts/${id}`, { method: 'DELETE' }),
-  // "Checked with the bank, same amount" moves balance_updated_at without
-  // changing the amount (issue #223). The request has no body: the only fact
-  // to confirm is that the check happened.
+  // "Checked with the bank, same amount": moves balance_updated_at without
+  // touching the amount. The request has no body: there is nothing to confirm
+  // except the fact of the check.
   confirmAccountBalance: (id) =>
     request(`/api/v2/accounts/${id}/confirm-balance`, { method: 'POST' }),
-  // Account aliases bind virtual cards to a real account (issue #339).
+  // Account aliases: binding virtual cards to a real account.
   // The alias list arrives inside GET /accounts (the `aliases` field), so
-  // there is no separate list call here; add and delete are their own endpoints.
+  // there is no separate list call here; add/remove are separate endpoints.
   addAccountAlias: (id, aliasText) =>
     request(`/api/v2/accounts/${id}/aliases`, {
       method: 'POST',
@@ -94,10 +94,9 @@ export const api = {
   skipRecurringItemPeriod: (id) =>
     request(`/api/v2/recurring-items/${id}/skip-period`, { method: 'POST' }),
 
-  // Operations are expenses, income, and refunds (S1-5a). An account is
-  // required, currency is not sent (it belongs to the account), and the amount
-  // updates the account balance on the server: reload accounts after any of
-  // these calls.
+  // Operations: expenses, income and refunds. The account is required, the currency
+  // is not sent at all (it belongs to the account), and the amount updates the account
+  // balance on the server: re-read accounts after any of these calls.
   listOperations: () => request('/api/v2/operations'),
   createOperation: (payload) =>
     request('/api/v2/operations', { method: 'POST', body: JSON.stringify(payload) }),
@@ -111,7 +110,7 @@ export const api = {
     request(`/api/v2/transfers/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteTransfer: (id) => request(`/api/v2/transfers/${id}`, { method: 'DELETE' }),
 
-  // days is optional. The server fills in the default horizon (365).
+  // days is optional: the server applies the default horizon (365).
   getForecast: (days) =>
     request(`/api/v2/forecast${days ? `?days=${days}` : ''}`),
   getAnalytics: (payload = {}) =>

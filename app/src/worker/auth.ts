@@ -65,11 +65,11 @@ export const CANONICAL_PREVIEW_HOSTS = [
 ] as const;
 
 /**
- * Host validation against Host header injection and origin spoofing.
- * Only these hosts are allowed:
+ * Host validation against Host Header Injection and Origin Spoofing.
+ * Only these are allowed:
  * 1. The request edge host (guaranteed by Cloudflare)
- * 2. An explicitly configured env.APP_DOMAIN
- * 3. Canonical staging/dev preview aliases of this project
+ * 2. The explicitly configured env.APP_DOMAIN
+ * 3. The canonical staging/dev preview aliases of this project
  * 4. Localhost / 127.0.0.1 for local development
  */
 export function isAllowedHost(
@@ -93,7 +93,7 @@ export function isAllowedHost(
     if (h === configured) return true;
   }
 
-  // 3. Only known staging/dev preview aliases, not all of *.workers.dev
+  // 3. Only known staging/dev preview aliases — not all of *.workers.dev
   if ((CANONICAL_PREVIEW_HOSTS as readonly string[]).includes(h)) {
     return true;
   }
@@ -129,7 +129,7 @@ function getHeader(req: RequestLike, name: string): string | undefined {
 }
 
 /**
- * Resolve the request origin safely.
+ * Safe detection of the request Origin.
  */
 export function resolveOrigin(c: OriginContext): string {
   let edgeOrigin = 'http://localhost:8787';
@@ -151,7 +151,7 @@ export function resolveOrigin(c: OriginContext): string {
     } catch {}
   }
 
-  // 2. Host / X-Forwarded-Host (for example wrangler dev when it rewrites the URL)
+  // 2. Host / X-Forwarded-Host (for example in wrangler dev with url rewrite)
   const hostHeader = getHeader(c.req, 'x-forwarded-host') || getHeader(c.req, 'host');
   if (hostHeader) {
     const hostWithoutPort = hostHeader.split(':')[0].trim();
@@ -180,8 +180,8 @@ export function resolveOrigin(c: OriginContext): string {
 }
 
 /**
- * Resolve the WebAuthn Relying Party ID safely.
- * The RP ID must not include a scheme (https://) or a port (:8787).
+ * Safe detection of the WebAuthn Relying Party ID.
+ * The RP ID must not contain a scheme (https://) or a port (:8787).
  */
 export function resolveRpID(c: OriginContext): string {
   let edgeHost = 'localhost';

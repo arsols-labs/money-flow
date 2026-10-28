@@ -12,3 +12,4 @@ app/wrangler.local.jsonc
 app/vitest.out
 __pycache__/
 *.py[cod]
+app/wrangler.demo.jsonc

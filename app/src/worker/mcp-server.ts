@@ -120,7 +120,7 @@ function isIsoDate(value: string): boolean {
 
 function optionalTextValue(value: unknown, field: string): { ok: true; value: string | null } | { ok: false; error: string } {
   if (value === null) return { ok: true, value: null };
-  if (typeof value !== 'string') return { ok: false, error: `${field} должен быть строкой или null` };
+  if (typeof value !== 'string') return { ok: false, error: `${field} must be a string or null` };
   const trimmed = value.trim();
   return { ok: true, value: trimmed.length > 0 ? trimmed : null };
 }
@@ -130,7 +130,7 @@ function optionalHttpUrlValue(value: unknown, field: string): { ok: true; value:
   if (!parsed.ok) return parsed;
   if (parsed.value === null) return parsed;
   if (parsed.value.length > RECEIPT_URL_MAX_LENGTH || parseHttpUrl(parsed.value) === null) {
-    return { ok: false, error: `${field} должен быть http(s) URL не длиннее ${RECEIPT_URL_MAX_LENGTH} символов` };
+    return { ok: false, error: `${field} must be an http(s) URL no longer than ${RECEIPT_URL_MAX_LENGTH} characters` };
   }
   return parsed;
 }
@@ -140,24 +140,24 @@ function optionalFiscalReceiptIdValue(value: unknown, field = 'fiscal_receipt_id
   if (!parsed.ok) return parsed;
   if (parsed.value === null) return parsed;
   if (parsed.value.length > FISCAL_RECEIPT_ID_MAX_LENGTH) {
-    return { ok: false, error: `${field} не длиннее ${FISCAL_RECEIPT_ID_MAX_LENGTH} символов (PFR / fiscal id, не класть в item)` };
+    return { ok: false, error: `${field} must be no longer than ${FISCAL_RECEIPT_ID_MAX_LENGTH} characters (PFR / fiscal id, do not put it in item)` };
   }
   return parsed;
 }
 
 function requiredTextValue(value: unknown, field: string): { ok: true; value: string } | { ok: false; error: string } {
   if (typeof value !== 'string' || value.trim().length === 0) {
-    return { ok: false, error: `${field} не может быть пустым` };
+    return { ok: false, error: `${field} cannot be empty` };
   }
   return { ok: true, value: value.trim() };
 }
 
 function signMatchesKind(kind: string, amountMinor: number): string | null {
   if ((kind === 'expense' || kind === 'transfer_out') && amountMinor > 0) {
-    return `${kind === 'expense' ? 'Расход' : 'Списание перевода'} уменьшает баланс — amount_minor должен быть отрицательным`;
+    return `${kind === 'expense' ? 'An expense' : 'A transfer debit'} decreases the balance — amount_minor must be negative`;
   }
   if (kind !== 'expense' && kind !== 'transfer_out' && amountMinor < 0) {
-    return `${kind === 'income' ? 'Доход' : kind === 'refund' ? 'Возврат' : 'Зачисление перевода'} увеличивает баланс — amount_minor должен быть положительным`;
+    return `${kind === 'income' ? 'Income' : kind === 'refund' ? 'A refund' : 'A transfer credit'} increases the balance — amount_minor must be positive`;
   }
   return null;
 }
@@ -182,7 +182,7 @@ async function loadLedgerInvariant(db: D1Database | undefined): Promise<{ operat
 }
 
 const WRITE_TOOL_MRTR_NOTE =
-  ' Первый вызов без requestState ничего не записывает: в structuredContent resultType=input_required и written=false. Сообщать пользователю об успехе нельзя, пока повторный вызов с requestState не вернёт written=true. Точный доменный эффект после подтверждения указан в описании каждого инструмента.';
+  ' The first call without requestState writes nothing: structuredContent has resultType=input_required and written=false. Do not report success to the user until a repeated call with requestState returns written=true. The exact domain effect after confirmation is stated in each tool description.';
 
 const READ_TOOL_ANNOTATIONS = {
   readOnlyHint: true,
@@ -262,7 +262,7 @@ function storedWriteFingerprint(resultSummary: string | null): string | null {
 }
 
 function idempotencyArgumentConflictResult(id: unknown): Response {
-  const error = 'Error executing tool: idempotency_key уже использован с другими аргументами или не содержит проверяемую привязку аргументов';
+  const error = 'Error executing tool: idempotency_key was already used with different arguments or has no verifiable argument binding';
   return Response.json({
     jsonrpc: '2.0',
     id,
@@ -399,13 +399,13 @@ function summarizeToolResult(data: unknown): string {
 }
 
 const WRITE_PENDING_TEXT =
-  'ЗАПИСЬ НЕ ВЫПОЛНЕНА. Это запрос подтверждения, не факт. Не сообщайте пользователю, что данные уже записаны. Повторите тот же tools/call с полем requestState из этого ответа.';
+  'WRITE NOT PERFORMED. This is a confirmation request, not a fact. Do not tell the user the data has been written. Repeat the same tools/call with the requestState field from this response.';
 
 const REQUEST_STATE_DESCRIPTION =
-  'Токен из ответа input_required. Без него инструмент ничего не пишет. Передайте его, чтобы подтвердить запись.';
+  'Token from the input_required response. Without it the tool writes nothing. Pass it to confirm the write.';
 
 const WRITE_OUTPUT_COMMON = {
-  resultType: { type: 'string', description: 'input_required — ещё не запись; complete — запись выполнена' },
+  resultType: { type: 'string', description: 'input_required — not written yet; complete — write performed' },
   requestState: { type: 'string' },
   description: { type: 'string' },
   written: { type: 'boolean' },
@@ -431,7 +431,7 @@ const WRITE_TOOL_UI = {
 const TOOLS = [
   {
     name: 'accounts_list',
-    description: 'Получить список всех счетов (Accounts). Возвращает баланс, валюту, статус архивации и сортировку.',
+    description: 'List all accounts. Returns balance, currency, archive status and sort order.',
     inputSchema: { type: 'object', properties: {} },
     outputSchema: {
       type: 'object',
@@ -455,7 +455,7 @@ const TOOLS = [
   },
   {
     name: 'fx_rates_list',
-    description: 'Получить сохранённые курсы валют (Exchange rates).',
+    description: 'Get saved exchange rates.',
     inputSchema: { type: 'object', properties: {} },
     outputSchema: {
       type: 'object',
@@ -470,7 +470,7 @@ const TOOLS = [
   },
   {
     name: 'planned_items_list',
-    description: 'Получить плановые операции (Planned items).',
+    description: 'Get planned items.',
     inputSchema: { type: 'object', properties: {} },
     outputSchema: {
       type: 'object',
@@ -485,7 +485,7 @@ const TOOLS = [
   },
   {
     name: 'recurring_items_list',
-    description: 'Получить регулярные операции (Recurring items).',
+    description: 'Get recurring items.',
     inputSchema: { type: 'object', properties: {} },
     outputSchema: {
       type: 'object',
@@ -500,10 +500,10 @@ const TOOLS = [
   },
   {
     name: 'recurring_fulfillments_list',
-    description: 'Получить durable историю materialized, linked и skipped периодов recurring rules.',
+    description: 'Get the durable history of materialized, linked and skipped periods of recurring rules.',
     inputSchema: {
       type: 'object', additionalProperties: false,
-      properties: { recurring_item_id: { type: 'number', description: 'Опциональный ID recurring rule' } },
+      properties: { recurring_item_id: { type: 'number', description: 'Optional recurring rule ID' } },
     },
     outputSchema: {
       type: 'object',
@@ -515,7 +515,7 @@ const TOOLS = [
   },
   {
     name: 'operations_list',
-    description: 'Получить историю завершенных операций и трат (Operations).',
+    description: 'Get the history of completed operations and spending.',
     inputSchema: { type: 'object', properties: {} },
     outputSchema: {
       type: 'object',
@@ -530,13 +530,13 @@ const TOOLS = [
   },
   {
     name: 'forecast_get',
-    description: 'Получить прогноз состояния счетов и денежного потока (Forecast).',
+    description: 'Get the forecast of account balances and cash flow.',
     inputSchema: {
       type: 'object',
       properties: {
         days: {
           type: 'number',
-          description: 'Горизонт прогноза в днях. Если не указан, используется настройка пользователя по умолчанию.',
+          description: 'Forecast horizon in days. If omitted, the user default setting is used.',
           // @ts-ignore
           'x-mcp-header': true
         }
@@ -569,17 +569,17 @@ const TOOLS = [
   },
   {
     name: 'analytics_get',
-    description: 'Получить данные аналитики расходов, доходов, динамики трат и разрезов по категориям/магазинам (Analytics).',
+    description: 'Get analytics data: expenses, income, spending trend and breakdowns by category/store.',
     inputSchema: {
       type: 'object',
       properties: {
-        start_date: { type: 'string', description: 'Начальная дата периода (YYYY-MM-DD)' },
-        end_date: { type: 'string', description: 'Конечная дата периода (YYYY-MM-DD)' },
-        cats: { type: 'array', items: { type: 'string', maxLength: 128 }, maxItems: 32, description: 'Фильтр по категориям' },
-        merchants: { type: 'array', items: { type: 'string', maxLength: 128 }, maxItems: 32, description: 'Фильтр по магазинам' },
-        accounts: { type: 'array', items: { type: 'string', maxLength: 128 }, maxItems: 32, description: 'Фильтр по счетам' },
-        currencies: { type: 'array', items: { type: 'string', maxLength: 128 }, maxItems: 32, description: 'Фильтр по валютам' },
-        q: { type: 'string', maxLength: 200, description: 'Поисковый запрос' }
+        start_date: { type: 'string', description: 'Period start date (YYYY-MM-DD)' },
+        end_date: { type: 'string', description: 'Period end date (YYYY-MM-DD)' },
+        cats: { type: 'array', items: { type: 'string', maxLength: 128 }, maxItems: 32, description: 'Filter by categories' },
+        merchants: { type: 'array', items: { type: 'string', maxLength: 128 }, maxItems: 32, description: 'Filter by stores' },
+        accounts: { type: 'array', items: { type: 'string', maxLength: 128 }, maxItems: 32, description: 'Filter by accounts' },
+        currencies: { type: 'array', items: { type: 'string', maxLength: 128 }, maxItems: 32, description: 'Filter by currencies' },
+        q: { type: 'string', maxLength: 200, description: 'Search query' }
       }
     },
     outputSchema: {
@@ -606,22 +606,22 @@ const TOOLS = [
   },
   {
     name: 'operation_add',
-    description: 'Добавить операцию (расход, доход или возврат). Требует scope "write" и подтверждения (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Add an operation (expense, income or refund). Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
-        date: { type: 'string', description: 'Дата операции в формате YYYY-MM-DD' },
-        account_id: { type: 'number', description: 'ID счёта' },
-        kind: { type: 'string', enum: ['expense', 'income', 'refund'], description: 'Тип операции' },
-        item: { type: 'string', description: 'Название или описание товара/услуги' },
-        amount_minor: { type: 'number', description: 'Сумма в минорных единицах (отрицательная для expense, положительная для income/refund)' },
-        category: { type: 'string', description: 'Категория (опционально)' },
-        subcategory: { type: 'string', description: 'Подкатегория (опционально, только если указана категория)' },
-        store: { type: 'string', description: 'Магазин или контрагент (опционально)' },
-        comment: { type: 'string', description: 'Свободный комментарий к операции (опционально)' },
-        receipt_url: { type: 'string', description: 'URL фискального/проверочного чека (http/https, опционально). Сюда пишут PURS/TaxCore QR-ссылки вместо поля item.' },
-        fiscal_receipt_id: { type: 'string', description: 'ПФР број рачуна / TaxCore PFR — стабильный id фискального документа. Писать сюда, не в item и не в comment. Пустое = нефискальная операция.' },
-        idempotency_key: { type: 'string', description: 'Уникальный ключ идемпотентности (UUID), генерируемый клиентом' },
+        date: { type: 'string', description: 'Operation date in YYYY-MM-DD format' },
+        account_id: { type: 'number', description: 'Account ID' },
+        kind: { type: 'string', enum: ['expense', 'income', 'refund'], description: 'Operation kind' },
+        item: { type: 'string', description: 'Name or description of the goods/service' },
+        amount_minor: { type: 'number', description: 'Amount in minor units (negative for expense, positive for income/refund)' },
+        category: { type: 'string', description: 'Category (optional)' },
+        subcategory: { type: 'string', description: 'Subcategory (optional, only when a category is set)' },
+        store: { type: 'string', description: 'Store or counterparty (optional)' },
+        comment: { type: 'string', description: 'Free-form comment on the operation (optional)' },
+        receipt_url: { type: 'string', description: 'Fiscal/verification receipt URL (http/https, optional). Put PURS/TaxCore QR links here instead of the item field.' },
+        fiscal_receipt_id: { type: 'string', description: 'PFR receipt number / TaxCore PFR — stable id of the fiscal document. Put it here, not in item or comment. Empty = non-fiscal operation.' },
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
         requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
       },
       required: ['date', 'account_id', 'kind', 'item', 'amount_minor', 'idempotency_key']
@@ -637,24 +637,24 @@ const TOOLS = [
   },
   {
     name: 'operation_update',
-    description: 'Частично обновить существующую операцию по operation_id. Требует scope "write" и подтверждения (MRTR); оборачивает штатный PATCH /operations/:id и сохраняет его доменные инварианты.' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Partially update an existing operation by operation_id. Requires scope "write" and confirmation (MRTR); wraps the standard PATCH /operations/:id and keeps its domain invariants.' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object',
       additionalProperties: false,
       properties: {
-        operation_id: { type: 'number', description: 'ID операции для изменения' },
-        date: { type: 'string', description: 'Новая дата операции YYYY-MM-DD (опционально)' },
-        account_id: { type: 'number', description: 'Новый ID счёта (опционально; при смене валюты требуется amount_minor)' },
-        kind: { type: 'string', enum: ['expense', 'income', 'refund', 'transfer_out', 'transfer_in'], description: 'Новый вид операции (опционально)' },
-        store: { type: ['string', 'null'], description: 'Магазин/контрагент; null очищает поле' },
-        item: { type: 'string', description: 'Название или описание товара/услуги (опционально, непустая строка)' },
-        category: { type: ['string', 'null'], description: 'Категория; null очищает поле' },
-        subcategory: { type: ['string', 'null'], description: 'Подкатегория; null очищает поле, непустая подкатегория требует category' },
-        amount_minor: { type: 'number', description: 'Новая сумма в минорных единицах; знак должен соответствовать kind' },
-        comment: { type: ['string', 'null'], description: 'Свободный комментарий; null очищает поле' },
-        receipt_url: { type: ['string', 'null'], description: 'URL фискального/проверочного чека (http/https); null очищает поле' },
-        fiscal_receipt_id: { type: ['string', 'null'], description: 'ПФР / TaxCore fiscal id; null очищает поле. Не класть PFR в item.' },
-        idempotency_key: { type: 'string', description: 'Уникальный ключ идемпотентности (UUID), генерируемый клиентом' },
+        operation_id: { type: 'number', description: 'ID of the operation to change' },
+        date: { type: 'string', description: 'New operation date YYYY-MM-DD (optional)' },
+        account_id: { type: 'number', description: 'New account ID (optional; amount_minor is required when the currency changes)' },
+        kind: { type: 'string', enum: ['expense', 'income', 'refund', 'transfer_out', 'transfer_in'], description: 'New operation kind (optional)' },
+        store: { type: ['string', 'null'], description: 'Store/counterparty; null clears the field' },
+        item: { type: 'string', description: 'Name or description of the goods/service (optional, non-empty string)' },
+        category: { type: ['string', 'null'], description: 'Category; null clears the field' },
+        subcategory: { type: ['string', 'null'], description: 'Subcategory; null clears the field, a non-empty subcategory requires category' },
+        amount_minor: { type: 'number', description: 'New amount in minor units; the sign must match kind' },
+        comment: { type: ['string', 'null'], description: 'Free-form comment; null clears the field' },
+        receipt_url: { type: ['string', 'null'], description: 'Fiscal/verification receipt URL (http/https); null clears the field' },
+        fiscal_receipt_id: { type: ['string', 'null'], description: 'PFR / TaxCore fiscal id; null clears the field. Do not put the PFR in item.' },
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
         requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
       },
       required: ['operation_id', 'idempotency_key']
@@ -670,13 +670,13 @@ const TOOLS = [
   },
   {
     name: 'operation_delete',
-    description: 'Удалить операцию по operation_id через штатную доменную логику DELETE /operations/:id. Обычная операция снимает вклад с баланса; операция плановой снимает done; операция перевода удаляет весь transfer с обеими ногами. Требует scope "write" и подтверждения (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Delete an operation by operation_id through the standard DELETE /operations/:id domain logic. A regular operation removes its contribution from the balance; an operation of a planned item clears done; a transfer operation deletes the whole transfer with both legs. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object',
       additionalProperties: false,
       properties: {
-        operation_id: { type: 'number', description: 'ID операции для удаления' },
-        idempotency_key: { type: 'string', description: 'Уникальный ключ идемпотентности (UUID), генерируемый клиентом' },
+        operation_id: { type: 'number', description: 'ID of the operation to delete' },
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
         requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
       },
       required: ['operation_id', 'idempotency_key']
@@ -694,22 +694,22 @@ const TOOLS = [
   },
   {
     name: 'transfer_add',
-    description: 'Добавить перевод между счетами (ATM-снятие, конвертация, перевод между банками). Создаёт запись в transfers плюс две операции (transfer_out со счёта-источника и transfer_in на счёт-назначения) с общим transfer_id. Требует scope "write" и подтверждения (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Add a transfer between accounts (ATM withdrawal, conversion, bank-to-bank transfer). Creates a transfers record plus two operations (transfer_out from the source account and transfer_in to the destination account) sharing a transfer_id. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
-        date: { type: 'string', description: 'Дата перевода в формате YYYY-MM-DD' },
-        from_account_id: { type: 'number', description: 'ID счёта-источника (списание)' },
-        to_account_id: { type: 'number', description: 'ID счёта-назначения (зачисление)' },
-        from_amount_minor: { type: 'number', description: 'Сумма списания в минорных единицах валюты счёта-источника (положительная величина)' },
-        to_amount_minor: { type: 'number', description: 'Сумма зачисления в минорных единицах валюты счёта-назначения (положительная величина). При конверсии отличается от from_amount_minor; при переводе в той же валюте обычно равна ей за вычетом комиссии.' },
-        item: { type: 'string', description: 'Название или описание перевода' },
-        category: { type: 'string', description: 'Категория (опционально)' },
-        subcategory: { type: 'string', description: 'Подкатегория (опционально, только если указана категория)' },
-        comment: { type: 'string', description: 'Свободный комментарий (опционально; пишется на обе ноги перевода)' },
-        receipt_url: { type: 'string', description: 'URL фискального/проверочного чека (http/https, опционально)' },
-        fiscal_receipt_id: { type: 'string', description: 'ПФР / TaxCore fiscal id (опционально; пишется на обе ноги перевода)' },
-        idempotency_key: { type: 'string', description: 'Уникальный ключ идемпотентности (UUID), генерируемый клиентом' },
+        date: { type: 'string', description: 'Transfer date in YYYY-MM-DD format' },
+        from_account_id: { type: 'number', description: 'Source account ID (debit)' },
+        to_account_id: { type: 'number', description: 'Destination account ID (credit)' },
+        from_amount_minor: { type: 'number', description: 'Debit amount in minor units of the source account currency (positive value)' },
+        to_amount_minor: { type: 'number', description: 'Credit amount in minor units of the destination account currency (positive value). Differs from from_amount_minor on conversion; for a same-currency transfer it is usually equal minus fees.' },
+        item: { type: 'string', description: 'Name or description of the transfer' },
+        category: { type: 'string', description: 'Category (optional)' },
+        subcategory: { type: 'string', description: 'Subcategory (optional, only when a category is set)' },
+        comment: { type: 'string', description: 'Free-form comment (optional; written to both transfer legs)' },
+        receipt_url: { type: 'string', description: 'Fiscal/verification receipt URL (http/https, optional)' },
+        fiscal_receipt_id: { type: 'string', description: 'PFR / TaxCore fiscal id (optional; written to both transfer legs)' },
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
         requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
       },
       required: ['date', 'from_account_id', 'to_account_id', 'from_amount_minor', 'to_amount_minor', 'item', 'idempotency_key']
@@ -725,13 +725,13 @@ const TOOLS = [
   },
   {
     name: 'balance_correct',
-    description: 'Скорректировать текущий баланс счёта. Требует scope "write" и подтверждения (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Adjust the current account balance. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
-        account_id: { type: 'number', description: 'ID счёта' },
-        balance_minor: { type: 'number', description: 'Новый баланс счёта в минорных единицах валюты счёта' },
-        idempotency_key: { type: 'string', description: 'Уникальный ключ идемпотентности (UUID), генерируемый клиентом' },
+        account_id: { type: 'number', description: 'Account ID' },
+        balance_minor: { type: 'number', description: 'New account balance in minor units of the account currency' },
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
         requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
       },
       required: ['account_id', 'balance_minor', 'idempotency_key']
@@ -747,18 +747,18 @@ const TOOLS = [
   },
   {
     name: 'planned_item_add',
-    description: 'Завести плановую операцию (доход или расход). Требует scope "write" и подтверждения (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Create a planned item (income or expense). Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
-        date: { type: 'string', description: 'Дата плановой операции в формате YYYY-MM-DD' },
-        title: { type: 'string', description: 'Название плановой операции' },
-        amount_minor: { type: 'number', description: 'Сумма в минорных единицах (отрицательная для расхода, положительная для дохода)' },
-        account_id: { type: 'number', description: 'ID счёта' },
-        currency: { type: 'string', description: 'Валюта плановой операции (по умолчанию валюта счёта)' },
-        category: { type: 'string', description: 'Категория (опционально)' },
-        done: { type: 'boolean', description: 'Отмечена ли плановая операция как выполненная сразу (по умолчанию false)' },
-        idempotency_key: { type: 'string', description: 'Уникальный ключ идемпотентности (UUID), генерируемый клиентом' },
+        date: { type: 'string', description: 'Planned item date in YYYY-MM-DD format' },
+        title: { type: 'string', description: 'Planned item title' },
+        amount_minor: { type: 'number', description: 'Amount in minor units (negative for an expense, positive for income)' },
+        account_id: { type: 'number', description: 'Account ID' },
+        currency: { type: 'string', description: 'Planned item currency (defaults to the account currency)' },
+        category: { type: 'string', description: 'Category (optional)' },
+        done: { type: 'boolean', description: 'Whether the planned item is marked done right away (default false)' },
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
         requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
       },
       required: ['date', 'title', 'amount_minor', 'account_id', 'idempotency_key']
@@ -774,19 +774,19 @@ const TOOLS = [
   },
   {
     name: 'planned_item_update',
-    description: 'Частично обновить плановую операцию по planned_item_id, включая штатный переход done → operation. Требует scope "write" и подтверждения (MRTR); использует PATCH /planned-items/:id.' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Partially update a planned item by planned_item_id, including the standard done → operation transition. Requires scope "write" and confirmation (MRTR); uses PATCH /planned-items/:id.' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object', additionalProperties: false,
       properties: {
-        planned_item_id: { type: 'number', description: 'ID плановой операции' },
-        date: { type: 'string', description: 'Новая дата YYYY-MM-DD' },
-        title: { type: 'string', description: 'Новое название' },
-        amount_minor: { type: 'number', description: 'Сумма в минорных единицах' },
-        currency: { type: 'string', description: 'Валюта; при смене передайте amount_minor тем же запросом' },
-        account_id: { type: 'number', description: 'ID счёта' },
-        category: { type: ['string', 'null'], description: 'Категория; null очищает поле' },
-        done: { type: 'boolean', description: 'true штатно материализует plan → operation при совместимой валюте счёта' },
-        idempotency_key: { type: 'string', description: 'Уникальный ключ идемпотентности' },
+        planned_item_id: { type: 'number', description: 'Planned item ID' },
+        date: { type: 'string', description: 'New date YYYY-MM-DD' },
+        title: { type: 'string', description: 'New title' },
+        amount_minor: { type: 'number', description: 'Amount in minor units' },
+        currency: { type: 'string', description: 'Currency; when changing it, pass amount_minor in the same request' },
+        account_id: { type: 'number', description: 'Account ID' },
+        category: { type: ['string', 'null'], description: 'Category; null clears the field' },
+        done: { type: 'boolean', description: 'true materializes plan → operation through the standard path when the account currency is compatible' },
+        idempotency_key: { type: 'string', description: 'Unique idempotency key' },
         requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION },
       },
       required: ['planned_item_id', 'idempotency_key'],
@@ -796,7 +796,7 @@ const TOOLS = [
   },
   {
     name: 'planned_item_fulfill_existing',
-    description: 'Выполнить плановую операцию уже существующим финансовым фактом. Не создаёт и не изменяет operation, не меняет баланс; сохраняет durable linkage. Требует scope "write" и подтверждения (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Fulfill a planned item with an already existing financial fact. Does not create or change an operation and does not change the balance; stores a durable linkage. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object', additionalProperties: false,
       properties: {
@@ -820,12 +820,12 @@ const TOOLS = [
   },
   {
     name: 'planned_item_delete',
-    description: 'Удалить плановую операцию по planned_item_id через штатный DELETE /planned-items/:id. Требует scope "write" и подтверждения (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Delete a planned item by planned_item_id through the standard DELETE /planned-items/:id. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object', additionalProperties: false,
       properties: {
-        planned_item_id: { type: 'number', description: 'ID плановой операции для удаления' },
-        idempotency_key: { type: 'string', description: 'Уникальный ключ идемпотентности' },
+        planned_item_id: { type: 'number', description: 'ID of the planned item to delete' },
+        idempotency_key: { type: 'string', description: 'Unique idempotency key' },
         requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION },
       },
       required: ['planned_item_id', 'idempotency_key'],
@@ -835,23 +835,23 @@ const TOOLS = [
   },
   {
     name: 'recurring_item_add',
-    description: 'Создать регулярное правило. Требует scope "write" и подтверждения (MRTR); создаёт recurring item, а не плановую операцию и не факт списания.' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Create a recurring rule. Requires scope "write" and confirmation (MRTR); creates a recurring item, not a planned item and not a debit fact.' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object', additionalProperties: false,
       properties: {
-        title: { type: 'string', description: 'Название регулярного правила' },
-        amount_minor: { type: 'number', description: 'Сумма в минорных единицах; расход отрицателен' },
-        account_id: { type: 'number', description: 'ID счёта' },
-        frequency: { type: 'string', enum: ['daily', 'weekly', 'monthly', 'yearly'], description: 'Частота правила' },
-        next_due_date: { type: 'string', description: 'Дата следующего периода YYYY-MM-DD' },
-        currency: { type: 'string', description: 'Валюта, по умолчанию валюта счёта' },
-        category: { type: ['string', 'null'], description: 'Категория; null очищает/не задаёт' },
-        interval_count: { type: 'number', description: 'Интервал от 1 до 365' },
-        day_of_month: { type: ['number', 'null'], description: 'Якорь дня месяца для monthly/yearly' },
-        month_of_year: { type: ['number', 'null'], description: 'Якорь месяца для yearly' },
-        end_date: { type: ['string', 'null'], description: 'Дата последнего периода или null' },
-        active: { type: 'boolean', description: 'Активно ли правило; по умолчанию true' },
-        idempotency_key: { type: 'string', description: 'Уникальный ключ идемпотентности' },
+        title: { type: 'string', description: 'Recurring rule title' },
+        amount_minor: { type: 'number', description: 'Amount in minor units; an expense is negative' },
+        account_id: { type: 'number', description: 'Account ID' },
+        frequency: { type: 'string', enum: ['daily', 'weekly', 'monthly', 'yearly'], description: 'Rule frequency' },
+        next_due_date: { type: 'string', description: 'Next period date YYYY-MM-DD' },
+        currency: { type: 'string', description: 'Currency, defaults to the account currency' },
+        category: { type: ['string', 'null'], description: 'Category; null clears/does not set it' },
+        interval_count: { type: 'number', description: 'Interval from 1 to 365' },
+        day_of_month: { type: ['number', 'null'], description: 'Day-of-month anchor for monthly/yearly' },
+        month_of_year: { type: ['number', 'null'], description: 'Month anchor for yearly' },
+        end_date: { type: ['string', 'null'], description: 'Last period date or null' },
+        active: { type: 'boolean', description: 'Whether the rule is active; default true' },
+        idempotency_key: { type: 'string', description: 'Unique idempotency key' },
         requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION },
       },
       required: ['title', 'amount_minor', 'account_id', 'frequency', 'next_due_date', 'idempotency_key'],
@@ -861,15 +861,15 @@ const TOOLS = [
   },
   {
     name: 'recurring_item_update',
-    description: 'Частично обновить регулярное правило по recurring_item_id через штатный PATCH /recurring-items/:id. Требует scope "write" и подтверждения (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Partially update a recurring rule by recurring_item_id through the standard PATCH /recurring-items/:id. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object', additionalProperties: false,
       properties: {
-        recurring_item_id: { type: 'number', description: 'ID регулярного правила' },
+        recurring_item_id: { type: 'number', description: 'Recurring rule ID' },
         title: { type: 'string' }, amount_minor: { type: 'number' }, currency: { type: 'string' }, account_id: { type: 'number' }, category: { type: ['string', 'null'] },
         frequency: { type: 'string', enum: ['daily', 'weekly', 'monthly', 'yearly'] }, interval_count: { type: 'number' }, day_of_month: { type: ['number', 'null'] }, month_of_year: { type: ['number', 'null'] },
         next_due_date: { type: 'string' }, end_date: { type: ['string', 'null'] }, active: { type: 'boolean' },
-        idempotency_key: { type: 'string', description: 'Уникальный ключ идемпотентности' }, requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION },
+        idempotency_key: { type: 'string', description: 'Unique idempotency key' }, requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION },
       },
       required: ['recurring_item_id', 'idempotency_key'],
     },
@@ -878,7 +878,7 @@ const TOOLS = [
   },
   {
     name: 'recurring_item_delete',
-    description: 'Удалить регулярное правило по recurring_item_id через штатный DELETE /recurring-items/:id. Требует scope "write" и подтверждения (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Delete a recurring rule by recurring_item_id through the standard DELETE /recurring-items/:id. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object', additionalProperties: false,
       properties: { recurring_item_id: { type: 'number' }, idempotency_key: { type: 'string' }, requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION } },
@@ -889,7 +889,7 @@ const TOOLS = [
   },
   {
     name: 'recurring_item_close_period',
-    description: 'Закрыть очередной период регулярного правила через штатный маршрут: атомарно материализует факт операции и сдвигает период. Требует scope "write" и подтверждения (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Close the next period of a recurring rule through the standard route: atomically materializes the operation fact and advances the period. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object', additionalProperties: false,
       properties: {
@@ -903,14 +903,14 @@ const TOOLS = [
   },
   {
     name: 'recurring_item_fulfill_existing',
-    description: 'Выполнить текущий recurring occurrence одной или несколькими уже существующими operations. Не создаёт и не изменяет operations, не меняет баланс; сохраняет occurrence-level linkage. Требует scope "write" и подтверждения (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Fulfill the current recurring occurrence with one or more already existing operations. Does not create or change operations and does not change the balance; stores an occurrence-level linkage. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object', additionalProperties: false,
       properties: {
         recurring_item_id: { type: 'number' },
-        period_due_date: { type: 'string', description: 'Точный текущий occurrence YYYY-MM-DD' },
+        period_due_date: { type: 'string', description: 'Exact current occurrence YYYY-MM-DD' },
         operation_ids: { type: 'array', minItems: 1, maxItems: 100, uniqueItems: true, items: { type: 'number' } },
-        evidence_quantity: { type: 'number', description: 'Явно доказанное число единиц для проверки суммы. Не продвигает дополнительные occurrences; по умолчанию 1, максимум 100' },
+        evidence_quantity: { type: 'number', description: 'Explicitly proven number of units for the amount check. Does not advance extra occurrences; default 1, maximum 100' },
         idempotency_key: { type: 'string' },
         requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION },
       },
@@ -931,7 +931,7 @@ const TOOLS = [
   },
   {
     name: 'recurring_item_skip_period',
-    description: 'Пропустить очередной период регулярного правила без создания операции и без изменения баланса через штатный маршрут. Требует scope "write" и подтверждения (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Skip the next period of a recurring rule without creating an operation and without changing the balance, through the standard route. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object', additionalProperties: false,
       properties: { recurring_item_id: { type: 'number' }, idempotency_key: { type: 'string' }, requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION } },
@@ -949,12 +949,12 @@ const TOOLS = [
   },
   {
     name: 'recurring_item_cancel_period_fulfillment',
-    description: 'Отменить выполнение конкретного периода регулярного правила (materialized, linked или skipped) через штатный маршрут: снимает operation_fulfillment_links и историю периода, не меняет operations и балансы. После отмены DELETE /operations/:id снова разрешён. Требует scope "write" и подтверждения (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Undo the fulfillment of a specific recurring rule period (materialized, linked or skipped) through the standard route: removes operation_fulfillment_links and the period history, does not change operations or balances. After the undo, DELETE /operations/:id is allowed again. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object', additionalProperties: false,
       properties: {
         recurring_item_id: { type: 'number' },
-        period_due_date: { type: 'string', description: 'YYYY-MM-DD якоря периода, который нужно открыть заново' },
+        period_due_date: { type: 'string', description: 'YYYY-MM-DD anchor of the period to reopen' },
         idempotency_key: { type: 'string' },
         requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION },
       },
@@ -973,13 +973,13 @@ const TOOLS = [
   },
   {
     name: 'fx_rate_set',
-    description: 'Установить или обновить курс валюты. Не перевод денег и не платёж: это только справочник курсов. Требует scope "write" и подтверждения (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Set or update an exchange rate. Not a money transfer and not a payment: this is only the rate reference table. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
-        code: { type: 'string', description: 'Код валюты (например, USD, EUR, RUB)' },
-        rate: { type: 'number', description: 'Курс валюты к целевой валюте' },
-        idempotency_key: { type: 'string', description: 'Уникальный ключ идемпотентности (UUID), генерируемый клиентом' },
+        code: { type: 'string', description: 'Currency code (for example USD, EUR, RUB)' },
+        rate: { type: 'number', description: 'Exchange rate against the target currency' },
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
         requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
       },
       required: ['code', 'rate', 'idempotency_key']
@@ -995,12 +995,12 @@ const TOOLS = [
   },
   {
     name: 'fx_rate_delete',
-    description: 'Удалить курс валюты. Требует scope "write" и подтверждения (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Delete an exchange rate. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
-        code: { type: 'string', description: 'Код валюты для удаления (например, USD, EUR, RUB)' },
-        idempotency_key: { type: 'string', description: 'Уникальный ключ идемпотентности (UUID), генерируемый клиентом' },
+        code: { type: 'string', description: 'Currency code to delete (for example USD, EUR, RUB)' },
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
         requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
       },
       required: ['code', 'idempotency_key']
@@ -1016,12 +1016,12 @@ const TOOLS = [
   },
   {
     name: 'data_reset',
-    description: 'Сбросить финансовый журнал до пустого инстанса без повторного деплоя. Удаляет счета, операции, планы, курсы и настройки журнала. Passkeys, сессии и клиенты OAuth/MCP сохраняются. Требует scope "write", фразу RESET и подтверждения (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Reset the financial ledger to an empty instance without redeploying. Deletes accounts, operations, plans, rates and ledger settings. Passkeys, sessions and OAuth/MCP clients are kept. Requires scope "write", the RESET phrase and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
-        confirm_phrase: { type: 'string', description: `Точная фраза ${RESET_CONFIRM_PHRASE}` },
-        idempotency_key: { type: 'string', description: 'Уникальный ключ идемпотентности (UUID), генерируемый клиентом' },
+        confirm_phrase: { type: 'string', description: `Exact phrase ${RESET_CONFIRM_PHRASE}` },
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
         requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
       },
       required: ['confirm_phrase', 'idempotency_key']
@@ -1155,11 +1155,11 @@ function clientWriteDescription(
 ): string {
   if (hasRead && detailed) return detailed;
   if (WRITE_CREATE_TOOLS.has(name) && detailed) return detailed;
-  if (name === 'transfer_add') return 'Подтвердите перевод';
+  if (name === 'transfer_add') return 'Confirm the transfer';
   if (name === 'balance_correct' && confirmedArgs) {
-    return `Подтвердите корректировку баланса счёта ID ${confirmedArgs.account_id}: новый баланс ${confirmedArgs.balance_minor}`;
+    return `Confirm the balance adjustment of account ID ${confirmedArgs.account_id}: new balance ${confirmedArgs.balance_minor}`;
   }
-  return `Подтвердите ${name}`;
+  return `Confirm ${name}`;
 }
 
 async function storeWriteConfirmation(env: Env, payload: Record<string, unknown>): Promise<string> {
@@ -1225,34 +1225,34 @@ async function validateWriteArgs(
 ): Promise<{ error?: string; description?: string; confirmedArgs?: any; confirmationSnapshot?: any }> {
   const idempotencyKey = typeof args.idempotency_key === 'string' ? args.idempotency_key.trim() : '';
   if (!idempotencyKey) {
-    return { error: 'Поле idempotency_key обязательно для всех операций записи' };
+    return { error: 'The idempotency_key field is required for all write operations' };
   }
 
   if (name === 'operation_add') {
     const { date, account_id, kind, item, amount_minor, category, subcategory, store, comment, receipt_url, fiscal_receipt_id } = args;
     if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(Date.parse(date))) {
-      return { error: 'Некорректная дата (ожидается формат YYYY-MM-DD)' };
+      return { error: 'Invalid date (expected format YYYY-MM-DD)' };
     }
     if (typeof account_id !== 'number' || !Number.isInteger(account_id) || account_id <= 0) {
-      return { error: 'Некорректный account_id' };
+      return { error: 'Invalid account_id' };
     }
     if (!['expense', 'income', 'refund'].includes(kind)) {
-      return { error: 'kind должен быть одним из: expense, income, refund' };
+      return { error: 'kind must be one of: expense, income, refund' };
     }
     if (typeof item !== 'string' || item.trim().length === 0) {
-      return { error: 'item не может быть пустым' };
+      return { error: 'item cannot be empty' };
     }
     if (typeof amount_minor !== 'number' || !Number.isInteger(amount_minor) || amount_minor === 0) {
-      return { error: 'amount_minor должен быть целым ненулевым числом' };
+      return { error: 'amount_minor must be a non-zero integer' };
     }
     if (kind === 'expense' && amount_minor > 0) {
-      return { error: 'Сумма расхода (expense) должна быть отрицательной' };
+      return { error: 'An expense amount must be negative' };
     }
     if ((kind === 'income' || kind === 'refund') && amount_minor < 0) {
-      return { error: 'Сумма дохода/возврата (income/refund) должна быть положительной' };
+      return { error: 'An income/refund amount must be positive' };
     }
     if (subcategory && !category) {
-      return { error: 'Подкатегория не может быть указана без категории' };
+      return { error: 'A subcategory cannot be set without a category' };
     }
     const commentParsed = optionalTextValue(comment ?? null, 'comment');
     if (!commentParsed.ok) return { error: commentParsed.error };
@@ -1264,12 +1264,12 @@ async function validateWriteArgs(
     if (db) {
       const account = await db.prepare('SELECT id, currency FROM accounts WHERE id = ?').bind(account_id).first<{ id: number; currency: string }>();
       if (!account) {
-        return { error: 'Счёт не найден' };
+        return { error: 'Account not found' };
       }
     }
 
-    const kindLabel = kind === 'expense' ? 'расход' : kind === 'income' ? 'доход' : 'возврат';
-    const description = `Подтвердите добавление операции: ${kindLabel} "${item.trim()}" на сумму ${amount_minor} (счёт ID ${account_id}${category ? `, категория: ${category}` : ''})`;
+    const kindLabel = kind === 'expense' ? 'expense' : kind === 'income' ? 'income' : 'refund';
+    const description = `Confirm adding the operation: ${kindLabel} "${item.trim()}" for ${amount_minor} (account ID ${account_id}${category ? `, category: ${category}` : ''})`;
     const confirmedArgs = {
       date, account_id, kind, item: item.trim(), amount_minor, category, subcategory, store,
       comment: commentParsed.value, receipt_url: urlParsed.value, fiscal_receipt_id: fiscalParsed.value,
@@ -1281,7 +1281,7 @@ async function validateWriteArgs(
   if (name === 'operation_update') {
     const operationId = operationIdFromArgs(args);
     if (operationId === null) {
-      return { error: 'Некорректный operation_id' };
+      return { error: 'Invalid operation_id' };
     }
 
     const unknownFields = Object.keys(args).filter(
@@ -1293,7 +1293,7 @@ async function validateWriteArgs(
     const rejectedFields = Array.from(new Set([...unknownFields, ...systemFields]));
     if (rejectedFields.length > 0) {
       return {
-        error: `Недопустимые поля operation_update: ${rejectedFields.join(', ')}. Разрешённые поля: operation_id, ${OPERATION_UPDATE_FIELDS.join(', ')}, idempotency_key, requestState`,
+        error: `Fields not allowed for operation_update: ${rejectedFields.join(', ')}. Allowed fields: operation_id, ${OPERATION_UPDATE_FIELDS.join(', ')}, idempotency_key, requestState`,
       };
     }
 
@@ -1302,28 +1302,28 @@ async function validateWriteArgs(
       if (field in args) patchArgs[field] = args[field];
     }
     if (Object.keys(patchArgs).length === 0) {
-      return { error: `Нужно передать хотя бы одно поле для изменения. Разрешённые поля: ${OPERATION_UPDATE_FIELDS.join(', ')}` };
+      return { error: `Pass at least one field to change. Allowed fields: ${OPERATION_UPDATE_FIELDS.join(', ')}` };
     }
 
     const current = await loadOperationForMcp(db, operationId);
     if (!current) {
-      return { error: 'Операция не найдена' };
+      return { error: 'Operation not found' };
     }
 
     const normalized: Record<string, unknown> = {};
     for (const [field, raw] of Object.entries(patchArgs)) {
       switch (field) {
         case 'date':
-          if (typeof raw !== 'string' || !isIsoDate(raw)) return { error: 'Некорректная дата (ожидается формат YYYY-MM-DD)' };
+          if (typeof raw !== 'string' || !isIsoDate(raw)) return { error: 'Invalid date (expected format YYYY-MM-DD)' };
           normalized.date = raw;
           break;
         case 'account_id':
-          if (typeof raw !== 'number' || !Number.isInteger(raw) || raw <= 0) return { error: 'Некорректный account_id' };
+          if (typeof raw !== 'number' || !Number.isInteger(raw) || raw <= 0) return { error: 'Invalid account_id' };
           normalized.account_id = raw;
           break;
         case 'kind':
           if (typeof raw !== 'string' || !(OPERATION_KINDS as readonly string[]).includes(raw)) {
-            return { error: `kind должен быть одним из: ${OPERATION_KINDS.join(', ')}` };
+            return { error: `kind must be one of: ${OPERATION_KINDS.join(', ')}` };
           }
           normalized.kind = raw;
           break;
@@ -1355,7 +1355,7 @@ async function validateWriteArgs(
           break;
         }
         case 'amount_minor':
-          if (typeof raw !== 'number' || !Number.isInteger(raw) || raw === 0) return { error: 'amount_minor должен быть целым ненулевым числом' };
+          if (typeof raw !== 'number' || !Number.isInteger(raw) || raw === 0) return { error: 'amount_minor must be a non-zero integer' };
           normalized.amount_minor = raw;
           break;
       }
@@ -1368,71 +1368,71 @@ async function validateWriteArgs(
     const nextSubcategory = Object.prototype.hasOwnProperty.call(normalized, 'subcategory') ? normalized.subcategory as string | null : current.subcategory;
 
     if (current.transfer_id !== null && ('kind' in normalized || 'account_id' in normalized || 'amount_minor' in normalized)) {
-      return { error: 'Сумму, счёт и вид перевода нельзя менять по отдельности — удалите перевод и создайте заново' };
+      return { error: 'The amount, account and kind of a transfer cannot be changed separately — delete the transfer and create it again' };
     }
     const signError = signMatchesKind(nextKind, nextAmount);
     if (signError) return { error: signError };
     if (nextSubcategory !== null && nextCategory === null) {
-      return { error: 'subcategory без category не имеет смысла — укажите категорию или уберите подкатегорию' };
+      return { error: 'subcategory without category makes no sense — set a category or remove the subcategory' };
     }
     if (db && nextAccountId !== current.account_id) {
       const target = await db.prepare('SELECT id, name, currency FROM accounts WHERE id = ?').bind(nextAccountId).first<{ id: number; name: string; currency: string }>();
-      if (!target) return { error: 'Счёт не найден' };
+      if (!target) return { error: 'Account not found' };
       if (target.currency !== current.currency && !('amount_minor' in normalized)) {
-        return { error: `Смена счёта меняет валюту операции с ${current.currency} на ${target.currency} — передайте amount_minor в новой валюте тем же запросом` };
+        return { error: `Changing the account changes the operation currency from ${current.currency} to ${target.currency} — pass amount_minor in the new currency in the same request` };
       }
     }
 
     const changedFields = Object.keys(normalized).join(', ');
-    const description = `Подтвердите изменение операции ID ${operationId}: поля ${changedFields}`;
+    const description = `Confirm the change of operation ID ${operationId}: fields ${changedFields}`;
     return { description, confirmedArgs: { operation_id: operationId, ...normalized, idempotency_key: idempotencyKey } };
   }
 
   if (name === 'operation_delete') {
     const operationId = operationIdFromArgs(args);
     if (operationId === null) {
-      return { error: 'Некорректный operation_id' };
+      return { error: 'Invalid operation_id' };
     }
     const allowed = new Set(['operation_id', 'idempotency_key', 'requestState']);
     const rejected = Object.keys(args).filter((key) => !allowed.has(key));
     if (rejected.length > 0) {
-      return { error: `Недопустимые поля operation_delete: ${rejected.join(', ')}. Разрешённые поля: operation_id, idempotency_key, requestState` };
+      return { error: `Fields not allowed for operation_delete: ${rejected.join(', ')}. Allowed fields: operation_id, idempotency_key, requestState` };
     }
     const current = await loadOperationForMcp(db, operationId);
     if (!current) {
-      return { error: 'Операция не найдена' };
+      return { error: 'Operation not found' };
     }
-    const transferNote = current.transfer_id !== null ? ` Будет удалён весь связанный перевод transfer_id=${current.transfer_id} с обеими ногами.` : '';
-    const plannedNote = current.planned_item_id !== null ? ` У связанной плановой операции planned_item_id=${current.planned_item_id} будет снят done.` : '';
-    const description = `Подтвердите удаление операции ID ${operationId}: ${current.kind} "${current.item}" на сумму ${current.amount_minor} ${current.currency}.${transferNote}${plannedNote}`;
+    const transferNote = current.transfer_id !== null ? ` The whole linked transfer transfer_id=${current.transfer_id} will be deleted with both legs.` : '';
+    const plannedNote = current.planned_item_id !== null ? ` The linked planned item planned_item_id=${current.planned_item_id} will have done cleared.` : '';
+    const description = `Confirm deleting operation ID ${operationId}: ${current.kind} "${current.item}" for ${current.amount_minor} ${current.currency}.${transferNote}${plannedNote}`;
     return { description, confirmedArgs: { operation_id: operationId, idempotency_key: idempotencyKey } };
   }
 
   if (name === 'transfer_add') {
     const { date, from_account_id, to_account_id, from_amount_minor, to_amount_minor, item, category, subcategory, comment, receipt_url, fiscal_receipt_id } = args;
     if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(Date.parse(date))) {
-      return { error: 'Некорректная дата (ожидается формат YYYY-MM-DD)' };
+      return { error: 'Invalid date (expected format YYYY-MM-DD)' };
     }
     if (typeof from_account_id !== 'number' || !Number.isInteger(from_account_id) || from_account_id <= 0) {
-      return { error: 'Некорректный from_account_id' };
+      return { error: 'Invalid from_account_id' };
     }
     if (typeof to_account_id !== 'number' || !Number.isInteger(to_account_id) || to_account_id <= 0) {
-      return { error: 'Некорректный to_account_id' };
+      return { error: 'Invalid to_account_id' };
     }
     if (from_account_id === to_account_id) {
-      return { error: 'Счёт списания и счёт зачисления должны отличаться' };
+      return { error: 'The debit account and the credit account must differ' };
     }
     if (typeof from_amount_minor !== 'number' || !Number.isInteger(from_amount_minor) || from_amount_minor <= 0) {
-      return { error: 'from_amount_minor должен быть целым положительным числом' };
+      return { error: 'from_amount_minor must be a positive integer' };
     }
     if (typeof to_amount_minor !== 'number' || !Number.isInteger(to_amount_minor) || to_amount_minor <= 0) {
-      return { error: 'to_amount_minor должен быть целым положительным числом' };
+      return { error: 'to_amount_minor must be a positive integer' };
     }
     if (typeof item !== 'string' || item.trim().length === 0) {
-      return { error: 'item не может быть пустым' };
+      return { error: 'item cannot be empty' };
     }
     if (subcategory && !category) {
-      return { error: 'Подкатегория не может быть указана без категории' };
+      return { error: 'A subcategory cannot be set without a category' };
     }
     const commentParsed = optionalTextValue(comment ?? null, 'comment');
     if (!commentParsed.ok) return { error: commentParsed.error };
@@ -1448,16 +1448,16 @@ async function validateWriteArgs(
         db.prepare('SELECT id, name, currency FROM accounts WHERE id = ?').bind(to_account_id).first<{ id: number; name: string; currency: string }>(),
       ]);
       if (!accFrom) {
-        return { error: 'Счёт списания не найден' };
+        return { error: 'Debit account not found' };
       }
       if (!accTo) {
-        return { error: 'Счёт зачисления не найден' };
+        return { error: 'Credit account not found' };
       }
       const currencyNote =
         accFrom.currency !== accTo.currency
-          ? ` (конвертация ${accFrom.currency} → ${accTo.currency})`
+          ? ` (conversion ${accFrom.currency} → ${accTo.currency})`
           : '';
-      const description = `Подтвердите перевод "${item.trim()}"${currencyNote}: ${from_amount_minor} ${accFrom.currency} со счёта «${accFrom.name}» → ${to_amount_minor} ${accTo.currency} на счёт «${accTo.name}»${category ? `, категория: ${category}` : ''}`;
+      const description = `Confirm the transfer "${item.trim()}"${currencyNote}: ${from_amount_minor} ${accFrom.currency} from account "${accFrom.name}" → ${to_amount_minor} ${accTo.currency} to account "${accTo.name}"${category ? `, category: ${category}` : ''}`;
       const confirmedArgs = {
         date,
         from_account_id,
@@ -1473,7 +1473,7 @@ async function validateWriteArgs(
       return { description, confirmedArgs };
     }
 
-    const description = `Подтвердите перевод "${item.trim()}": ${from_amount_minor} со счёта ID ${from_account_id} → ${to_amount_minor} на счёт ID ${to_account_id}`;
+    const description = `Confirm the transfer "${item.trim()}": ${from_amount_minor} from account ID ${from_account_id} → ${to_amount_minor} to account ID ${to_account_id}`;
     const confirmedArgs = {
       date,
       from_account_id,
@@ -1492,23 +1492,23 @@ async function validateWriteArgs(
   if (name === 'balance_correct') {
     const { account_id, balance_minor } = args;
     if (typeof account_id !== 'number' || !Number.isInteger(account_id) || account_id <= 0) {
-      return { error: 'Некорректный account_id' };
+      return { error: 'Invalid account_id' };
     }
     if (typeof balance_minor !== 'number' || !Number.isInteger(balance_minor)) {
-      return { error: 'balance_minor должен быть целым числом' };
+      return { error: 'balance_minor must be an integer' };
     }
 
     if (db) {
       const account = await db.prepare('SELECT id, name, currency, balance_minor FROM accounts WHERE id = ?').bind(account_id).first<{ id: number; name: string; currency: string; balance_minor: number }>();
       if (!account) {
-        return { error: 'Счёт не найден' };
+        return { error: 'Account not found' };
       }
-      const description = `Подтвердите корректировку баланса счёта "${account.name}" (ID ${account_id}): новый баланс ${balance_minor} ${account.currency} (текущий: ${account.balance_minor})`;
+      const description = `Confirm the balance adjustment of account "${account.name}" (ID ${account_id}): new balance ${balance_minor} ${account.currency} (current: ${account.balance_minor})`;
       const confirmedArgs = { account_id, balance_minor, idempotency_key: idempotencyKey };
       return { description, confirmedArgs };
     }
 
-    const description = `Подтвердите корректировку баланса счёта ID ${account_id}: новый баланс ${balance_minor}`;
+    const description = `Confirm the balance adjustment of account ID ${account_id}: new balance ${balance_minor}`;
     const confirmedArgs = { account_id, balance_minor, idempotency_key: idempotencyKey };
     return { description, confirmedArgs };
   }
@@ -1516,26 +1516,26 @@ async function validateWriteArgs(
   if (name === 'planned_item_add') {
     const { date, title, amount_minor, account_id, currency, category, done } = args;
     if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(Date.parse(date))) {
-      return { error: 'Некорректная дата (ожидается формат YYYY-MM-DD)' };
+      return { error: 'Invalid date (expected format YYYY-MM-DD)' };
     }
     if (typeof title !== 'string' || title.trim().length === 0) {
-      return { error: 'title не может быть пустым' };
+      return { error: 'title cannot be empty' };
     }
     if (typeof amount_minor !== 'number' || !Number.isInteger(amount_minor) || amount_minor === 0) {
-      return { error: 'amount_minor должен быть целым ненулевым числом' };
+      return { error: 'amount_minor must be a non-zero integer' };
     }
     if (typeof account_id !== 'number' || !Number.isInteger(account_id) || account_id <= 0) {
-      return { error: 'Некорректный account_id' };
+      return { error: 'Invalid account_id' };
     }
 
     if (db) {
       const account = await db.prepare('SELECT id, currency FROM accounts WHERE id = ?').bind(account_id).first<{ id: number; currency: string }>();
       if (!account) {
-        return { error: 'Счёт не найден' };
+        return { error: 'Account not found' };
       }
     }
 
-    const description = `Подтвердите создание плановой операции "${title.trim()}" на дату ${date} на сумму ${amount_minor} (счёт ID ${account_id})`;
+    const description = `Confirm creating the planned item "${title.trim()}" on ${date} for ${amount_minor} (account ID ${account_id})`;
     const confirmedArgs = { date, title: title.trim(), amount_minor, account_id, currency, category, done, idempotency_key: idempotencyKey };
     return { description, confirmedArgs };
   }
@@ -1543,18 +1543,18 @@ async function validateWriteArgs(
   if (name === 'planned_item_fulfill_existing') {
     const allowed = new Set(['planned_item_id', 'operation_id', 'idempotency_key', 'requestState']);
     const rejected = Object.keys(args).filter((field) => !allowed.has(field));
-    if (rejected.length > 0) return { error: `Недопустимые поля ${name}: ${rejected.join(', ')}` };
+    if (rejected.length > 0) return { error: `Fields not allowed for ${name}: ${rejected.join(', ')}` };
     const plannedItemId = args.planned_item_id;
     const operationId = args.operation_id;
-    if (typeof plannedItemId !== 'number' || !Number.isInteger(plannedItemId) || plannedItemId <= 0) return { error: 'Некорректный planned_item_id' };
-    if (typeof operationId !== 'number' || !Number.isInteger(operationId) || operationId <= 0) return { error: 'Некорректный operation_id' };
-    if (!db) return { error: 'Хранилище недоступно' };
+    if (typeof plannedItemId !== 'number' || !Number.isInteger(plannedItemId) || plannedItemId <= 0) return { error: 'Invalid planned_item_id' };
+    if (typeof operationId !== 'number' || !Number.isInteger(operationId) || operationId <= 0) return { error: 'Invalid operation_id' };
+    if (!db) return { error: 'Storage unavailable' };
     const [planned, operation] = await Promise.all([
       db.prepare('SELECT * FROM planned_items WHERE id = ?').bind(plannedItemId).first<Record<string, unknown>>(),
       loadOperationForMcp(db, operationId),
     ]);
-    if (!planned) return { error: 'Плановая операция не найдена' };
-    if (!operation) return { error: 'Операция не найдена' };
+    if (!planned) return { error: 'Planned item not found' };
+    if (!operation) return { error: 'Operation not found' };
     const confirmationSnapshot = {
       type: 'planned_fulfill', id: planned.id, revision: planned.revision,
       date: planned.date, title: planned.title, amount_minor: planned.amount_minor,
@@ -1562,7 +1562,7 @@ async function validateWriteArgs(
       category: planned.category, done: planned.done,
     };
     return {
-      description: `Подтвердите выполнение плановой операции ID ${plannedItemId} существующей operation ID ${operationId}. Новая operation не создаётся, баланс не изменяется.`,
+      description: `Confirm fulfilling planned item ID ${plannedItemId} with existing operation ID ${operationId}. No new operation is created and the balance does not change.`,
       confirmedArgs: { planned_item_id: plannedItemId, operation_id: operationId, idempotency_key: idempotencyKey },
       confirmationSnapshot,
     };
@@ -1573,23 +1573,23 @@ async function validateWriteArgs(
     const fields = name === 'planned_item_update' ? PLANNED_UPDATE_FIELDS : RECURRING_UPDATE_FIELDS;
     const rawId = args[idField];
     if (typeof rawId !== 'number' || !Number.isInteger(rawId) || rawId <= 0) {
-      return { error: `Некорректный ${idField}` };
+      return { error: `Invalid ${idField}` };
     }
     const allowed = new Set<string>([idField, ...fields, 'idempotency_key', 'requestState']);
     const rejected = Object.keys(args).filter((field) => !allowed.has(field));
     if (rejected.length > 0) {
-      return { error: `Недопустимые поля ${name}: ${rejected.join(', ')}. Разрешённые поля: ${idField}, ${fields.join(', ')}, idempotency_key, requestState` };
+      return { error: `Fields not allowed for ${name}: ${rejected.join(', ')}. Allowed fields: ${idField}, ${fields.join(', ')}, idempotency_key, requestState` };
     }
     const patchArgs: Record<string, unknown> = {};
     for (const field of fields) if (field in args) patchArgs[field] = args[field];
     if (Object.keys(patchArgs).length === 0) {
-      return { error: `Нужно передать хотя бы одно поле для изменения: ${fields.join(', ')}` };
+      return { error: `Pass at least one field to change: ${fields.join(', ')}` };
     }
     let confirmationSnapshot: Record<string, unknown> | undefined;
     if (db) {
       const table = name === 'planned_item_update' ? 'planned_items' : 'recurring_items';
       const existing = await db.prepare(`SELECT * FROM ${table} WHERE id = ?`).bind(rawId).first<Record<string, unknown>>();
-      if (!existing) return { error: `${name === 'planned_item_update' ? 'Плановая операция' : 'Регулярное правило'} не найдено` };
+      if (!existing) return { error: `${name === 'planned_item_update' ? 'Planned item' : 'Recurring rule'} not found` };
       if (name === 'planned_item_update') {
         confirmationSnapshot = {
           type: 'planned_item',
@@ -1624,7 +1624,7 @@ async function validateWriteArgs(
       }
     }
     return {
-      description: `Подтвердите изменение ${name === 'planned_item_update' ? 'плановой операции' : 'регулярного правила'} ID ${rawId}: поля ${Object.keys(patchArgs).join(', ')}`,
+      description: `Confirm the change of ${name === 'planned_item_update' ? 'planned item' : 'recurring rule'} ID ${rawId}: fields ${Object.keys(patchArgs).join(', ')}`,
       confirmedArgs: { [idField]: rawId, ...patchArgs, idempotency_key: idempotencyKey },
       confirmationSnapshot,
     };
@@ -1633,15 +1633,15 @@ async function validateWriteArgs(
   if (name === 'planned_item_delete' || name === 'recurring_item_delete') {
     const idField = name === 'planned_item_delete' ? 'planned_item_id' : 'recurring_item_id';
     const rawId = args[idField];
-    if (typeof rawId !== 'number' || !Number.isInteger(rawId) || rawId <= 0) return { error: `Некорректный ${idField}` };
+    if (typeof rawId !== 'number' || !Number.isInteger(rawId) || rawId <= 0) return { error: `Invalid ${idField}` };
     const allowed = new Set([idField, 'idempotency_key', 'requestState']);
     const rejected = Object.keys(args).filter((field) => !allowed.has(field));
-    if (rejected.length > 0) return { error: `Недопустимые поля ${name}: ${rejected.join(', ')}` };
+    if (rejected.length > 0) return { error: `Fields not allowed for ${name}: ${rejected.join(', ')}` };
     let confirmationSnapshot: Record<string, unknown> | undefined;
     if (db) {
       const table = name === 'planned_item_delete' ? 'planned_items' : 'recurring_items';
       const existing = await db.prepare(`SELECT * FROM ${table} WHERE id = ?`).bind(rawId).first<Record<string, unknown>>();
-      if (!existing) return { error: `${name === 'planned_item_delete' ? 'Плановая операция' : 'Регулярное правило'} не найдено` };
+      if (!existing) return { error: `${name === 'planned_item_delete' ? 'Planned item' : 'Recurring rule'} not found` };
       confirmationSnapshot = name === 'planned_item_delete'
         ? {
             type: 'planned_item', id: existing.id, revision: existing.revision,
@@ -1660,7 +1660,7 @@ async function validateWriteArgs(
           };
     }
     return {
-      description: `Подтвердите удаление для ID ${rawId}`,
+      description: `Confirm deletion of ID ${rawId}`,
       confirmedArgs: { [idField]: rawId, idempotency_key: idempotencyKey },
       confirmationSnapshot,
     };
@@ -1669,28 +1669,28 @@ async function validateWriteArgs(
   if (name === 'recurring_item_fulfill_existing') {
     const allowed = new Set(['recurring_item_id', 'period_due_date', 'operation_ids', 'evidence_quantity', 'idempotency_key', 'requestState']);
     const rejected = Object.keys(args).filter((field) => !allowed.has(field));
-    if (rejected.length > 0) return { error: `Недопустимые поля ${name}: ${rejected.join(', ')}` };
+    if (rejected.length > 0) return { error: `Fields not allowed for ${name}: ${rejected.join(', ')}` };
     const recurringItemId = args.recurring_item_id;
     const periodDueDate = args.period_due_date;
     const operationIds = args.operation_ids;
-    if (typeof recurringItemId !== 'number' || !Number.isInteger(recurringItemId) || recurringItemId <= 0) return { error: 'Некорректный recurring_item_id' };
-    if (typeof periodDueDate !== 'string' || !isIsoDate(periodDueDate)) return { error: 'Некорректный period_due_date' };
+    if (typeof recurringItemId !== 'number' || !Number.isInteger(recurringItemId) || recurringItemId <= 0) return { error: 'Invalid recurring_item_id' };
+    if (typeof periodDueDate !== 'string' || !isIsoDate(periodDueDate)) return { error: 'Invalid period_due_date' };
     if (!Array.isArray(operationIds) || operationIds.length === 0 || operationIds.length > 100 || operationIds.some((value) => typeof value !== 'number' || !Number.isInteger(value) || value <= 0)) {
-      return { error: 'operation_ids должен быть непустым массивом максимум из 100 положительных ID' };
+      return { error: 'operation_ids must be a non-empty array of at most 100 positive IDs' };
     }
-    if (new Set(operationIds).size !== operationIds.length) return { error: 'operation_ids не должен содержать дубликаты' };
+    if (new Set(operationIds).size !== operationIds.length) return { error: 'operation_ids must not contain duplicates' };
     const evidenceQuantity = args.evidence_quantity === undefined ? 1 : args.evidence_quantity;
     if (typeof evidenceQuantity !== 'number' || !Number.isInteger(evidenceQuantity) || evidenceQuantity < 1 || evidenceQuantity > 100) {
-      return { error: 'evidence_quantity должен быть целым числом от 1 до 100' };
+      return { error: 'evidence_quantity must be an integer from 1 to 100' };
     }
-    if (!db) return { error: 'Хранилище recurring недоступно' };
+    if (!db) return { error: 'Recurring storage unavailable' };
     const existing = await db.prepare('SELECT * FROM recurring_items WHERE id = ?')
       .bind(recurringItemId).first<Record<string, unknown>>();
-    if (!existing) return { error: 'Регулярное правило не найдено' };
+    if (!existing) return { error: 'Recurring rule not found' };
     if (isAnalyticalSkipOnlyRecurringId(recurringItemId)) {
-      return { error: `Аналитическое правило ID ${recurringItemId} принимает только skip_period` };
+      return { error: `Analytical rule ID ${recurringItemId} only accepts skip_period` };
     }
-    if (existing.active !== 1) return { error: 'Регулярное правило неактивно' };
+    if (existing.active !== 1) return { error: 'Recurring rule is inactive' };
     const confirmationSnapshot = {
       type: 'recurring_fulfill', id: existing.id, revision: existing.revision,
       title: existing.title, amount_minor: existing.amount_minor, currency: existing.currency,
@@ -1701,7 +1701,7 @@ async function validateWriteArgs(
     };
     const sortedIds = [...operationIds].sort((a, b) => a - b);
     return {
-      description: `Подтвердите выполнение одной recurring occurrence ${periodDueDate} правила ID ${recurringItemId} существующими operations [${sortedIds.join(', ')}]. Явное количество единиц ${evidenceQuantity} используется только для проверки суммы; дополнительные occurrences этим вызовом не продвигаются. Новые operations не создаются, баланс не изменяется.`,
+      description: `Confirm fulfilling one recurring occurrence ${periodDueDate} of rule ID ${recurringItemId} with existing operations [${sortedIds.join(', ')}]. The explicit unit count ${evidenceQuantity} is used only for the amount check; this call does not advance extra occurrences. No new operations are created and the balance does not change.`,
       confirmedArgs: {
         recurring_item_id: recurringItemId,
         period_due_date: periodDueDate,
@@ -1716,23 +1716,23 @@ async function validateWriteArgs(
   if (name === 'recurring_item_cancel_period_fulfillment') {
     const allowed = new Set(['recurring_item_id', 'period_due_date', 'idempotency_key', 'requestState']);
     const rejected = Object.keys(args).filter((field) => !allowed.has(field));
-    if (rejected.length > 0) return { error: `Недопустимые поля ${name}: ${rejected.join(', ')}` };
+    if (rejected.length > 0) return { error: `Fields not allowed for ${name}: ${rejected.join(', ')}` };
     const recurringItemId = args.recurring_item_id;
     const periodDueDate = args.period_due_date;
     if (typeof recurringItemId !== 'number' || !Number.isInteger(recurringItemId) || recurringItemId <= 0) {
-      return { error: 'Некорректный recurring_item_id' };
+      return { error: 'Invalid recurring_item_id' };
     }
     if (typeof periodDueDate !== 'string' || !isIsoDate(periodDueDate)) {
-      return { error: 'Некорректный period_due_date' };
+      return { error: 'Invalid period_due_date' };
     }
-    if (!db) return { error: 'Хранилище recurring недоступно' };
+    if (!db) return { error: 'Recurring storage unavailable' };
     const existing = await db.prepare('SELECT * FROM recurring_items WHERE id = ?')
       .bind(recurringItemId).first<Record<string, unknown>>();
-    if (!existing) return { error: 'Регулярное правило не найдено' };
+    if (!existing) return { error: 'Recurring rule not found' };
     const fulfillment = await db.prepare(
       'SELECT outcome FROM recurring_period_fulfillments WHERE recurring_item_id = ? AND period_due_date = ?',
     ).bind(recurringItemId, periodDueDate).first<{ outcome: string }>();
-    if (!fulfillment) return { error: 'Выполнение периода не найдено' };
+    if (!fulfillment) return { error: 'Period fulfillment not found' };
     const confirmationSnapshot = {
       type: 'recurring_cancel',
       id: existing.id,
@@ -1751,7 +1751,7 @@ async function validateWriteArgs(
       active: existing.active,
     };
     return {
-      description: `Подтвердите отмену выполнения периода ${periodDueDate} (${fulfillment.outcome}) регулярного правила ID ${recurringItemId}. Связанные operations и балансы не изменяются; период открывается заново.`,
+      description: `Confirm undoing the fulfillment of period ${periodDueDate} (${fulfillment.outcome}) of recurring rule ID ${recurringItemId}. Linked operations and balances do not change; the period is reopened.`,
       confirmedArgs: {
         recurring_item_id: recurringItemId,
         period_due_date: periodDueDate,
@@ -1763,14 +1763,14 @@ async function validateWriteArgs(
 
   if (name === 'recurring_item_skip_period') {
     const rawId = args.recurring_item_id;
-    if (typeof rawId !== 'number' || !Number.isInteger(rawId) || rawId <= 0) return { error: 'Некорректный recurring_item_id' };
+    if (typeof rawId !== 'number' || !Number.isInteger(rawId) || rawId <= 0) return { error: 'Invalid recurring_item_id' };
     const allowed = new Set(['recurring_item_id', 'idempotency_key', 'requestState']);
     const rejected = Object.keys(args).filter((field) => !allowed.has(field));
-    if (rejected.length > 0) return { error: `Недопустимые поля ${name}: ${rejected.join(', ')}` };
-    if (!db) return { error: 'Хранилище recurring недоступно' };
+    if (rejected.length > 0) return { error: `Fields not allowed for ${name}: ${rejected.join(', ')}` };
+    if (!db) return { error: 'Recurring storage unavailable' };
     const existing = await db.prepare('SELECT * FROM recurring_items WHERE id = ?').bind(rawId).first<Record<string, unknown>>();
-    if (!existing) return { error: 'Регулярное правило не найдено' };
-    if (existing.active !== 1) return { error: 'Регулярное правило неактивно' };
+    if (!existing) return { error: 'Recurring rule not found' };
+    if (existing.active !== 1) return { error: 'Recurring rule is inactive' };
     const confirmationSnapshot = {
       type: 'recurring_skip',
       id: existing.id,
@@ -1789,7 +1789,7 @@ async function validateWriteArgs(
       active: existing.active,
     };
     return {
-      description: `Подтвердите пропуск периода ${existing.next_due_date} для регулярного правила ID ${rawId} без создания операции и изменения баланса`,
+      description: `Confirm skipping period ${existing.next_due_date} for recurring rule ID ${rawId} without creating an operation or changing the balance`,
       confirmedArgs: { recurring_item_id: rawId, idempotency_key: idempotencyKey },
       confirmationSnapshot,
     };
@@ -1797,15 +1797,15 @@ async function validateWriteArgs(
 
   if (name === 'recurring_item_add') {
     const rejected = Object.keys(args).filter((field) => !RECURRING_ADD_FIELD_SET.has(field));
-    if (rejected.length > 0) return { error: `Недопустимые поля recurring_item_add: ${rejected.join(', ')}` };
+    if (rejected.length > 0) return { error: `Fields not allowed for recurring_item_add: ${rejected.join(', ')}` };
     const { title, amount_minor, account_id, frequency, next_due_date } = args;
-    if (typeof title !== 'string' || title.trim().length === 0) return { error: 'title не может быть пустым' };
-    if (typeof amount_minor !== 'number' || !Number.isInteger(amount_minor) || amount_minor === 0) return { error: 'amount_minor должен быть целым ненулевым числом' };
-    if (typeof account_id !== 'number' || !Number.isInteger(account_id) || account_id <= 0) return { error: 'Некорректный account_id' };
-    if (!['daily', 'weekly', 'monthly', 'yearly'].includes(frequency)) return { error: 'frequency должен быть одним из: daily, weekly, monthly, yearly' };
-    if (typeof next_due_date !== 'string' || !isIsoDate(next_due_date)) return { error: 'Некорректная next_due_date (ожидается формат YYYY-MM-DD)' };
+    if (typeof title !== 'string' || title.trim().length === 0) return { error: 'title cannot be empty' };
+    if (typeof amount_minor !== 'number' || !Number.isInteger(amount_minor) || amount_minor === 0) return { error: 'amount_minor must be a non-zero integer' };
+    if (typeof account_id !== 'number' || !Number.isInteger(account_id) || account_id <= 0) return { error: 'Invalid account_id' };
+    if (!['daily', 'weekly', 'monthly', 'yearly'].includes(frequency)) return { error: 'frequency must be one of: daily, weekly, monthly, yearly' };
+    if (typeof next_due_date !== 'string' || !isIsoDate(next_due_date)) return { error: 'Invalid next_due_date (expected format YYYY-MM-DD)' };
     return {
-      description: `Подтвердите создание регулярного правила "${title.trim()}": ${amount_minor} на счёте ID ${account_id}, ${frequency}, следующий период ${next_due_date}. Это правило, не плановая операция и не факт списания.`,
+      description: `Confirm creating the recurring rule "${title.trim()}": ${amount_minor} on account ID ${account_id}, ${frequency}, next period ${next_due_date}. This is a rule, not a planned item and not a debit fact.`,
       confirmedArgs: {
         title: title.trim(), amount_minor, account_id, frequency, next_due_date,
         currency: args.currency, category: args.category, interval_count: args.interval_count,
@@ -1818,18 +1818,18 @@ async function validateWriteArgs(
   if (name === 'recurring_item_close_period') {
     const allowed = new Set(['recurring_item_id', 'date', 'amount_minor', 'account_id', 'item', 'category', 'subcategory', 'idempotency_key', 'requestState']);
     const rejected = Object.keys(args).filter((field) => !allowed.has(field));
-    if (rejected.length > 0) return { error: `Недопустимые поля recurring_item_close_period: ${rejected.join(', ')}` };
+    if (rejected.length > 0) return { error: `Fields not allowed for recurring_item_close_period: ${rejected.join(', ')}` };
     const recurringItemId = args.recurring_item_id;
-    if (typeof recurringItemId !== 'number' || !Number.isInteger(recurringItemId) || recurringItemId <= 0) return { error: 'Некорректный recurring_item_id' };
-    if (!db) return { error: 'Хранилище recurring недоступно' };
+    if (typeof recurringItemId !== 'number' || !Number.isInteger(recurringItemId) || recurringItemId <= 0) return { error: 'Invalid recurring_item_id' };
+    if (!db) return { error: 'Recurring storage unavailable' };
     const existing = await db.prepare('SELECT * FROM recurring_items WHERE id = ?')
       .bind(recurringItemId)
       .first<Record<string, unknown>>();
-    if (!existing) return { error: 'Регулярное правило не найдено' };
+    if (!existing) return { error: 'Recurring rule not found' };
     if (isAnalyticalSkipOnlyRecurringId(recurringItemId)) {
-      return { error: `Аналитическое правило ID ${recurringItemId} принимает только skip_period` };
+      return { error: `Analytical rule ID ${recurringItemId} only accepts skip_period` };
     }
-    if (existing.active !== 1) return { error: 'Регулярное правило неактивно' };
+    if (existing.active !== 1) return { error: 'Recurring rule is inactive' };
     const closeFields = ['date', 'amount_minor', 'account_id', 'item'] as const;
     if (!hasReadScope) {
       const missing = closeFields.filter((field) => !(field in args));
@@ -1875,7 +1875,7 @@ async function validateWriteArgs(
       active: existing.active,
     };
     return {
-      description: `Подтвердите закрытие периода регулярного правила ID ${recurringItemId}: будет создан факт ${confirmedClose.amount_minor} на счёте ID ${confirmedClose.account_id} за ${confirmedClose.date} и сдвинут следующий период.`,
+      description: `Confirm closing the period of recurring rule ID ${recurringItemId}: a fact of ${confirmedClose.amount_minor} will be created on account ID ${confirmedClose.account_id} for ${confirmedClose.date} and the next period will be advanced.`,
       confirmedArgs: writeOnlyCloseArgs ?? { recurring_item_id: recurringItemId, ...confirmedClose, idempotency_key: idempotencyKey },
       confirmationSnapshot,
     };
@@ -1884,12 +1884,12 @@ async function validateWriteArgs(
   if (name === 'fx_rate_set') {
     const { code, rate } = args;
     if (typeof code !== 'string' || !/^[a-zA-Z]{3}$/.test(code)) {
-      return { error: 'Код валюты должен состоять ровно из трёх латинских букв (ISO-4217), например USD' };
+      return { error: 'The currency code must be exactly three Latin letters (ISO-4217), for example USD' };
     }
     if (typeof rate !== 'number' || rate <= 0) {
-      return { error: 'Курс валюты (rate) должен быть положительным числом' };
+      return { error: 'The exchange rate (rate) must be a positive number' };
     }
-    const description = `Подтвердите установку курса для ${code.toUpperCase()}: ${rate}`;
+    const description = `Confirm setting the rate for ${code.toUpperCase()}: ${rate}`;
     const confirmedArgs = { code: code.toUpperCase(), rate, idempotency_key: idempotencyKey };
     return { description, confirmedArgs };
   }
@@ -1897,23 +1897,23 @@ async function validateWriteArgs(
   if (name === 'fx_rate_delete') {
     const { code } = args;
     if (typeof code !== 'string' || !/^[a-zA-Z]{3}$/.test(code)) {
-      return { error: 'Код валюты должен состоять ровно из трёх латинских букв (ISO-4217), например USD' };
+      return { error: 'The currency code must be exactly three Latin letters (ISO-4217), for example USD' };
     }
-    const description = `Подтвердите удаление курса для ${code.toUpperCase()}`;
+    const description = `Confirm deleting the rate for ${code.toUpperCase()}`;
     const confirmedArgs = { code: code.toUpperCase(), idempotency_key: idempotencyKey };
     return { description, confirmedArgs };
   }
 
   if (name === 'data_reset') {
     if (args.confirm_phrase !== RESET_CONFIRM_PHRASE) {
-      return { error: `confirm_phrase должен быть ровно ${RESET_CONFIRM_PHRASE}` };
+      return { error: `confirm_phrase must be exactly ${RESET_CONFIRM_PHRASE}` };
     }
-    const description = `Подтвердите полный сброс финансовых данных до пустого инстанса. Passkeys и клиенты MCP сохраняются.`;
+    const description = `Confirm a full reset of financial data to an empty instance. Passkeys and MCP clients are kept.`;
     const confirmedArgs = { confirm_phrase: RESET_CONFIRM_PHRASE, idempotency_key: idempotencyKey };
     return { description, confirmedArgs };
   }
 
-  return { error: `Неизвестный инструмент: ${name}` };
+  return { error: `Unknown tool: ${name}` };
 }
 
 async function confirmationSnapshotStillCurrent(
@@ -2056,8 +2056,8 @@ mcpApp.post('/mcp', async (c) => {
       resources.push(
         {
           uri: 'ui://pulse',
-          name: 'Пульс (Pulse Dashboard)',
-          description: 'Интерактивный пульт диагностики денежного потока и состояния счетов',
+          name: 'Pulse Dashboard',
+          description: 'Interactive cash-flow and account health dashboard',
           mimeType: 'text/html;profile=mcp-app',
           _meta: {
             ui: {
@@ -2070,8 +2070,8 @@ mcpApp.post('/mcp', async (c) => {
         },
         {
           uri: 'ui://analytics',
-          name: 'Аналитика (Analytics Dashboard)',
-          description: 'Интерактивный интерфейс аналитики расходов и структуры трат',
+          name: 'Analytics Dashboard',
+          description: 'Interactive spending analytics and breakdown dashboard',
           mimeType: 'text/html;profile=mcp-app',
           _meta: {
             ui: {
@@ -2087,8 +2087,8 @@ mcpApp.post('/mcp', async (c) => {
     if (hasWriteScope) {
       resources.push({
         uri: 'ui://write-confirm',
-        name: 'Подтверждение записи',
-        description: 'Кнопка подтверждения write: без неё MRTR ничего не записывает',
+        name: 'Write confirmation',
+        description: 'Write confirmation button: without it MRTR writes nothing',
         mimeType: 'text/html;profile=mcp-app',
         _meta: {
           ui: {
@@ -2230,7 +2230,7 @@ mcpApp.post('/mcp', async (c) => {
               ...sanitizedSchema.properties,
               auto_confirm: {
                 type: 'boolean',
-                description: 'Опциональный флаг для фоновых агентов. Если true, операция выполняется сразу без запроса подтверждения (MRTR).'
+                description: 'Optional flag for background agents. If true, the operation runs immediately without a confirmation request (MRTR).'
               }
             }
           }
@@ -2377,7 +2377,7 @@ mcpApp.post('/mcp', async (c) => {
 
       const idempotencyKey = typeof args.idempotency_key === 'string' ? args.idempotency_key.trim() : '';
       if (!idempotencyKey) {
-        const errMsg = 'Error executing tool: Поле idempotency_key обязательно для всех операций записи';
+        const errMsg = 'Error executing tool: The idempotency_key field is required for all write operations';
         await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
         return c.json({
           jsonrpc: '2.0',
@@ -2410,7 +2410,7 @@ mcpApp.post('/mcp', async (c) => {
         const existing = await findWriteExecution(c.env.DB, clientId, idempotencyKey);
         if (existing) {
           if (existing.toolName !== name) {
-            const errMsg = `Error executing tool: idempotency_key уже использован инструментом ${existing.toolName}`;
+            const errMsg = `Error executing tool: idempotency_key was already used by tool ${existing.toolName}`;
             return c.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: errMsg }], isError: true, structuredContent: { error: errMsg } } });
           }
           if (existing.status === 'success' && existing.resultSummary) {
@@ -2420,7 +2420,7 @@ mcpApp.post('/mcp', async (c) => {
             return writeReplayResult(id, existing.resultSummary);
           }
           if (existing.status === 'pending' && existing.resultSummary?.startsWith('UNCERTAIN:')) {
-            const errMsg = 'Error executing tool: предыдущая запись могла выполниться, но provider read-back не завершился; повторная мутация заблокирована до сверки провайдера';
+            const errMsg = 'Error executing tool: the previous write may have completed, but the provider read-back did not finish; repeated mutation is blocked until the provider is reconciled';
             return c.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: errMsg }], isError: true, structuredContent: { error: errMsg } } });
           }
           if (existing.status === 'pending') {
@@ -2433,8 +2433,8 @@ mcpApp.post('/mcp', async (c) => {
               await markWriteExecutionUncertain(c.env.DB, clientId, idempotencyKey, 'execution lease expired before durable provider result');
             }
             const errMsg = fresh
-              ? 'Error executing tool: операция с этим idempotency_key уже выполняется; повторите запрос позже'
-              : 'Error executing tool: срок claim истёк без надёжного результата; повторная мутация заблокирована до ручной сверки провайдера';
+              ? 'Error executing tool: an operation with this idempotency_key is already in progress; retry later'
+              : 'Error executing tool: the claim expired without a reliable result; repeated mutation is blocked until the provider is reconciled manually';
             return c.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: errMsg }], isError: true, structuredContent: { error: errMsg } } });
           }
         }
@@ -2445,7 +2445,7 @@ mcpApp.post('/mcp', async (c) => {
       if (!requestStateStr) {
         // Step 1: validate the arguments and request confirmation (MRTR)
         if ('auto_confirm' in args && typeof args.auto_confirm !== 'boolean') {
-          const errMsg = 'Error executing tool: auto_confirm должен быть boolean';
+          const errMsg = 'Error executing tool: auto_confirm must be a boolean';
           await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
           return c.json({
             jsonrpc: '2.0', id,
@@ -2565,7 +2565,7 @@ mcpApp.post('/mcp', async (c) => {
         !state.argumentFingerprint ||
         state.confirmedArgs.idempotency_key !== state.idempotency_key
       ) {
-        const errMsg = 'Error executing tool: requestState не соответствует OAuth-клиенту, idempotency_key или подтверждённым аргументам';
+        const errMsg = 'Error executing tool: requestState does not match the OAuth client, idempotency_key or confirmed arguments';
         await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
         return c.json({
           jsonrpc: '2.0',
@@ -2579,7 +2579,7 @@ mcpApp.post('/mcp', async (c) => {
       }
 
       if (!await confirmationSnapshotStillCurrent(c.env.DB, state.confirmationSnapshot)) {
-        const errMsg = 'Error executing tool: объект изменился после подтверждения; запросите новое подтверждение для актуальных денежных значений';
+        const errMsg = 'Error executing tool: the object changed after confirmation; request a new confirmation for the current money values';
         await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
         return c.json({
           jsonrpc: '2.0',
@@ -2602,7 +2602,7 @@ mcpApp.post('/mcp', async (c) => {
       if (!claim.claimed) {
         let errMsg: string;
         if (claim.toolName !== name) {
-          errMsg = `Error executing tool: idempotency_key уже использован инструментом ${claim.toolName}`;
+          errMsg = `Error executing tool: idempotency_key was already used by tool ${claim.toolName}`;
         } else if (claim.status === 'success' && claim.resultSummary) {
           if (storedWriteFingerprint(claim.resultSummary) !== state.argumentFingerprint) {
             return idempotencyArgumentConflictResult(id);
@@ -2621,7 +2621,7 @@ mcpApp.post('/mcp', async (c) => {
           }
           return writeReplayResult(id, claim.resultSummary);
         } else if (claim.status === 'pending' && claim.resultSummary?.startsWith('UNCERTAIN:')) {
-          errMsg = 'Error executing tool: предыдущая запись могла выполниться, но provider read-back не завершился; повторная мутация заблокирована до сверки провайдера';
+          errMsg = 'Error executing tool: the previous write may have completed, but the provider read-back did not finish; repeated mutation is blocked until the provider is reconciled';
         } else if (claim.status === 'pending') {
           const claimFingerprint = storedWriteFingerprint(claim.resultSummary);
           if (claimFingerprint && claimFingerprint !== state.argumentFingerprint) {
@@ -2632,10 +2632,10 @@ mcpApp.post('/mcp', async (c) => {
             await markWriteExecutionUncertain(c.env.DB, clientId, idempotencyKey, 'execution lease expired before durable provider result');
           }
           errMsg = fresh
-            ? 'Error executing tool: операция с этим idempotency_key уже выполняется; повторите запрос позже'
-            : 'Error executing tool: срок claim истёк без надёжного результата; повторная мутация заблокирована до ручной сверки провайдера';
+            ? 'Error executing tool: an operation with this idempotency_key is already in progress; retry later'
+            : 'Error executing tool: the claim expired without a reliable result; repeated mutation is blocked until the provider is reconciled manually';
         } else {
-          errMsg = 'Error executing tool: idempotency_key уже находится в неизвестном состоянии';
+          errMsg = 'Error executing tool: idempotency_key is in an unknown state';
         }
         return c.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: errMsg }], isError: true, structuredContent: { error: errMsg } } });
       }

@@ -402,7 +402,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       const body: any = await res.json();
 
       expect(body.result.isError).toBe(true);
-      expect(body.result.content[0].text).toContain('Сумма расхода (expense) должна быть отрицательной');
+      expect(body.result.content[0].text).toContain('An expense amount must be negative');
       expect(body.result.resultType).toBeUndefined();
     });
 
@@ -439,7 +439,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body1.result.structuredContent.resultType).toBe('input_required');
       expect(body1.result.requestState).toBeUndefined();
       expect(body1.result.structuredContent.requestState).toBeDefined();
-      expect(body1.result.content[0].text).toContain('Подтвердите добавление операции');
+      expect(body1.result.content[0].text).toContain('Confirm adding the operation');
 
       // Check that nothing was written to the DB
       const countBefore = await env.DB.prepare('SELECT COUNT(*) as count FROM operations').first<{ count: number }>();
@@ -546,7 +546,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       });
       const drifted: any = await (await mcpApp.fetch(driftedReq, typedEnv, ctx as any)).json();
       expect(drifted.result.isError).toBe(true);
-      expect(drifted.result.content[0].text).toMatch(/другими аргументами/i);
+      expect(drifted.result.content[0].text).toMatch(/different arguments/i);
       expect((await env.DB.prepare('SELECT COUNT(*) as count FROM operations').first<{ count: number }>())?.count).toBe(1);
       expect((await env.DB.prepare('SELECT balance_minor FROM accounts WHERE id = ?').bind(accountId).first<{ balance_minor: number }>())?.balance_minor).toBe(97500);
     });
@@ -579,7 +579,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
 
       expect(body1.result.structuredContent.resultType).toBe('input_required');
       expect(body1.result.content[0].text).toContain('125000');
-      expect(body1.result.content[0].text).not.toContain('текущий:');
+      expect(body1.result.content[0].text).not.toContain('current:');
 
       // Step 2: execution with requestState
       const req2 = new Request('http://localhost/mcp', {
@@ -1074,7 +1074,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
         requestState: recurringPending.result.structuredContent.requestState,
       }, 763);
       expect(recurringRejected.result.isError).toBe(true);
-      expect(recurringRejected.result.content[0].text).toMatch(/изменился после подтверждения/i);
+      expect(recurringRejected.result.content[0].text).toMatch(/changed after confirmation/i);
 
       const skippable = await env.DB.prepare(
         `INSERT INTO recurring_items (title, amount_minor, currency, account_id, category, frequency, interval_count, day_of_month, month_of_year, next_due_date, end_date, active)
@@ -1091,7 +1091,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
         requestState: skipPending.result.structuredContent.requestState,
       }, 7632);
       expect(skipRejected.result.isError).toBe(true);
-      expect(skipRejected.result.content[0].text).toMatch(/изменился после подтверждения/i);
+      expect(skipRejected.result.content[0].text).toMatch(/changed after confirmation/i);
       expect((await env.DB.prepare('SELECT next_due_date FROM recurring_items WHERE id = ?').bind(skippable!.id).first<{ next_due_date: string }>())?.next_due_date).toBe('2026-10-01');
 
       const planned = await env.DB.prepare(
@@ -1109,7 +1109,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
         requestState: plannedPending.result.structuredContent.requestState,
       }, 765);
       expect(plannedRejected.result.isError).toBe(true);
-      expect(plannedRejected.result.content[0].text).toMatch(/изменился после подтверждения/i);
+      expect(plannedRejected.result.content[0].text).toMatch(/changed after confirmation/i);
       expect((await env.DB.prepare('SELECT COUNT(*) AS count FROM operations').first<{ count: number }>())?.count).toBe(0);
       expect((await env.DB.prepare('SELECT balance_minor FROM accounts WHERE id = ?').bind(accountId).first<{ balance_minor: number }>())?.balance_minor).toBe(100000);
     });
@@ -1133,7 +1133,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       }, 7652);
 
       expect(rejected.result.isError).toBe(true);
-      expect(rejected.result.content[0].text).toMatch(/изменил/i);
+      expect(rejected.result.content[0].text).toMatch(/changed/i);
       expect((await env.DB.prepare('SELECT title FROM planned_items WHERE id = ?').bind(planned!.id).first<{ title: string }>())?.title).toBe('Concurrent title');
     });
 
@@ -1157,7 +1157,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       }, 7654);
 
       expect(rejected.result.isError).toBe(true);
-      expect(rejected.result.content[0].text).toMatch(/изменил/i);
+      expect(rejected.result.content[0].text).toMatch(/changed/i);
       expect((await env.DB.prepare('SELECT title FROM recurring_items WHERE id = ?').bind(recurring!.id).first<{ title: string }>())?.title).toBe('Concurrent rule');
     });
 
@@ -1323,7 +1323,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
         frequency: 'monthly', next_due_date: '2026-09-01', idempotency_key: key,
       }, 779);
       expect(result.result.isError).toBe(true);
-      expect(result.result.content[0].text).toMatch(/срок claim истёк/i);
+      expect(result.result.content[0].text).toMatch(/claim expired/i);
       const audit = await env.DB.prepare('SELECT result_summary FROM mcp_audit_log WHERE idempotency_key = ?')
         .bind(key).first<{ result_summary: string }>();
       expect(audit?.result_summary).toMatch(/^UNCERTAIN:/);
@@ -1745,7 +1745,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       }, 4055);
 
       expect(body.result.isError).toBe(true);
-      expect(body.result.structuredContent.error).toContain('Разрешённые поля');
+      expect(body.result.structuredContent.error).toContain('Allowed fields');
       expect(body.result.structuredContent.error).toContain('source');
       expect(body.result.structuredContent.requestState).toBeUndefined();
     });
@@ -1757,7 +1757,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
         idempotency_key: 'idem-ale-5-update-not-found'
       }, 4056);
       expect(notFound.result.isError).toBe(true);
-      expect(notFound.result.structuredContent.error).toMatch(/не найдена|not found/i);
+      expect(notFound.result.structuredContent.error).toMatch(/not found/i);
 
       const operationId = await seedOperation();
       const invalid = await callWrite('operation_update', {
@@ -1818,7 +1818,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
         idempotency_key: 'idem-ale-5-delete-not-found'
       }, 4060);
       expect(body.result.isError).toBe(true);
-      expect(body.result.structuredContent.error).toMatch(/не найдена|not found/i);
+      expect(body.result.structuredContent.error).toMatch(/not found/i);
     });
 
     it('operation_update without the write scope is rejected with a permission error', async () => {
@@ -1954,7 +1954,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(content.uri).toBe('ui://pulse');
       expect(content.mimeType).toBe('text/html;profile=mcp-app');
       expect(content.text).toContain('<!DOCTYPE html>');
-      expect(content.text).toContain('Пульс');
+      expect(content.text).toContain('<title data-i18n="pulse.title">Pulse</title>');
       expect(content.text).toContain('ui/initialize');
       expect(content.text).toContain('forecast_get');
     });
@@ -1982,7 +1982,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(content.uri).toBe('ui://analytics');
       expect(content.mimeType).toBe('text/html;profile=mcp-app');
       expect(content.text).toContain('<!DOCTYPE html>');
-      expect(content.text).toContain('Аналитика');
+      expect(content.text).toContain('<title data-i18n="analytics.title">Analytics</title>');
       expect(content.text).toContain('ui/initialize');
       expect(content.text).toContain('analytics_get');
     });
@@ -2240,8 +2240,8 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body.result.structuredContent.written).toBe(false);
       expect(body.result.structuredContent.rate).toBeUndefined();
       expect(body.result.structuredContent.fx_rate).toBeUndefined();
-      expect(body.result.content[0].text).toMatch(/запись не выполнена/i);
-      expect(body.result.content[0].text).toMatch(/не сообща/i);
+      expect(body.result.content[0].text).toMatch(/write not performed/i);
+      expect(body.result.content[0].text).toMatch(/do not tell the user/i);
 
       const row = await env.DB.prepare('SELECT code, rate_e9, updated_at FROM fx_rates WHERE code = ?')
         .bind('RSD')
@@ -2339,7 +2339,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       for (const name of writeNames) {
         const tool = body.result.tools.find((t: any) => t.name === name);
         expect(tool, name).toBeDefined();
-        expect(tool.description).toMatch(/первый вызов без requestState ничего не записывает/i);
+        expect(tool.description).toMatch(/first call without requestState writes nothing/i);
         expect(tool.outputSchema.properties.written).toEqual({ type: 'boolean' });
       }
     });
@@ -2726,7 +2726,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       const readBody: any = await (await mcpApp.fetch(readReq, typedEnv, { props: { scopes: ['write'], clientId } } as any)).json();
       const html = readBody.result.contents[0].text as string;
       expect(html).toContain('write-confirm');
-      expect(html).toContain('Подтвердить');
+      expect(html).toContain('data-i18n="confirm.button">Confirm<');
       expect(html).toContain('requestState');
       expect(html).toContain("sendRequest('tools/call'");
       expect(html).toContain("sendNotification('ui/notifications/initialized'");
@@ -2824,7 +2824,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       }>();
       expect(pending?.status).toBe('pending');
       expect(pending?.idempotency_key).toBeNull();
-      expect(pending?.result_summary).toMatch(/запись не выполнена/i);
+      expect(pending?.result_summary).toMatch(/write not performed/i);
     });
   });
 
@@ -2873,7 +2873,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       const set = body.result.tools.find((t: any) => t.name === 'fx_rate_set');
       expect(set.annotations.readOnlyHint).toBe(false);
       expect(set.annotations.destructiveHint).toBe(false);
-      expect(set.description).toMatch(/не перевод денег/i);
+      expect(set.description).toMatch(/not a money transfer/i);
       const del = body.result.tools.find((t: any) => t.name === 'fx_rate_delete');
       expect(del.annotations.destructiveHint).toBe(true);
       const reset = body.result.tools.find((t: any) => t.name === 'data_reset');
@@ -2952,7 +2952,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       const ctx = { props: { scopes: ['write'], clientId } };
       const body: any = await (await mcpApp.fetch(req, typedEnv, ctx as any)).json();
       expect(body.result.isError).toBe(true);
-      expect(body.result.content[0].text).toContain('должны отличаться');
+      expect(body.result.content[0].text).toContain('must differ');
       expect(body.result.resultType).toBeUndefined();
     });
 
@@ -2989,7 +2989,7 @@ describe('MCP Server (S2-3 & S2-4)', () => {
       expect(body1.result.structuredContent.resultType).toBe('input_required');
       expect(body1.result.structuredContent.written).toBe(false);
       expect(body1.result.structuredContent.requestState).toBeDefined();
-      expect(body1.result.content[0].text).toContain('Подтвердите перевод');
+      expect(body1.result.content[0].text).toContain('Confirm the transfer');
 
       // The DB is still empty
       const countBefore = await env.DB.prepare('SELECT COUNT(*) as count FROM operations').first<{ count: number }>();

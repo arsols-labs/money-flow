@@ -2,6 +2,17 @@
 
 All notable changes to the Money Flow app are documented here.
 
+## 2.27.0 - 2026-10-28
+
+### Added
+
+- MCP widgets (Pulse, Analytics and the write confirmation) are localized in all seven supported languages and follow the language of the MCP host, falling back to the browser language and then English. Numbers and currencies are formatted for that language.
+
+### Changed
+
+- MCP tool descriptions, tool error messages, confirmation prompts and server-side errors are now in English. Surfaces without a language choice default to English.
+- Default names for transfer operations created without an item are now English (`Transfer to "…"` / `Transfer from "…"`). Existing operations are not changed.
+
 ## 2.26.5 - 2026-10-28
 
 ### Changed

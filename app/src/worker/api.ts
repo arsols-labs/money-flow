@@ -3337,13 +3337,13 @@ apiV2.post('/transfers', async (c) => {
   }
 
   const transfer = await c.env.DB.prepare('INSERT INTO transfers DEFAULT VALUES RETURNING id').first<{ id: number }>();
-  if (!transfer) throw new Error('Не удалось создать запись перевода');
+  if (!transfer) throw new Error('Failed to create the transfer record');
 
   const outAmountMinor = -fromMagnitude;
   const inAmountMinor = toMagnitude;
 
-  const outItem = item || `Перевод на «${toAccount.name}»`;
-  const inItem = item || `Перевод с «${fromAccount.name}»`;
+  const outItem = item || `Transfer to "${toAccount.name}"`;
+  const inItem = item || `Transfer from "${fromAccount.name}"`;
 
   const statements = [
     c.env.DB.prepare(
@@ -3528,8 +3528,8 @@ apiV2.put('/transfers/:id', async (c) => {
 
   const outAmountMinor = -fromMagnitude;
   const inAmountMinor = toMagnitude;
-  const outItem = item || `Перевод на «${toAccount.name}»`;
-  const inItem = item || `Перевод с «${fromAccount.name}»`;
+  const outItem = item || `Transfer to "${toAccount.name}"`;
+  const inItem = item || `Transfer from "${fromAccount.name}"`;
 
   const liveDeltaOut = (sign: '-' | '+') =>
     c.env.DB.prepare(

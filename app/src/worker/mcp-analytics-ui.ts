@@ -5,14 +5,15 @@
  */
 
 import { MCP_WIDGET_RPC_SCRIPT } from './mcp-widget-rpc';
+import { MCP_WIDGET_I18N_SCRIPT } from './mcp-widget-i18n';
 
 export function getAnalyticsHtml(): string {
   return `<!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Аналитика — Money Flow</title>
+  <title data-i18n="analytics.title">Analytics</title>
   <style>
     :root {
       --bg: #f8fafc;
@@ -467,22 +468,22 @@ export function getAnalyticsHtml(): string {
     <div class="header">
       <div class="title-group">
         <div class="title">
-          <span>📊 Аналитика</span>
+          <span>📊 <span data-i18n="analytics.title">Analytics</span></span>
         </div>
       </div>
       <div class="actions">
-        <button class="btn-icon" id="themeBtn" title="Переключить тему">🌓</button>
-        <button class="btn-icon" id="refreshBtn" title="Обновить">🔄</button>
+        <button class="btn-icon" id="themeBtn" title="Toggle theme" data-i18n-title="common.toggleTheme">🌓</button>
+        <button class="btn-icon" id="refreshBtn" title="Refresh" data-i18n-title="common.refresh">🔄</button>
       </div>
     </div>
 
     <!-- Period Chips -->
     <div class="period-bar" id="periodBar">
-      <button class="chip" data-period="d7">7 дней</button>
-      <button class="chip active" data-period="d30">30 дней</button>
-      <button class="chip" data-period="m0">Этот месяц</button>
-      <button class="chip" data-period="m1">Прошлый месяц</button>
-      <button class="chip" data-period="all">Всё время</button>
+      <button class="chip" data-period="d7" data-i18n="analytics.d7">7 days</button>
+      <button class="chip active" data-period="d30" data-i18n="analytics.d30">30 days</button>
+      <button class="chip" data-period="m0" data-i18n="analytics.m0">This month</button>
+      <button class="chip" data-period="m1" data-i18n="analytics.m1">Last month</button>
+      <button class="chip" data-period="all" data-i18n="analytics.all">All time</button>
     </div>
 
     <!-- Active Filters -->
@@ -491,7 +492,7 @@ export function getAnalyticsHtml(): string {
     <div id="contentArea">
       <div class="loading-state">
         <div class="spinner"></div>
-        <div>Загрузка аналитики...</div>
+        <div data-i18n="analytics.loading">Loading analytics...</div>
       </div>
     </div>
   </div>
@@ -501,6 +502,7 @@ export function getAnalyticsHtml(): string {
   <script>
     (function() {
 ${MCP_WIDGET_RPC_SCRIPT}
+${MCP_WIDGET_I18N_SCRIPT}
       let currentPeriod = 'd30';
       let currentGranularity = 'day';
       let selectedCats = new Set();
@@ -599,7 +601,7 @@ ${MCP_WIDGET_RPC_SCRIPT}
       function formatMoney(minor, currency = 'USD') {
         if (minor === null || minor === undefined) return '0 $';
         const amount = minor / 100;
-        return new Intl.NumberFormat('ru-RU', {
+        return new Intl.NumberFormat(intlLocale(), {
           style: 'currency',
           currency: currency,
           minimumFractionDigits: 0,
@@ -628,15 +630,15 @@ ${MCP_WIDGET_RPC_SCRIPT}
         const container = document.getElementById('activeFilterTags');
         const tags = [];
         selectedCats.forEach(cat => {
-          tags.push(\`<span class="active-tag">Категория: \${escapeHtml(cat)} <span class="active-tag-remove" data-type="cat" data-value="\${escapeHtml(cat)}">×</span></span>\`);
+          tags.push(\`<span class="active-tag">\${escapeHtml(t('analytics.category', { v: cat }))} <span class="active-tag-remove" data-type="cat" data-value="\${escapeHtml(cat)}">×</span></span>\`);
         });
         selectedMerchants.forEach(m => {
-          tags.push(\`<span class="active-tag">Магазин: \${escapeHtml(m)} <span class="active-tag-remove" data-type="merchant" data-value="\${escapeHtml(m)}">×</span></span>\`);
+          tags.push(\`<span class="active-tag">\${escapeHtml(t('analytics.store', { v: m }))} <span class="active-tag-remove" data-type="merchant" data-value="\${escapeHtml(m)}">×</span></span>\`);
         });
 
         if (tags.length > 0) {
           container.style.display = 'flex';
-          container.innerHTML = tags.join('') + \`<button class="chip" id="clearAllFiltersBtn" style="font-size: 10px; padding: 2px 7px;">Сбросить все</button>\`;
+          container.innerHTML = tags.join('') + \`<button class="chip" id="clearAllFiltersBtn" style="font-size: 10px; padding: 2px 7px;">\${t('analytics.clearAll')}</button>\`;
           
           container.querySelectorAll('.active-tag-remove').forEach(el => {
             el.addEventListener('click', (e) => {
@@ -727,38 +729,38 @@ ${MCP_WIDGET_RPC_SCRIPT}
           <!-- Summary Cards -->
           <div class="metrics-grid">
             <div class="card">
-              <div class="card-label">Потрачено</div>
+              <div class="card-label">\${t('analytics.spent')}</div>
               <div class="card-value val-spent">\${formatMoney(totalSpent)}</div>
-              <div class="card-sub">\${positionsCount} поз. в \${receiptsCount} чек.</div>
+              <div class="card-sub">\${t('analytics.positions', { p: positionsCount, r: receiptsCount })}</div>
             </div>
 
             <div class="card">
-              <div class="card-label">В день</div>
+              <div class="card-label">\${t('analytics.perDay')}</div>
               <div class="card-value">\${formatMoney(perDay)}</div>
-              <div class="card-sub">Средний расход</div>
+              <div class="card-sub">\${t('analytics.avgSpend')}</div>
             </div>
 
             <div class="card">
-              <div class="card-label">Средний чек</div>
+              <div class="card-label">\${t('analytics.avgReceipt')}</div>
               <div class="card-value">\${formatMoney(avgReceipt)}</div>
-              <div class="card-sub">За операцию/чек</div>
+              <div class="card-sub">\${t('analytics.perReceipt')}</div>
             </div>
 
             <div class="card">
-              <div class="card-label">Доходы</div>
+              <div class="card-label">\${t('analytics.income')}</div>
               <div class="card-value val-income">\${formatMoney(totalIncome)}</div>
-              <div class="card-sub">За период</div>
+              <div class="card-sub">\${t('analytics.forPeriod')}</div>
             </div>
           </div>
 
           <!-- Dynamic Spending Chart -->
           <div class="chart-card">
             <div class="chart-header">
-              <div class="chart-title">Динамика расходов</div>
+              <div class="chart-title">\${t('analytics.trend')}</div>
               <div class="granularity-bar" id="granularityBar">
-                <button class="gran-btn \${currentGranularity === 'day' ? 'active' : ''}" data-gran="day">День</button>
-                <button class="gran-btn \${currentGranularity === 'week' ? 'active' : ''}" data-gran="week">Неделя</button>
-                <button class="gran-btn \${currentGranularity === 'month' ? 'active' : ''}" data-gran="month">Месяц</button>
+                <button class="gran-btn \${currentGranularity === 'day' ? 'active' : ''}" data-gran="day">\${t('analytics.day')}</button>
+                <button class="gran-btn \${currentGranularity === 'week' ? 'active' : ''}" data-gran="week">\${t('analytics.week')}</button>
+                <button class="gran-btn \${currentGranularity === 'month' ? 'active' : ''}" data-gran="month">\${t('analytics.month')}</button>
               </div>
             </div>
             <div class="chart-svg-wrap" id="chartContainer"></div>
@@ -768,19 +770,19 @@ ${MCP_WIDGET_RPC_SCRIPT}
           <div class="breakdowns-grid">
             <div class="breakdown-card">
               <div class="breakdown-header">
-                <span class="breakdown-title">Категории (\${categories.length})</span>
+                <span class="breakdown-title">\${t('analytics.categories', { n: categories.length })}</span>
               </div>
               <div class="breakdown-list" id="catList">
-                \${catRows || '<div class="card-sub" style="padding: 10px 0;">Нет данных по категориям</div>'}
+                \${catRows || '<div class="card-sub" style="padding: 10px 0;">' + t('analytics.noCategories') + '</div>'}
               </div>
             </div>
 
             <div class="breakdown-card">
               <div class="breakdown-header">
-                <span class="breakdown-title">Магазины (\${merchants.length})</span>
+                <span class="breakdown-title">\${t('analytics.stores', { n: merchants.length })}</span>
               </div>
               <div class="breakdown-list" id="merchList">
-                \${merchRows || '<div class="card-sub" style="padding: 10px 0;">Нет данных по магазинам</div>'}
+                \${merchRows || '<div class="card-sub" style="padding: 10px 0;">' + t('analytics.noStores') + '</div>'}
               </div>
             </div>
           </div>
@@ -788,10 +790,10 @@ ${MCP_WIDGET_RPC_SCRIPT}
           <!-- Top Expenses -->
           <div class="top-items-card">
             <div class="breakdown-header" style="margin-bottom: 6px;">
-              <span class="breakdown-title">Топ покупок</span>
+              <span class="breakdown-title">\${t('analytics.topItems')}</span>
             </div>
             <div>
-              \${topItemsRows || '<div class="card-sub" style="padding: 10px 0;">Нет данных о покупках</div>'}
+              \${topItemsRows || '<div class="card-sub" style="padding: 10px 0;">' + t('analytics.noItems') + '</div>'}
             </div>
           </div>
         \`;
@@ -840,7 +842,7 @@ ${MCP_WIDGET_RPC_SCRIPT}
         if (!container) return;
 
         if (series.length === 0) {
-          container.innerHTML = '<div style="display:flex;height:100%;align-items:center;justify-content:center;color:var(--text-muted);font-size:11px;">Нет данных за выбранный период</div>';
+          container.innerHTML = '<div style="display:flex;height:100%;align-items:center;justify-content:center;color:var(--text-muted);font-size:11px;">' + t('analytics.noData') + '</div>';
           return;
         }
 
@@ -916,7 +918,7 @@ ${MCP_WIDGET_RPC_SCRIPT}
         document.getElementById('contentArea').innerHTML = \`
           <div class="loading-state">
             <div class="spinner"></div>
-            <div>Загрузка аналитики...</div>
+            <div>\${t('analytics.loading')}</div>
           </div>
         \`;
 
@@ -936,15 +938,15 @@ ${MCP_WIDGET_RPC_SCRIPT}
           if (data && (data.stats !== undefined || data.categories)) {
             renderAnalytics(data);
           } else {
-            throw new Error('Некорректный формат ответа от analytics_get');
+            throw new Error(t('analytics.badFormat'));
           }
         } catch (err) {
           document.getElementById('contentArea').innerHTML = \`
             <div class="error-state">
               <div style="font-size: 24px; margin-bottom: 6px;">⚠️</div>
-              <div style="font-weight: 600; margin-bottom: 4px;">Ошибка загрузки аналитики</div>
+              <div style="font-weight: 600; margin-bottom: 4px;">\${t('analytics.loadError')}</div>
               <div style="font-size: 11px;">\${escapeHtml(err.message || err)}</div>
-              <button class="btn-icon" style="margin-top: 10px;" onclick="location.reload()">Повторить</button>
+              <button class="btn-icon" style="margin-top: 10px;" onclick="location.reload()">\${t('common.retry')}</button>
             </div>
           \`;
         }
@@ -958,6 +960,7 @@ ${MCP_WIDGET_RPC_SCRIPT}
             protocolVersion: '2026-01-26'
           }).catch(() => null);
 
+          setWidgetLocale(hostLocaleCandidates(initRes));
           if (initRes?.theme) {
             setTheme(initRes.theme);
           }

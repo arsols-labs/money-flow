@@ -1,4 +1,4 @@
-// S2-1: OAuth 2.1 integration tests for machine clients (issue #261)
+// OAuth 2.1 integration tests for machine clients.
 //
 // The tests check:
 // - Discovery RFC 9728 (Protected Resource Metadata) and RFC 8414 (Authorization Server Metadata)
@@ -92,7 +92,7 @@ describe('grant id and token lifetime', () => {
   });
 });
 
-describe('isTrustedOAuthRedirectUri (#531)', () => {
+describe('isTrustedOAuthRedirectUri', () => {
   it('accepts an RFC 8252 loopback and Google Account Linking on the exact host', () => {
     expect(isTrustedOAuthRedirectUri('http://127.0.0.1:8080/callback')).toBe(true);
     expect(isTrustedOAuthRedirectUri('http://localhost:3000/callback')).toBe(true);
@@ -871,7 +871,7 @@ describe('S2-1: OAuth 2.1 Machine Clients & Consent', () => {
     });
   });
 
-  describe('Loopback Gemini (#319)', () => {
+  describe('Loopback redirect URIs (Gemini CLI)', () => {
     it('keeps the localhost hostname in Location and accepts the original localhost at the token endpoint', async () => {
       const helpers = getOAuthHelpers(env as unknown as Env);
       const client = await helpers.createClient({

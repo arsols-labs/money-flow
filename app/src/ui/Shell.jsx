@@ -1,18 +1,18 @@
 // App frame after sign-in: header, theme, navigation.
 //
-// The header and the section strip are one sticky `.appbar` block (issue #329
-// and the 2026-08-21 owner requirement): base currency, Refresh, language,
-// theme, and section choice stay reachable at any scroll depth, not only the
-// tab strip. Separate sticky elements cannot do this: they share the same top,
-// and the second would overlap the first.
+// The header and the section strip are one sticky `.appbar` block: base
+// currency, Refresh, language, theme and the section picker
+// must stay within reach at any scroll depth, not just the tab
+// strip. Separate sticky elements cannot do this: they share a top, and
+// the second would overlap the first.
 //
-// The "MONEY FLOW V2" label was removed from the header. It took a full row of
-// the sticky block without adding information, and sticky height is space taken
-// from content on every screen.
+// The "MONEY FLOW V2" caption was removed from the header: it took a whole row
+// of the sticky block without saying anything (there is only one app), and the
+// sticky block height is what it takes away from content on every screen.
 //
-// Block height changes when the row wraps on a narrow screen, so it is not a
-// fixed CSS number. It is measured into `--appbar-h`: sticky filter panels
-// inside sections sit directly under the header using that variable.
+// The block height changes (line wrapping on narrow screens), so it is not
+// hard-coded in CSS but measured and stored in `--appbar-h`: sticky filter
+// panels inside sections sit exactly under the header using this variable.
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Activity, ChartPie, DatabaseZap, Shield, MoreHorizontal, Check, RefreshCw, SlidersHorizontal, LogOut } from 'lucide-react';
@@ -42,7 +42,7 @@ export function tabFromHash(hash) {
 }
 
 /**
- * @param {{ theme: string, setTheme: (theme: string) => void, resolvedTheme?: 'light' | 'dark' }} props
+ * @param {{ theme: string, setTheme: (theme: string) => void, resolvedTheme?: 'light' | 'dark', demoMode?: boolean }} props
  */
 export default function Shell({ theme, setTheme, resolvedTheme, demoMode = false }) {
   const { t } = useTranslation();
@@ -106,7 +106,7 @@ export default function Shell({ theme, setTheme, resolvedTheme, demoMode = false
 
   return (
     <div className="app-shell">
-      {/* Navigation rail for Medium and Expanded (>= 600px) */}
+      {/* Navigation Rail for Medium and Expanded (>= 600px) */}
       <aside className="nav-rail" aria-label={t('shell.nav.main')}>
         <a
           href="#"
@@ -252,7 +252,7 @@ export default function Shell({ theme, setTheme, resolvedTheme, demoMode = false
         </div>
       </div>
 
-      {/* Bottom navigation bar for Compact (< 600px) */}
+      {/* Bottom Navigation Bar for Compact (< 600px) */}
       <nav className="bottom-nav" aria-label={t('shell.nav.mobile')}>
         {ALL_TABS.map((navTab) => {
           const Icon = navTab.icon;
