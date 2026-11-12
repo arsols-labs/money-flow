@@ -40,6 +40,8 @@ body { background: var(--bg, #0F1115); transition: background-color 0.2s ease, c
   /* Sticky header height. Shell.jsx sets the value from the actual
      block size; this is only the first-frame fallback, before the effect runs. */
   --appbar-h: 92px;
+  /* Data measures the filter bar into this. 0 until that measurement runs. */
+  --data-filter-bar-h: 0px;
 }
 
 html[data-theme="light"] {
@@ -1481,6 +1483,232 @@ html[data-theme="light"] {
   color: var(--safe);
 }
 
+.statement-import-section {
+  color: var(--text);
+}
+
+.statement-import-section h2,
+.statement-import-section h3,
+.statement-file-name,
+.statement-import-table td {
+  color: var(--text);
+}
+
+.statement-import-section h2,
+.statement-import-section h3 {
+  font-weight: 600;
+}
+
+.statement-import-section h3 {
+  margin: 16px 0 6px;
+  font-size: 15px;
+}
+
+.statement-file-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.statement-import-toolbar,
+.statement-history-actions,
+.statement-rule-actions,
+.statement-file-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(180px, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.statement-file-list li {
+  grid-template-columns: minmax(0, 1.1fr) minmax(140px, 1fr) minmax(140px, 1fr) auto;
+}
+
+.statement-import-toolbar .data-form-field,
+.statement-file-list .data-form-field {
+  min-width: min(100%, 220px);
+}
+
+.statement-file-list,
+.statement-history,
+.statement-summary,
+.statement-rule-list {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+}
+
+.statement-file-list li,
+.statement-history li,
+.statement-rule {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.statement-mapping-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.statement-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 13px;
+}
+
+.statement-import-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 8px 0 12px;
+}
+
+.statement-import-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 720px;
+}
+
+.statement-import-table th,
+.statement-import-table td {
+  text-align: left;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.statement-import-table th {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.statement-import-table select,
+.statement-category-input,
+.statement-rule-form select,
+.statement-rule-form input,
+.statement-mapping input,
+.statement-mapping select {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 36px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  color-scheme: dark;
+}
+
+html[data-theme="light"] .statement-import-table select,
+html[data-theme="light"] .statement-category-input,
+html[data-theme="light"] .statement-rule-form select,
+html[data-theme="light"] .statement-rule-form input,
+html[data-theme="light"] .statement-mapping input,
+html[data-theme="light"] .statement-mapping select {
+  color-scheme: light;
+}
+
+.statement-template-save,
+.statement-template-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.statement-template-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.statement-template-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.statement-template-meta,
+.statement-template-badge {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.statement-template-save {
+  margin: 8px 0;
+}
+
+.statement-import-table select:focus,
+.statement-category-input:focus {
+  outline: none;
+  border-color: var(--border-hover);
+}
+
+.statement-import-table input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+}
+
+.statement-flag {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--warning);
+}
+
+.statement-batch-line {
+  margin: 6px 0;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.statement-history-row,
+.statement-rule {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.statement-rule-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.statement-rule-form {
+  margin-top: 8px;
+}
+
+@media (max-width: 599.98px) {
+  .statement-import-toolbar,
+  .statement-history-row,
+  .statement-rule {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .statement-file-list li {
+    grid-template-columns: 1fr;
+  }
+
+  .statement-import-toolbar .btn-secondary,
+  .statement-history-actions .btn-secondary,
+  .statement-history-actions .btn-danger,
+  .backup-actions .btn-primary {
+    width: 100%;
+  }
+}
+
 .pulse-customize-link,
 .analytics-customize-link,
 .data-customize-link {
@@ -1774,11 +2002,12 @@ html[data-theme="light"] {
 /* ---------- Analytics: receipts ---------- */
 
 .receipt-list { display: flex; flex-direction: column; gap: 8px; }
-.receipt { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.receipt { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; max-width: 100%; }
 .receipt-head {
-  width: 100%; display: grid; grid-template-columns: 56px 1fr auto 18px; gap: 10px; align-items: center;
+  width: 100%; max-width: 100%; box-sizing: border-box; min-width: 0;
+  display: grid; grid-template-columns: 52px minmax(0, 1fr) auto 18px; gap: 8px; align-items: center;
   background: none; border: none; color: var(--text); font-family: inherit; text-align: left;
-  padding: 10px 12px; cursor: pointer;
+  padding: 10px 16px 10px 14px; cursor: pointer;
 }
 .receipt-head:hover { background: rgba(255, 255, 255, 0.02); }
 .receipt-date { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; }
@@ -1795,6 +2024,92 @@ html[data-theme="light"] {
 .receipt-line-name .receipt-url-link { font-size: 11px; margin-top: 2px; }
 .receipt-line-total { font-family: var(--font-mono); white-space: nowrap; display: flex; flex-direction: column; align-items: flex-end; }
 .receipt-line-usd { font-size: 10px; color: var(--text-faint); }
+.order-card { border: 1px solid var(--border); border-radius: 12px; background: var(--bg); overflow: hidden; max-width: 100%; }
+.order-card-body { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px 12px; }
+.order-card-body[hidden] { display: none; }
+.order-flag { font-size: 12px; color: var(--text); margin: 0; }
+.order-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin: 8px 0; }
+.order-actions label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-muted); }
+.order-actions input, .order-actions select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+#data-section-receipts .receipt-head:focus-visible,
+#data-section-receipts .receipt-select input:focus-visible,
+#data-section-receipts .btn-secondary:focus-visible,
+#data-section-receipts .btn-danger:focus-visible,
+#data-section-receipts .link-btn:focus-visible,
+#data-section-receipts input:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.receipt-select { display: flex; align-items: center; justify-content: flex-start; padding: 10px 14px 0; }
+.receipt-select input { width: 18px; height: 18px; margin: 0; }
+.receipt-select--locked { color: var(--text-muted); margin: 0; font-size: 12px; padding: 8px 14px 0; }
+.receipt-group-count { font-size: 12px; color: var(--text-muted); align-self: center; }
+/* Sticks under the measured filter bar while the receipts section is on screen.
+   The offset is `--appbar-h` plus `--data-filter-bar-h` (Data.jsx measures the
+   filter bar). It is not a guessed pixel gap. Sticky release is the section
+   that contains this bar, so the bar leaves with the receipts section. */
+.receipt-group-toolbar {
+  position: sticky;
+  top: calc(var(--appbar-h) + var(--data-filter-bar-h));
+  z-index: 9;
+  margin: 0 0 4px;
+  padding: 16px;
+  background: var(--bg);
+  border-radius: 12px;
+}
+.receipt-group-toolbar .order-actions { margin: 0; width: 100%; gap: 12px; }
+.receipt-group-toolbar .order-actions label { flex: 1 1 10rem; min-width: 0; }
+.receipt-group-toolbar .form-error { margin: 10px 0 0; }
+.receipt-head.receipt-group-head { position: relative; align-items: center; min-width: 0; overflow: hidden; padding-right: 16px; }
+.receipt-head .chev,
+.receipt-group-head .chev { grid-column: 4; justify-self: end; }
+.receipt-group-toggle {
+  position: absolute; inset: 0; z-index: 1;
+  background: none; border: none; padding: 0; margin: 0;
+  cursor: pointer; border-radius: 10px;
+}
+.receipt-group-head:hover .receipt-group-toggle { background: rgba(255, 255, 255, 0.02); }
+.receipt-group-title-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0;
+}
+.receipt-group-title {
+  flex: 0 1 auto; min-width: 0;
+  font-size: 13px; font-weight: 600; color: var(--text); overflow-wrap: anywhere;
+}
+.receipt-group-kind {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+  margin-top: 2px; font-size: 11px; color: var(--text-faint);
+}
+.receipt-group-kind svg { flex-shrink: 0; color: var(--text-faint); }
+.receipt-group-warning {
+  font-size: 12px; color: var(--warning); overflow-wrap: anywhere; max-width: 100%;
+}
+.receipt-group-head .receipt-total {
+  align-items: flex-end; max-width: 100%; overflow-wrap: anywhere;
+}
+.receipt-group-rename,
+.receipt-group-rename-form { position: relative; z-index: 2; }
+.receipt-group-rename {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0; border: none; background: none;
+  color: var(--text-muted); cursor: pointer;
+}
+.receipt-group-rename:hover { color: var(--text); }
+.receipt-group-rename-form {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; flex: 1 1 12rem;
+}
+.receipt-group-rename-form input {
+  min-width: 0; flex: 1 1 8rem; font: inherit; color: var(--text);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px;
+}
+#data-section-receipts .receipt-group-toggle:focus-visible,
+#data-section-receipts .receipt-group-rename:focus-visible,
+.analytics-block--receipts .receipt-group-toggle:focus-visible,
+.analytics-block--receipts .receipt-group-rename:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.receipt-exclude-row { display: flex; justify-content: flex-end; padding: 0 12px 8px; }
 
 /* ---------- Recurring items and plans ---------- */
 

@@ -62,25 +62,27 @@ blocker.
 For each currency generate one fresh UUID `idempotency_key` and retain it for
 all retries of that exact currency and value.
 
-For an unattended, already-authorized run, call `fx_rate_set` with:
+For an authenticated (non-anonymous) client, `fx_rate_set` writes immediately
+by default. `auto_confirm` defaults to true: omit it, or pass `true`. Passing
+`auto_confirm: true` is also an immediate write. MRTR confirmation runs only
+when `auto_confirm` is explicitly `false`.
 
 ```json
 {
   "code": "EUR",
   "rate": 1.1564,
-  "idempotency_key": "<fresh UUID>",
-  "auto_confirm": true
+  "idempotency_key": "<fresh UUID>"
 }
 ```
 
 Treat the write as successful only when `structuredContent.resultType` is
 `complete` and `structuredContent.written` is `true`.
 
-Some clients or server configurations may return the normal two-step MRTR
-response instead. In that case, `resultType: input_required` and
-`written: false` mean **nothing was written**. Repeat `fx_rate_set` with the
-same code, rate, and idempotency key plus the returned `requestState`; then
-require `complete` and `written: true`.
+If `auto_confirm` is `false`, or the client is anonymous, the server returns
+the two-step MRTR response. `resultType: input_required` and `written: false`
+mean **nothing was written**. Repeat `fx_rate_set` with the same code, rate,
+and idempotency key plus the returned `requestState`; then require `complete`
+and `written: true`.
 
 If the connection fails or the result is unclear after a write attempt, do not
 create a new key or issue a second mutation. Retry with the same key only when

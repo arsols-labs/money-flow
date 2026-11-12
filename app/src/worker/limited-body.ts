@@ -19,17 +19,17 @@ function contentLengthBytes(headers: Headers): number | null {
 }
 
 /**
- * Bound JSON bodies by declared Content-Length first, then by streamed bytes.
- * Callers must use the returned text — the request body is consumed.
+ * Bound a body by declared Content-Length first, then by streamed bytes.
+ * Callers must use the returned bytes — the request body is consumed.
  */
-export async function readLimitedText(request: Request, maxBytes: number): Promise<string> {
+export async function readLimitedBytes(request: Request, maxBytes: number): Promise<Uint8Array> {
   const declared = contentLengthBytes(request.headers);
   if (declared !== null && declared > maxBytes) {
     throw new BodyTooLargeError('content-length');
   }
 
   const reader = request.body?.getReader();
-  if (!reader) return '';
+  if (!reader) return new Uint8Array();
 
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -47,15 +47,22 @@ export async function readLimitedText(request: Request, maxBytes: number): Promi
     reader.releaseLock();
   }
 
-  if (chunks.length === 0) return '';
-  if (chunks.length === 1) return new TextDecoder().decode(chunks[0]);
+  if (chunks.length === 0) return new Uint8Array();
+  if (chunks.length === 1) return chunks[0]!;
   const joined = new Uint8Array(total);
   let offset = 0;
   for (const chunk of chunks) {
     joined.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new TextDecoder().decode(joined);
+  return joined;
+}
+
+/** Bound JSON bodies. Callers must use the returned text — the request body is consumed. */
+export async function readLimitedText(request: Request, maxBytes: number): Promise<string> {
+  const bytes = await readLimitedBytes(request, maxBytes);
+  if (bytes.byteLength === 0) return '';
+  return new TextDecoder().decode(bytes);
 }
 
 export async function readLimitedJson(request: Request, maxBytes: number): Promise<unknown> {

@@ -7,6 +7,7 @@ import type { Env } from '../src/worker/types';
 import {
   EMPTY_INSTANCE_SETTINGS,
   RESET_CONFIRM_PHRASE,
+  BACKUP_TABLES_OMITTED_WHEN_EMPTY,
   USER_TABLES,
   isPreservedSettingKey,
   parseResetConfirmation,
@@ -174,6 +175,10 @@ describe('POST /api/v2/data/reset', () => {
     const dump = await exportRes.json() as { tables: Record<string, unknown[]> };
     for (const name of USER_TABLES) {
       if (name === 'settings') continue;
+      if (BACKUP_TABLES_OMITTED_WHEN_EMPTY.includes(name)) {
+        expect(dump.tables[name], name).toBeUndefined();
+        continue;
+      }
       expect(dump.tables[name], name).toEqual([]);
     }
 

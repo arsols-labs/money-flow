@@ -6,6 +6,7 @@ import { createSessionCookie } from '../src/worker/auth';
 import type { Env } from '../src/worker/types';
 import {
   BACKUP_FORMAT,
+  BACKUP_TABLES_OMITTED_WHEN_EMPTY,
   BACKUP_VERSION,
   USER_TABLES,
   backupFilename,
@@ -28,6 +29,7 @@ beforeEach(async () => {
     env.DB.prepare('DELETE FROM oauth_tokens'),
     env.DB.prepare('DELETE FROM oauth_consents'),
     env.DB.prepare('DELETE FROM oauth_clients'),
+    env.DB.prepare('DELETE FROM statement_templates'),
     env.DB.prepare('DELETE FROM operation_fulfillment_links'),
     env.DB.prepare('DELETE FROM imported_receipt_items'),
     env.DB.prepare('DELETE FROM recurring_period_fulfillments'),
@@ -104,13 +106,18 @@ describe('GET /api/v2/backup/export', () => {
     expect(body.format).toBe(BACKUP_FORMAT);
     expect(body.version).toBe(BACKUP_VERSION);
     expect(body.exported_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
-    expect(Object.keys(body.tables).sort()).toEqual([...USER_TABLES].sort());
+    const presentTables = USER_TABLES.filter((name) => !BACKUP_TABLES_OMITTED_WHEN_EMPTY.includes(name));
+    expect(Object.keys(body.tables).sort()).toEqual([...presentTables].sort());
     expect(body.tables.settings).toEqual(expect.arrayContaining([
       { key: 'base_currency', value: 'USD' },
       { key: 'low_balance_threshold_minor', value: '100000' },
     ]));
     for (const name of USER_TABLES) {
       if (name === 'settings') continue;
+      if (BACKUP_TABLES_OMITTED_WHEN_EMPTY.includes(name)) {
+        expect(body.tables[name]).toBeUndefined();
+        continue;
+      }
       expect(body.tables[name]).toEqual([]);
     }
   });

@@ -1,16 +1,53 @@
 import { Hono } from 'hono';
 import type { Env } from './types';
-import apiV2 from './api';
+import apiV2, { countAccountRefs } from './api';
+import { listAliases } from './account-aliases';
 import { clipAuditSummary, pruneMcpAuditLog, recordMcpAuditLog } from './api-mcp';
-import { BodyTooLargeError, MCP_MAX_JSON_BYTES, readLimitedJson } from './limited-body';
+import { BodyTooLargeError, MCP_MAX_JSON_BYTES, readLimitedText } from './limited-body';
 import { getPulseHtml } from './mcp-pulse-ui';
 import { getAnalyticsHtml } from './mcp-analytics-ui';
 import { getWriteConfirmHtml } from './mcp-write-confirm-ui';
 import { nextOccurrence, type RecurringRule } from './forecast/recurrence';
 import { parseHttpUrl, RECEIPT_URL_MAX_LENGTH } from '../shared/http-url';
-import { FISCAL_RECEIPT_ID_MAX_LENGTH } from '../shared/fiscal-receipts';
+import { FISCAL_RECEIPT_ID_MAX_LENGTH, canonicalizePfr } from '../shared/fiscal-receipts';
 import { isAnalyticalSkipOnlyRecurringId } from '../shared/booking-guards';
-import { RESET_CONFIRM_PHRASE } from './backup';
+import { RESET_CONFIRM_PHRASE, USER_TABLES, backupOmitsOrderGroupings, countOrderGroupings, parseBackupDocument } from './backup';
+import { STATEMENT_IMPORT_MCP_JSON_MAX_BYTES } from '../shared/statement-import/types';
+import {
+  STATEMENT_INLINE_TOOLS,
+  STATEMENT_MUTATION_TOOLS,
+  STATEMENT_NO_AUTO_CONFIRM,
+  STATEMENT_READ_TOOL_NAMES,
+  STATEMENT_WRITE_TOOL_NAMES,
+  consumePreparedUploads,
+  createStatementUploadForMcp,
+  executeStatementMutation,
+  prepareStatementImport,
+  readStatementTemplateTool,
+  statementMcpToolDefinitions,
+  statementPreviewIdempotencyKey,
+  templateUpdateAutoConfirmDecision,
+  validateStatementWrite,
+} from './mcp-statement';
+import { ValidationError } from './api-error';
+import { apiErrorBody } from '../shared/api-errors';
+import { PURCHASE_ORDERS_EPOCH_KEY } from '../shared/purchase-orders';
+import {
+  PURCHASE_NO_AUTO_CONFIRM,
+  PURCHASE_READ_TOOLS,
+  PURCHASE_WRITE_TOOLS,
+  purchaseOrderToolDefinitions,
+  purchaseOrderWriteRequest,
+  validatePurchaseOrderWrite,
+} from './mcp-purchase-orders';
+import {
+  RECEIPT_GROUP_NO_AUTO_CONFIRM,
+  RECEIPT_GROUP_READ_TOOLS,
+  RECEIPT_GROUP_WRITE_TOOLS,
+  receiptGroupToolDefinitions,
+  receiptGroupWriteRequest,
+  validateReceiptGroupWrite,
+} from './mcp-receipt-groups';
 
 const mcpApp = new Hono<{ Bindings: Env }>();
 
@@ -23,6 +60,14 @@ const READ_TOOLS = new Set([
   'operations_list',
   'forecast_get',
   'analytics_get',
+  'account_aliases_list',
+  'account_resolve',
+  'pending_accounts_list',
+  'settings_get',
+  'backup_export',
+  ...STATEMENT_READ_TOOL_NAMES,
+  ...PURCHASE_READ_TOOLS,
+  ...RECEIPT_GROUP_READ_TOOLS,
 ]);
 
 const WRITE_TOOLS = new Set([
@@ -45,7 +90,106 @@ const WRITE_TOOLS = new Set([
   'fx_rate_set',
   'fx_rate_delete',
   'data_reset',
+  'account_add',
+  'account_update',
+  'account_delete',
+  'account_alias_add',
+  'account_alias_delete',
+  'pending_account_bind',
+  'transfer_update',
+  'transfer_delete',
+  'setting_set',
+  'backup_import',
+  ...STATEMENT_WRITE_TOOL_NAMES,
+  ...PURCHASE_WRITE_TOOLS,
+  ...RECEIPT_GROUP_WRITE_TOOLS,
 ]);
+
+/**
+ * Tools that always need a human confirmation: auto_confirm is refused.
+ * Every delete tool, data_reset, and backup_import. setting_set is separate
+ * and refuses auto_confirm only for NO_AUTO_CONFIRM_SETTING_KEYS.
+ */
+const NO_AUTO_CONFIRM_TOOL_NAMES = [
+  'account_delete',
+  'account_alias_delete',
+  'transfer_delete',
+  'backup_import',
+  'operation_delete',
+  'planned_item_delete',
+  'recurring_item_delete',
+  'fx_rate_delete',
+  'data_reset',
+  ...STATEMENT_NO_AUTO_CONFIRM,
+  ...PURCHASE_NO_AUTO_CONFIRM,
+  ...RECEIPT_GROUP_NO_AUTO_CONFIRM,
+] as const;
+const NO_AUTO_CONFIRM_TOOLS = new Set<string>(NO_AUTO_CONFIRM_TOOL_NAMES);
+
+/** auto_confirm is refused for these setting keys: a change recalculates every conversion and report. */
+const NO_AUTO_CONFIRM_SETTING_KEYS = new Set(['base_currency']);
+
+/** Exact refusal catalog. Tool descriptions and docs must keep this list. */
+const NO_AUTO_CONFIRM_DESCRIPTION =
+  `auto_confirm is not accepted for ${NO_AUTO_CONFIRM_TOOL_NAMES.join(', ')}, and for setting_set when the key is base_currency; a human confirmation is always required. `;
+
+/** Keys accepted by PUT /api/v2/settings/:key (kept in sync with SETTINGS_WRITABLE_KEYS in api.ts). */
+const SETTING_SET_KEYS = ['base_currency', 'low_balance_threshold_minor'] as const;
+
+/** Maximum size (UTF-8 bytes of the JSON document) that backup_export returns inline: 512 KiB. */
+export const BACKUP_EXPORT_MAX_BYTES = 512 * 1024;
+
+/** Phrase that backup_import requires, the same pattern as RESET for data_reset. */
+export const IMPORT_CONFIRM_PHRASE = 'IMPORT';
+
+function backupTableCounts(tables: Record<string, unknown>): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const name of USER_TABLES) {
+    const rows = (tables as Record<string, unknown>)[name];
+    counts[name] = Array.isArray(rows) ? rows.length : 0;
+  }
+  return counts;
+}
+
+function capBackupExport(document: any): Record<string, unknown> {
+  const sizeBytes = new TextEncoder().encode(JSON.stringify(document)).length;
+  if (sizeBytes <= BACKUP_EXPORT_MAX_BYTES) return { truncated: false, size_bytes: sizeBytes, backup: document };
+  return {
+    truncated: true,
+    size_bytes: sizeBytes,
+    cap_bytes: BACKUP_EXPORT_MAX_BYTES,
+    format: document?.format,
+    version: document?.version,
+    exported_at: document?.exported_at,
+    counts: backupTableCounts(document?.tables ?? {}),
+    ...(document?.omitted ? { omitted: document.omitted, warning: document.warning } : {}),
+    message: `The backup is ${sizeBytes} bytes, above the MCP inline cap of ${BACKUP_EXPORT_MAX_BYTES} bytes, so only table and row counts are returned. Download the full JSON with Export backup in the Money Flow app settings (GET /api/v2/backup/export in a signed-in session).`,
+  };
+}
+
+const TRANSFER_UPDATE_FIELDS = ['date', 'from_account_id', 'to_account_id', 'from_amount_minor', 'to_amount_minor', 'item', 'store', 'category', 'subcategory', 'comment', 'receipt_url', 'fiscal_receipt_id'] as const;
+
+type TransferLeg = { id: number; kind: string; date: string; account_id: number; account_name: string; amount_minor: number; currency: string };
+
+async function loadTransferLegs(db: D1Database, transferId: number): Promise<TransferLeg[]> {
+  const rows = await db.prepare(
+    `SELECT o.id, o.kind, o.date, o.account_id, a.name AS account_name, o.amount_minor, a.currency
+       FROM operations o JOIN accounts a ON a.id = o.account_id
+      WHERE o.transfer_id = ? ORDER BY CASE o.kind WHEN 'transfer_out' THEN 0 ELSE 1 END`,
+  ).bind(transferId).all<TransferLeg>();
+  return rows.results ?? [];
+}
+
+function describeTransferLegs(legs: TransferLeg[]): string {
+  return legs.map((leg) => `${leg.kind === 'transfer_out' ? 'out' : 'in'} leg operation ID ${leg.id}: ${leg.amount_minor} ${leg.currency} on account ID ${leg.account_id} "${leg.account_name}", date ${leg.date}`).join('; ');
+}
+
+const ACCOUNT_UPDATE_FIELDS = ['name', 'bank', 'type', 'account_number', 'owner', 'country', 'currency', 'balance_minor', 'sort', 'archived'] as const;
+const ACCOUNT_ADD_FIELDS = ['name', 'currency', 'owner', 'country', 'bank', 'type', 'account_number', 'balance_minor', 'sort'] as const;
+
+function accountInUseMessage(accountId: number, refs: number): string {
+  return `Account ID ${accountId} is referenced by ${refs} operation(s), planned item(s) or recurring rule(s) and cannot be deleted. Move or delete those operations first, or archive the account with account_update (archived: true).`;
+}
 
 const PLANNED_UPDATE_FIELDS = ['date', 'title', 'amount_minor', 'currency', 'account_id', 'category', 'done'] as const;
 const RECURRING_UPDATE_FIELDS = [
@@ -670,7 +814,7 @@ const TOOLS = [
   },
   {
     name: 'operation_delete',
-    description: 'Delete an operation by operation_id through the standard DELETE /operations/:id domain logic. A regular operation removes its contribution from the balance; an operation of a planned item clears done; a transfer operation deletes the whole transfer with both legs. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Delete an operation by operation_id through the standard DELETE /operations/:id domain logic. A regular operation removes its contribution from the balance; an operation of a planned item clears done; a transfer operation deletes the whole transfer with both legs. ' + NO_AUTO_CONFIRM_DESCRIPTION + 'Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -820,7 +964,7 @@ const TOOLS = [
   },
   {
     name: 'planned_item_delete',
-    description: 'Delete a planned item by planned_item_id through the standard DELETE /planned-items/:id. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Delete a planned item by planned_item_id through the standard DELETE /planned-items/:id. ' + NO_AUTO_CONFIRM_DESCRIPTION + 'Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object', additionalProperties: false,
       properties: {
@@ -878,7 +1022,7 @@ const TOOLS = [
   },
   {
     name: 'recurring_item_delete',
-    description: 'Delete a recurring rule by recurring_item_id through the standard DELETE /recurring-items/:id. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Delete a recurring rule by recurring_item_id through the standard DELETE /recurring-items/:id. ' + NO_AUTO_CONFIRM_DESCRIPTION + 'Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object', additionalProperties: false,
       properties: { recurring_item_id: { type: 'number' }, idempotency_key: { type: 'string' }, requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION } },
@@ -973,7 +1117,7 @@ const TOOLS = [
   },
   {
     name: 'fx_rate_set',
-    description: 'Set or update an exchange rate. Not a money transfer and not a payment: this is only the rate reference table. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Set or update an exchange rate. Not a money transfer and not a payment: this is only the rate reference table. Requires scope "write". For an authenticated (non-anonymous) client the write happens immediately by default (auto_confirm defaults to true): resultType=complete and written=true. MRTR confirmation runs only when auto_confirm: false is passed. That call returns resultType=input_required and written=false, and nothing is written until a repeated call with requestState returns written=true. An anonymous client still uses MRTR.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -995,7 +1139,7 @@ const TOOLS = [
   },
   {
     name: 'fx_rate_delete',
-    description: 'Delete an exchange rate. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Delete an exchange rate. ' + NO_AUTO_CONFIRM_DESCRIPTION + 'Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -1016,7 +1160,7 @@ const TOOLS = [
   },
   {
     name: 'data_reset',
-    description: 'Reset the financial ledger to an empty instance without redeploying. Deletes accounts, operations, plans, rates and ledger settings. Passkeys, sessions and OAuth/MCP clients are kept. Requires scope "write", the RESET phrase and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Reset the financial ledger to an empty instance without redeploying. Deletes accounts, operations, plans, rates and ledger settings. Passkeys, sessions and OAuth/MCP clients are kept. ' + NO_AUTO_CONFIRM_DESCRIPTION + 'Requires scope "write", the RESET phrase and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -1035,13 +1179,288 @@ const TOOLS = [
       }
     },
     _meta: { ui: WRITE_TOOL_UI }
-  }
+  },
+  {
+    name: 'account_aliases_list',
+    description: 'List the aliases (virtual cards, receipt charge-account strings) bound to an account. Uses GET /accounts/:id/aliases.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { account_id: { type: 'number', description: 'Account ID' } },
+      required: ['account_id']
+    },
+    outputSchema: { type: 'object', properties: { aliases: { type: 'array', items: { type: 'object' } }, error: { type: 'string' } } }
+  },
+  {
+    name: 'account_resolve',
+    description: 'Resolve a charge-account string from a receipt (for example "Visa *6125") to an account_id through the alias table. Read-only: an unknown string is not stored as pending. Uses GET /accounts/resolve.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { q: { type: 'string', description: 'Charge-account string to resolve' } },
+      required: ['q']
+    },
+    outputSchema: { type: 'object', properties: { account_id: { type: ['number', 'null'] }, pending: { type: 'boolean' }, error: { type: 'string' } } }
+  },
+  {
+    name: 'pending_accounts_list',
+    description: 'List unbound charge-account strings collected from receipts, waiting to be bound to a real account with pending_account_bind. Uses GET /accounts/pending.',
+    inputSchema: { type: 'object', properties: {} },
+    outputSchema: { type: 'object', properties: { pending: { type: 'array', items: { type: 'object' } }, error: { type: 'string' } } }
+  },
+  {
+    name: 'account_add',
+    description: 'Create an account through the standard POST /accounts. name, currency, owner and country are required; balance_minor defaults to 0. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        name: { type: 'string', description: 'Account name' },
+        currency: { type: 'string', description: 'ISO-4217 currency code, for example EUR' },
+        owner: { type: 'string', description: 'Account owner' },
+        country: { type: 'string', description: 'Country of the account' },
+        bank: { type: 'string', description: 'Bank (optional)' },
+        type: { type: 'string', description: 'Account kind, for example Checking (optional)' },
+        account_number: { type: 'string', description: 'Account number (optional)' },
+        balance_minor: { type: 'number', description: 'Opening balance in minor units (optional, default 0)' },
+        sort: { type: 'number', description: 'Sort order (optional)' },
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
+        requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
+      },
+      required: ['name', 'currency', 'owner', 'country', 'idempotency_key']
+    },
+    outputSchema: { type: 'object', properties: { account: { type: 'object' }, ...WRITE_OUTPUT_COMMON } },
+    _meta: { ui: WRITE_TOOL_UI }
+  },
+  {
+    name: 'account_update',
+    description: 'Partially update an account by account_id through the standard PATCH /accounts/:id. Owner, currency, country, bank and type are locked once the account has operations; a currency change needs balance_minor in the new currency in the same call. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        account_id: { type: 'number', description: 'Account ID' },
+        name: { type: 'string' },
+        bank: { type: ['string', 'null'] },
+        type: { type: ['string', 'null'] },
+        account_number: { type: ['string', 'null'] },
+        owner: { type: 'string' },
+        country: { type: 'string' },
+        currency: { type: 'string' },
+        balance_minor: { type: 'number', description: 'Balance in minor units' },
+        sort: { type: 'number' },
+        archived: { type: 'boolean' },
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
+        requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
+      },
+      required: ['account_id', 'idempotency_key']
+    },
+    outputSchema: { type: 'object', properties: { account: { type: 'object' }, ...WRITE_OUTPUT_COMMON } },
+    _meta: { ui: WRITE_TOOL_UI }
+  },
+  {
+    name: 'account_delete',
+    description: 'Delete an account by account_id through the standard DELETE /accounts/:id. Its aliases are removed with it. An account referenced by operations, planned items or recurring rules is refused: move or delete those first, or archive the account. ' + NO_AUTO_CONFIRM_DESCRIPTION + 'Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        account_id: { type: 'number', description: 'Account ID to delete' },
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
+        requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
+      },
+      required: ['account_id', 'idempotency_key']
+    },
+    outputSchema: { type: 'object', properties: { success: { type: 'boolean' }, account_id: { type: 'number' }, deleted_account: { type: 'object' }, removed_aliases: { type: 'array', items: { type: 'object' } }, ...WRITE_OUTPUT_COMMON } },
+    _meta: { ui: WRITE_TOOL_UI }
+  },
+  {
+    name: 'account_alias_add',
+    description: 'Bind an alias (virtual card or receipt charge-account string) to an account through the standard POST /accounts/:id/aliases. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        account_id: { type: 'number', description: 'Account ID' },
+        alias_text: { type: 'string', description: 'Alias text, for example "Visa *6125"' },
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
+        requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
+      },
+      required: ['account_id', 'alias_text', 'idempotency_key']
+    },
+    outputSchema: { type: 'object', properties: { alias: { type: 'object' }, ...WRITE_OUTPUT_COMMON } },
+    _meta: { ui: WRITE_TOOL_UI }
+  },
+  {
+    name: 'account_alias_delete',
+    description: 'Remove an alias from an account through the standard DELETE /accounts/:id/aliases/:aliasId. ' + NO_AUTO_CONFIRM_DESCRIPTION + 'Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        account_id: { type: 'number', description: 'Account ID' },
+        alias_id: { type: 'number', description: 'Alias ID' },
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
+        requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
+      },
+      required: ['account_id', 'alias_id', 'idempotency_key']
+    },
+    outputSchema: { type: 'object', properties: { success: { type: 'boolean' }, account_id: { type: 'number' }, alias_id: { type: 'number' }, deleted_alias: { type: 'object' }, ...WRITE_OUTPUT_COMMON } },
+    _meta: { ui: WRITE_TOOL_UI }
+  },
+  {
+    name: 'pending_account_bind',
+    description: 'Bind a pending charge-account string (from pending_accounts_list) to a real account through the standard POST /accounts/pending/:id/bind: creates an alias and removes the pending row. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        pending_id: { type: 'number', description: 'Pending string ID' },
+        account_id: { type: 'number', description: 'Account ID to bind it to' },
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
+        requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
+      },
+      required: ['pending_id', 'account_id', 'idempotency_key']
+    },
+    outputSchema: { type: 'object', properties: { alias: { type: 'object' }, ...WRITE_OUTPUT_COMMON } },
+    _meta: { ui: WRITE_TOOL_UI }
+  },
+  {
+    name: 'transfer_update',
+    description: 'Atomically update both legs of a transfer by transfer_id through the standard PUT /transfers/:id. Omitted fields (including date) keep their current values. A currency change needs the amount in the new currency in the same call. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        transfer_id: { type: 'number', description: 'Transfer ID' },
+        date: { type: 'string', description: 'Date YYYY-MM-DD' },
+        from_account_id: { type: 'number' },
+        to_account_id: { type: 'number' },
+        from_amount_minor: { type: 'number', description: 'Amount leaving the source account, minor units, positive' },
+        to_amount_minor: { type: 'number', description: 'Amount arriving on the target account, minor units, positive' },
+        item: { type: ['string', 'null'] },
+        store: { type: ['string', 'null'] },
+        category: { type: ['string', 'null'] },
+        subcategory: { type: ['string', 'null'] },
+        comment: { type: ['string', 'null'] },
+        receipt_url: { type: ['string', 'null'] },
+        fiscal_receipt_id: { type: ['string', 'null'] },
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
+        requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
+      },
+      required: ['transfer_id', 'idempotency_key']
+    },
+    outputSchema: { type: 'object', properties: { transfer: { type: 'object' }, ...WRITE_OUTPUT_COMMON } },
+    _meta: { ui: WRITE_TOOL_UI }
+  },
+  {
+    name: 'transfer_delete',
+    description: 'Delete a whole transfer (both legs) by transfer_id through the standard DELETE /transfers/:id; both account balances are restored. The preview lists both legs. ' + NO_AUTO_CONFIRM_DESCRIPTION + 'Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        transfer_id: { type: 'number', description: 'Transfer ID' },
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
+        requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
+      },
+      required: ['transfer_id', 'idempotency_key']
+    },
+    outputSchema: { type: 'object', properties: { success: { type: 'boolean' }, transfer_id: { type: 'number' }, deleted_legs: { type: 'array', items: { type: 'object' } }, ...WRITE_OUTPUT_COMMON } },
+    _meta: { ui: WRITE_TOOL_UI }
+  },
+  {
+    name: 'settings_get',
+    description: 'Read all app settings (for example base_currency and low_balance_threshold_minor). Uses GET /settings.',
+    inputSchema: { type: 'object', properties: {} },
+    outputSchema: { type: 'object', properties: { settings: { type: 'object' }, error: { type: 'string' } } }
+  },
+  {
+    name: 'backup_export',
+    description: `Export the full ledger backup (the same JSON as the app's Export backup, GET /backup/export). Pass compat "v2.35" for an explicit older-version file that omits purchase orders and warns with the omitted counts. The full backup stays the default. Documents up to ${BACKUP_EXPORT_MAX_BYTES} bytes (512 KiB) are returned inline in "backup"; above that cap the tool returns truncated: true with table and row counts and explains how to download the full file from the app.`,
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        compat: { type: 'string', enum: ['v2.35'], description: 'Omit purchase-order groupings for a v2.35-compatible file' },
+      },
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        truncated: { type: 'boolean' },
+        size_bytes: { type: 'number' },
+        cap_bytes: { type: 'number' },
+        backup: { type: 'object' },
+        counts: { type: 'object' },
+        message: { type: 'string' },
+        error: { type: 'string' }
+      }
+    }
+  },
+  {
+    name: 'setting_set',
+    description: 'Change one app setting through the standard PUT /settings/:key. Accepted keys: base_currency (ISO-4217 code) and low_balance_threshold_minor (integer >= 0). The preview shows the old and new value. Changing base_currency recalculates all conversions and reports, so auto_confirm is refused for that key. ' + NO_AUTO_CONFIRM_DESCRIPTION + 'Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        key: { type: 'string', enum: [...SETTING_SET_KEYS], description: 'Setting key' },
+        value: { type: ['string', 'number'], description: 'New value' },
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
+        requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
+      },
+      required: ['key', 'value', 'idempotency_key']
+    },
+    outputSchema: { type: 'object', properties: { settings: { type: 'object' }, ...WRITE_OUTPUT_COMMON } },
+    _meta: { ui: WRITE_TOOL_UI }
+  },
+  {
+    name: 'backup_import',
+    description: `Replace ALL ledger data with a backup document through the standard POST /backup/import. Call first with dry_run: true: the document is validated and the row counts are returned, nothing is written and no confirmation is created. Then call without dry_run and with confirm_phrase "${IMPORT_CONFIRM_PHRASE}" to get the confirmation request (MRTR). ${NO_AUTO_CONFIRM_DESCRIPTION}The MCP request body is limited to 64 KiB, so larger backups must be imported in the app. Requires scope "write".` + WRITE_TOOL_MRTR_NOTE,
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        backup: { type: 'object', description: 'Backup document (format money-flow-v2-backup, version 1)' },
+        dry_run: { type: 'boolean', description: 'true: validate and count only, write nothing' },
+        confirm_phrase: { type: 'string', description: `Exact phrase ${IMPORT_CONFIRM_PHRASE}; required unless dry_run is true` },
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
+        requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
+      },
+      required: ['backup', 'idempotency_key']
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        dry_run: { type: 'boolean' },
+        counts: { type: 'object' },
+        current_counts: { type: 'object' },
+        ok: { type: 'boolean' },
+        imported: { type: 'object' },
+        ...WRITE_OUTPUT_COMMON
+      }
+    },
+    _meta: { ui: WRITE_TOOL_UI }
+  },
+  ...statementMcpToolDefinitions({
+    mrtr: WRITE_TOOL_MRTR_NOTE,
+    noAutoConfirm: NO_AUTO_CONFIRM_DESCRIPTION,
+  }),
+  ...purchaseOrderToolDefinitions({
+    mrtr: WRITE_TOOL_MRTR_NOTE,
+    noAutoConfirm: NO_AUTO_CONFIRM_DESCRIPTION,
+  }),
+  ...receiptGroupToolDefinitions({
+    mrtr: WRITE_TOOL_MRTR_NOTE,
+    noAutoConfirm: NO_AUTO_CONFIRM_DESCRIPTION,
+  }),
 ];
 
 for (const tool of TOOLS) {
   if (READ_TOOLS.has(tool.name)) {
     (tool as any).annotations = { ...READ_TOOL_ANNOTATIONS };
-  } else if (['fx_rate_delete', 'operation_delete', 'planned_item_delete', 'recurring_item_delete', 'recurring_item_cancel_period_fulfillment', 'data_reset'].includes(tool.name)) {
+  } else if (['fx_rate_delete', 'operation_delete', 'planned_item_delete', 'recurring_item_delete', 'recurring_item_cancel_period_fulfillment', 'data_reset', 'account_delete', 'account_alias_delete', 'transfer_delete', 'backup_import', ...STATEMENT_NO_AUTO_CONFIRM, ...PURCHASE_NO_AUTO_CONFIRM, ...RECEIPT_GROUP_NO_AUTO_CONFIRM].includes(tool.name)) {
     (tool as any).annotations = { ...WRITE_DELETE_ANNOTATIONS };
   } else if (WRITE_TOOLS.has(tool.name)) {
     (tool as any).annotations = { ...WRITE_TOOL_ANNOTATIONS };
@@ -1093,7 +1512,7 @@ async function requestStateKey(secret: string): Promise<CryptoKey> {
 }
 
 const MCP_CONFIRM_PREFIX = 'mcp_confirm:';
-const WRITE_CREATE_TOOLS = new Set(['operation_add', 'planned_item_add', 'recurring_item_add']);
+const WRITE_CREATE_TOOLS = new Set(['operation_add', 'planned_item_add', 'recurring_item_add', 'account_add']);
 
 function firstId(...values: unknown[]): number | string | null {
   for (const value of values) {
@@ -1144,6 +1563,14 @@ function redactWriteOnlyMutationResult(
   if (name === 'operation_delete') {
     redacted.operation_id = firstId(confirmedArgs.operation_id, written.operation_id);
   }
+  if (['account_update', 'account_delete', 'account_alias_add', 'account_alias_delete', 'pending_account_bind'].includes(name)) {
+    redacted.account_id = firstId(confirmedArgs.account_id);
+  }
+  if (name === 'account_alias_add' || name === 'pending_account_bind') {
+    redacted.alias_id = firstId(written.alias);
+  }
+  if (name === 'account_alias_delete') redacted.alias_id = firstId(confirmedArgs.alias_id);
+  if (name === 'transfer_update' || name === 'transfer_delete') redacted.transfer_id = firstId(confirmedArgs.transfer_id);
   return redacted;
 }
 
@@ -1153,8 +1580,7 @@ function clientWriteDescription(
   hasRead: boolean,
   confirmedArgs?: Record<string, unknown>,
 ): string {
-  if (hasRead && detailed) return detailed;
-  if (WRITE_CREATE_TOOLS.has(name) && detailed) return detailed;
+  if (detailed && (hasRead || WRITE_CREATE_TOOLS.has(name) || STATEMENT_MUTATION_TOOLS.has(name))) return detailed;
   if (name === 'transfer_add') return 'Confirm the transfer';
   if (name === 'balance_correct' && confirmedArgs) {
     return `Confirm the balance adjustment of account ID ${confirmedArgs.account_id}: new balance ${confirmedArgs.balance_minor}`;
@@ -1222,10 +1648,26 @@ async function validateWriteArgs(
   args: any,
   db: D1Database | undefined,
   hasReadScope = true,
-): Promise<{ error?: string; description?: string; confirmedArgs?: any; confirmationSnapshot?: any }> {
+): Promise<{ error?: string; description?: string; confirmedArgs?: any; confirmationSnapshot?: any; uploadIds?: string[] }> {
   const idempotencyKey = typeof args.idempotency_key === 'string' ? args.idempotency_key.trim() : '';
   if (!idempotencyKey) {
     return { error: 'The idempotency_key field is required for all write operations' };
+  }
+
+  if ((PURCHASE_WRITE_TOOLS as readonly string[]).includes(name)) {
+    return validatePurchaseOrderWrite(name, args, idempotencyKey);
+  }
+
+  if ((RECEIPT_GROUP_WRITE_TOOLS as readonly string[]).includes(name)) {
+    return validateReceiptGroupWrite(name, args, idempotencyKey);
+  }
+
+  if (STATEMENT_MUTATION_TOOLS.has(name)) {
+    const statementValidation = await validateStatementWrite(name, args, db, idempotencyKey);
+    if (statementValidation.confirmedArgs && name === 'template_create') {
+      statementValidation.confirmedArgs.created_by_client_id = null;
+    }
+    return statementValidation;
   }
 
   if (name === 'operation_add') {
@@ -1402,7 +1844,11 @@ async function validateWriteArgs(
     if (!current) {
       return { error: 'Operation not found' };
     }
-    const transferNote = current.transfer_id !== null ? ` The whole linked transfer transfer_id=${current.transfer_id} will be deleted with both legs.` : '';
+    let transferNote = '';
+    if (current.transfer_id !== null) {
+      const legs = db ? await loadTransferLegs(db, current.transfer_id) : [];
+      transferNote = ` WARNING: this operation is a leg of transfer_id=${current.transfer_id}, so the WHOLE transfer (both legs) will be deleted${legs.length > 0 ? `: ${describeTransferLegs(legs)}` : ''}. Prefer transfer_delete with transfer_id=${current.transfer_id} for an explicit transfer deletion.`;
+    }
     const plannedNote = current.planned_item_id !== null ? ` The linked planned item planned_item_id=${current.planned_item_id} will have done cleared.` : '';
     const description = `Confirm deleting operation ID ${operationId}: ${current.kind} "${current.item}" for ${current.amount_minor} ${current.currency}.${transferNote}${plannedNote}`;
     return { description, confirmedArgs: { operation_id: operationId, idempotency_key: idempotencyKey } };
@@ -1913,6 +2359,198 @@ async function validateWriteArgs(
     return { description, confirmedArgs };
   }
 
+  if (name === 'account_add' || name === 'account_update' || name === 'account_delete'
+    || name === 'account_alias_add' || name === 'account_alias_delete' || name === 'pending_account_bind') {
+    const control = new Set(['idempotency_key', 'requestState']);
+    const allowedByTool: Record<string, readonly string[]> = {
+      account_add: ACCOUNT_ADD_FIELDS,
+      account_update: ['account_id', ...ACCOUNT_UPDATE_FIELDS],
+      account_delete: ['account_id'],
+      account_alias_add: ['account_id', 'alias_text'],
+      account_alias_delete: ['account_id', 'alias_id'],
+      pending_account_bind: ['pending_id', 'account_id'],
+    };
+    const allowed = allowedByTool[name];
+    const rejected = Object.keys(args).filter((key) => !control.has(key) && !allowed.includes(key));
+    if (rejected.length > 0) {
+      return { error: `Fields not allowed for ${name}: ${rejected.join(', ')}. Allowed fields: ${allowed.join(', ')}, idempotency_key, requestState` };
+    }
+    const positiveId = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value > 0;
+    const loadAccount = async (id: number) => db
+      ? db.prepare('SELECT id, name, currency, balance_minor, archived FROM accounts WHERE id = ?').bind(id)
+        .first<{ id: number; name: string; currency: string; balance_minor: number; archived: number }>()
+      : null;
+
+    if (name === 'account_add') {
+      for (const field of ['name', 'currency', 'owner', 'country'] as const) {
+        if (typeof args[field] !== 'string' || args[field].trim().length === 0) {
+          return { error: `${field} is required and must be a non-empty string` };
+        }
+      }
+      const confirmedArgs: Record<string, unknown> = {};
+      for (const field of ACCOUNT_ADD_FIELDS) if (field in args) confirmedArgs[field] = args[field];
+      confirmedArgs.idempotency_key = idempotencyKey;
+      return {
+        description: `Confirm creating account "${String(args.name).trim()}" (${String(args.currency).trim().toUpperCase()}, owner ${String(args.owner).trim()}, ${String(args.country).trim()})${args.balance_minor !== undefined ? ` with opening balance ${args.balance_minor}` : ''}`,
+        confirmedArgs,
+      };
+    }
+
+    if (!positiveId(args.account_id)) return { error: 'Invalid account_id' };
+    const accountId = args.account_id as number;
+    const account = await loadAccount(accountId);
+    if (db && !account) return { error: 'Account not found' };
+
+    if (name === 'account_update') {
+      const patch: Record<string, unknown> = {};
+      for (const field of ACCOUNT_UPDATE_FIELDS) if (field in args) patch[field] = args[field];
+      if (Object.keys(patch).length === 0) {
+        return { error: `Pass at least one field to change. Allowed fields: ${ACCOUNT_UPDATE_FIELDS.join(', ')}` };
+      }
+      return {
+        description: `Confirm the change of account ID ${accountId}${account ? ` "${account.name}"` : ''}: fields ${Object.keys(patch).join(', ')}`,
+        confirmedArgs: { account_id: accountId, ...patch, idempotency_key: idempotencyKey },
+      };
+    }
+
+    if (name === 'account_delete') {
+      if (db) {
+        const refs = await countAccountRefs(db, accountId);
+        if (refs > 0) return { error: accountInUseMessage(accountId, refs) };
+      }
+      const aliases = db ? await listAliases(db, accountId) : [];
+      const aliasNote = aliases.length > 0
+        ? ` Its ${aliases.length} alias(es) will be removed with it: ${aliases.map((alias) => `"${alias.alias_text}" (ID ${alias.id})`).join(', ')}.`
+        : ' It has no aliases.';
+      return {
+        description: `Confirm deleting account ID ${accountId}${account ? ` "${account.name}" (${account.currency}, balance ${account.balance_minor})` : ''}. It has no operations, planned items or recurring rules.${aliasNote}`,
+        confirmedArgs: { account_id: accountId, idempotency_key: idempotencyKey },
+      };
+    }
+
+    if (name === 'account_alias_add') {
+      if (typeof args.alias_text !== 'string' || args.alias_text.trim().length === 0) {
+        return { error: 'alias_text is required and cannot be empty' };
+      }
+      return {
+        description: `Confirm binding alias "${args.alias_text.trim()}" to account ID ${accountId}${account ? ` "${account.name}"` : ''}`,
+        confirmedArgs: { account_id: accountId, alias_text: args.alias_text.trim(), idempotency_key: idempotencyKey },
+      };
+    }
+
+    if (name === 'account_alias_delete') {
+      if (!positiveId(args.alias_id)) return { error: 'Invalid alias_id' };
+      const alias = db
+        ? await db.prepare('SELECT id, alias_text FROM account_aliases WHERE id = ? AND account_id = ?').bind(args.alias_id, accountId)
+          .first<{ id: number; alias_text: string }>()
+        : null;
+      if (db && !alias) return { error: 'Alias not found on this account' };
+      return {
+        description: `Confirm removing alias ID ${args.alias_id}${alias ? ` "${alias.alias_text}"` : ''} from account ID ${accountId}${account ? ` "${account.name}"` : ''}. Only the alias is removed; operations and balances are unchanged.`,
+        confirmedArgs: { account_id: accountId, alias_id: args.alias_id, idempotency_key: idempotencyKey },
+      };
+    }
+
+    // pending_account_bind
+    if (!positiveId(args.pending_id)) return { error: 'Invalid pending_id' };
+    const pending = db
+      ? await db.prepare('SELECT id, raw_string FROM pending_account_strings WHERE id = ?').bind(args.pending_id)
+        .first<{ id: number; raw_string: string }>()
+      : null;
+    if (db && !pending) return { error: 'Pending account string not found' };
+    return {
+      description: `Confirm binding pending string ID ${args.pending_id}${pending ? ` "${pending.raw_string}"` : ''} to account ID ${accountId}${account ? ` "${account.name}"` : ''}: an alias is created and the pending row is removed`,
+      confirmedArgs: { pending_id: args.pending_id, account_id: accountId, idempotency_key: idempotencyKey },
+    };
+  }
+
+  if (name === 'transfer_update' || name === 'transfer_delete') {
+    const allowed: readonly string[] = name === 'transfer_update' ? ['transfer_id', ...TRANSFER_UPDATE_FIELDS] : ['transfer_id'];
+    const rejected = Object.keys(args).filter((key) => key !== 'idempotency_key' && key !== 'requestState' && !allowed.includes(key));
+    if (rejected.length > 0) {
+      return { error: `Fields not allowed for ${name}: ${rejected.join(', ')}. Allowed fields: ${allowed.join(', ')}, idempotency_key, requestState` };
+    }
+    const transferId = args.transfer_id;
+    if (typeof transferId !== 'number' || !Number.isInteger(transferId) || transferId <= 0) return { error: 'Invalid transfer_id' };
+    const legs = db ? await loadTransferLegs(db, transferId) : [];
+    if (db && legs.length === 0) return { error: 'Transfer not found' };
+    if (name === 'transfer_delete') {
+      return {
+        description: `Confirm deleting transfer ID ${transferId} with both legs: ${describeTransferLegs(legs)}. Both account balances are restored.`,
+        confirmedArgs: { transfer_id: transferId, idempotency_key: idempotencyKey },
+      };
+    }
+    const patch: Record<string, unknown> = {};
+    for (const field of TRANSFER_UPDATE_FIELDS) if (field in args) patch[field] = args[field];
+    if (Object.keys(patch).length === 0) {
+      return { error: `Pass at least one field to change. Allowed fields: ${TRANSFER_UPDATE_FIELDS.join(', ')}` };
+    }
+    return {
+      description: `Confirm the change of transfer ID ${transferId} (${describeTransferLegs(legs)}): fields ${Object.keys(patch).join(', ')}`,
+      confirmedArgs: { transfer_id: transferId, ...patch, idempotency_key: idempotencyKey },
+    };
+  }
+
+  if (name === 'setting_set') {
+    const rejected = Object.keys(args).filter((key) => !['key', 'value', 'idempotency_key', 'requestState'].includes(key));
+    if (rejected.length > 0) {
+      return { error: `Fields not allowed for setting_set: ${rejected.join(', ')}. Allowed fields: key, value, idempotency_key, requestState` };
+    }
+    if (args.key === PURCHASE_ORDERS_EPOCH_KEY) {
+      return { error: 'purchase_orders_epoch is reserved and cannot be changed through setting_set' };
+    }
+    if (typeof args.key !== 'string' || !(SETTING_SET_KEYS as readonly string[]).includes(args.key)) {
+      return { error: `key must be one of: ${SETTING_SET_KEYS.join(', ')}` };
+    }
+    if (typeof args.value !== 'string' && typeof args.value !== 'number') {
+      return { error: 'value is required and must be a string or a number' };
+    }
+    const current = db
+      ? await db.prepare('SELECT value FROM settings WHERE key = ?').bind(args.key).first<{ value: string }>()
+      : null;
+    const oldValue = current?.value ?? '(not set)';
+    const newValue = args.key === 'base_currency' && typeof args.value === 'string' ? args.value.trim().toUpperCase() : String(args.value);
+    const description = args.key === 'base_currency'
+      ? `Confirm changing the base currency from ${oldValue} to ${newValue}. WARNING: all conversions and reports (balances in the base currency, forecast, analytics) will be recalculated in ${newValue}. Stored amounts and exchange rates are not changed.`
+      : `Confirm changing ${args.key} from ${oldValue} to ${newValue}`;
+    return { description, confirmedArgs: { key: args.key, value: args.value, idempotency_key: idempotencyKey } };
+  }
+
+  if (name === 'backup_import') {
+    const rejected = Object.keys(args).filter((key) => !['backup', 'dry_run', 'confirm_phrase', 'idempotency_key', 'requestState'].includes(key));
+    if (rejected.length > 0) {
+      return { error: `Fields not allowed for backup_import: ${rejected.join(', ')}. Allowed fields: backup, dry_run, confirm_phrase, idempotency_key, requestState` };
+    }
+    if (args.confirm_phrase !== IMPORT_CONFIRM_PHRASE) {
+      return { error: `confirm_phrase must be exactly ${IMPORT_CONFIRM_PHRASE}. Run backup_import with dry_run: true first to check the document.` };
+    }
+    let counts: Record<string, number>;
+    try {
+      counts = backupTableCounts(parseBackupDocument({ confirm: true, backup: args.backup }).tables);
+    } catch (e: any) {
+      return { error: `The backup document is invalid: ${e?.code ?? 'BACKUP_FORMAT_INVALID'}${e?.message ? ` (${e.message})` : ''}` };
+    }
+    const summary = Object.entries(counts).map(([table, n]) => `${table}: ${n}`).join(', ');
+    let orderWarning = '';
+    let acknowledge = false;
+    if (db && backupOmitsOrderGroupings(parseBackupDocument({ confirm: true, backup: args.backup }).tables)) {
+      const existing = await countOrderGroupings(db);
+      if (existing.purchase_orders > 0 || existing.purchase_order_components > 0) {
+        acknowledge = true;
+        orderWarning = ` This backup contains no order groupings. ${existing.purchase_orders} existing groupings and ${existing.purchase_order_components} links will be removed.`;
+      }
+    }
+    return {
+      description: `Confirm replacing ALL ledger data with the backup. Every current row in the backup tables is deleted and replaced by: ${summary}.${orderWarning} This cannot be undone; export a backup first if you need the current data.`,
+      confirmedArgs: {
+        backup: args.backup,
+        confirm_phrase: IMPORT_CONFIRM_PHRASE,
+        idempotency_key: idempotencyKey,
+        ...(acknowledge ? { acknowledge_order_removal: true } : {}),
+      },
+    };
+  }
+
   return { error: `Unknown tool: ${name}` };
 }
 
@@ -1962,8 +2600,10 @@ mcpApp.post('/mcp', async (c) => {
   const headerName = c.req.header('Mcp-Name') || c.req.header('mcp-name');
 
   let body: any = null;
+  let rawText = '';
   try {
-    body = await readLimitedJson(c.req.raw, MCP_MAX_JSON_BYTES);
+    rawText = await readLimitedText(c.req.raw, STATEMENT_IMPORT_MCP_JSON_MAX_BYTES);
+    body = rawText.trim().length === 0 ? {} : JSON.parse(rawText);
   } catch (e) {
     if (e instanceof BodyTooLargeError) {
       return c.json({
@@ -1991,6 +2631,18 @@ mcpApp.post('/mcp', async (c) => {
 
   if (jsonrpc !== '2.0' || !method) {
     return c.json({ jsonrpc: '2.0', error: { code: -32600, message: 'Invalid Request' }, id });
+  }
+
+  const earlyToolName = method === 'tools/call'
+    ? (typeof params?.name === 'string' && params.name.trim() ? params.name.trim() : (headerName?.trim() ?? ''))
+    : '';
+  const rawBytes = new TextEncoder().encode(rawText).byteLength;
+  if (rawBytes > MCP_MAX_JSON_BYTES && !STATEMENT_INLINE_TOOLS.has(earlyToolName)) {
+    return c.json({
+      jsonrpc: '2.0',
+      error: { code: -32600, message: 'FILTER_TOO_LARGE' },
+      id,
+    });
   }
 
   c.header('Mcp-Method', method);
@@ -2221,7 +2873,7 @@ mcpApp.post('/mcp', async (c) => {
       return false;
     }).map((tool) => {
       let sanitizedSchema = sanitizeJsonSchema(tool.inputSchema);
-      if (WRITE_TOOLS.has(tool.name)) {
+      if (WRITE_TOOLS.has(tool.name) && !NO_AUTO_CONFIRM_TOOLS.has(tool.name) && tool.name !== 'statement_import_upload_create') {
         return {
           ...tool,
           inputSchema: {
@@ -2279,6 +2931,88 @@ mcpApp.post('/mcp', async (c) => {
         });
       }
 
+      if (name === 'template_list' || name === 'template_get' || name === 'statement_import_preview') {
+        try {
+          if (name === 'statement_import_preview') {
+            const key = statementPreviewIdempotencyKey(args);
+            const prepared = await prepareStatementImport(c.env.DB, args, key);
+            if (!prepared.ok) {
+              const errMsg = `Error executing tool: ${prepared.code}: ${prepared.message}`;
+              await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
+              return c.json({
+                jsonrpc: '2.0',
+                id,
+                result: callToolResult({
+                  content: [{ type: 'text', text: errMsg }],
+                  isError: true,
+                  structuredContent: {
+                    error: errMsg,
+                    code: prepared.code,
+                    committable: false,
+                    ...(prepared.preview ?? {}),
+                  },
+                }),
+              });
+            }
+            const fingerprint = await writeArgumentFingerprint(prepared.confirmedArgs);
+            const confirmHandle = await storeWriteConfirmation(c.env, {
+              confirmedArgs: prepared.confirmedArgs,
+              confirmationSnapshot: null,
+            });
+            const requestState = await encodeRequestState(c.env.SESSION_SECRET, {
+              name: 'statement_import_commit',
+              confirmHandle,
+              clientId,
+              idempotency_key: key,
+              argumentFingerprint: fingerprint,
+              createdAt: Date.now(),
+            });
+            await consumePreparedUploads(c.env.DB, prepared.uploadIds);
+            const data = {
+              ...prepared.preview,
+              idempotency_key: key,
+              requestState,
+              resultType: 'complete',
+              written: false,
+            };
+            await recordToolAudit(c.env.DB, clientId, name, 'success', prepared.description);
+            return c.json({
+              jsonrpc: '2.0',
+              id,
+              result: callToolResult({
+                content: [{ type: 'text', text: JSON.stringify(data) }],
+                structuredContent: data,
+              }),
+            });
+          }
+          const data = await readStatementTemplateTool(c.env.DB, name, args);
+          await recordToolAudit(c.env.DB, clientId, name, 'success', summarizeToolResult(data));
+          return c.json({
+            jsonrpc: '2.0',
+            id,
+            result: callToolResult({
+              content: [{ type: 'text', text: JSON.stringify(data) }],
+              structuredContent: data,
+            }),
+          });
+        } catch (error) {
+          const detail = error instanceof ValidationError
+            ? `${error.code}: ${error.message}`
+            : (error instanceof Error ? error.message : 'Statement tool failed');
+          const errMsg = `Error executing tool: ${detail}`;
+          await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
+          return c.json({
+            jsonrpc: '2.0',
+            id,
+            result: callToolResult({
+              content: [{ type: 'text', text: errMsg }],
+              isError: true,
+              structuredContent: { error: errMsg, code: error instanceof ValidationError ? error.code : 'IMPORT_FILE_INVALID' },
+            }),
+          });
+        }
+      }
+
       let path = '';
       let httpMethod = 'GET';
       let reqBody: any = undefined;
@@ -2310,6 +3044,98 @@ mcpApp.post('/mcp', async (c) => {
             path += `?days=${args.days}`;
           }
           break;
+        case 'account_aliases_list':
+          if (typeof args.account_id !== 'number' || !Number.isInteger(args.account_id) || args.account_id <= 0) {
+            const errMsg = 'Error executing tool: Invalid account_id';
+            await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
+            return c.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: errMsg }], isError: true, structuredContent: { error: errMsg } } });
+          }
+          path = `/accounts/${args.account_id}/aliases`;
+          break;
+        case 'account_resolve':
+          if (typeof args.q !== 'string' || args.q.trim().length === 0) {
+            const errMsg = 'Error executing tool: q is required and cannot be empty';
+            await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
+            return c.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: errMsg }], isError: true, structuredContent: { error: errMsg } } });
+          }
+          path = `/accounts/resolve?q=${encodeURIComponent(args.q)}`;
+          break;
+        case 'pending_accounts_list':
+          path = '/accounts/pending';
+          break;
+        case 'settings_get':
+          path = '/settings';
+          break;
+        case 'backup_export':
+          if (args.compat !== undefined && args.compat !== 'v2.35') {
+            const errMsg = 'Error executing tool: compat must be "v2.35" when set';
+            await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
+            return c.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: errMsg }], isError: true, structuredContent: { error: errMsg } } });
+          }
+          path = args.compat === 'v2.35' ? '/backup/export?compat=v2.35' : '/backup/export';
+          break;
+        case 'purchase_orders_list': {
+          const search = new URLSearchParams();
+          if (typeof args.q === 'string' && args.q.length > 0) search.set('q', args.q);
+          if (args.limit !== undefined) {
+            if (typeof args.limit !== 'number' || !Number.isInteger(args.limit) || args.limit < 1 || args.limit > 100) {
+              const errMsg = 'Error executing tool: limit must be an integer from 1 to 100';
+              await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
+              return c.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: errMsg }], isError: true, structuredContent: { error: errMsg } } });
+            }
+            search.set('limit', String(args.limit));
+          }
+          if (args.cursor !== undefined) {
+            if (args.limit === undefined || typeof args.cursor !== 'number' || !Number.isInteger(args.cursor) || args.cursor < 1) {
+              const errMsg = 'Error executing tool: cursor must be a positive integer and requires limit';
+              await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
+              return c.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: errMsg }], isError: true, structuredContent: { error: errMsg } } });
+            }
+            search.set('cursor', String(args.cursor));
+          }
+          const query = search.toString();
+          path = query.length > 0 ? `/purchase-orders?${query}` : '/purchase-orders';
+          break;
+        }
+        case 'purchase_order_get':
+          if (typeof args.order_id !== 'number' || !Number.isInteger(args.order_id) || args.order_id <= 0) {
+            const errMsg = 'Error executing tool: Invalid order_id';
+            await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
+            return c.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: errMsg }], isError: true, structuredContent: { error: errMsg } } });
+          }
+          path = `/purchase-orders/${args.order_id}`;
+          break;
+        case 'receipt_groups_list': {
+          const search = new URLSearchParams();
+          if (typeof args.q === 'string' && args.q.length > 0) search.set('q', args.q);
+          if (args.limit !== undefined) {
+            if (typeof args.limit !== 'number' || !Number.isInteger(args.limit) || args.limit < 1 || args.limit > 100) {
+              const errMsg = 'Error executing tool: limit must be an integer from 1 to 100';
+              await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
+              return c.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: errMsg }], isError: true, structuredContent: { error: errMsg } } });
+            }
+            search.set('limit', String(args.limit));
+          }
+          if (args.cursor !== undefined) {
+            if (args.limit === undefined || typeof args.cursor !== 'number' || !Number.isInteger(args.cursor) || args.cursor < 1) {
+              const errMsg = 'Error executing tool: cursor must be a positive integer and requires limit';
+              await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
+              return c.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: errMsg }], isError: true, structuredContent: { error: errMsg } } });
+            }
+            search.set('cursor', String(args.cursor));
+          }
+          const query = search.toString();
+          path = query.length > 0 ? `/receipt-groups?${query}` : '/receipt-groups';
+          break;
+        }
+        case 'receipt_group_get':
+          if (typeof args.group_id !== 'number' || !Number.isInteger(args.group_id) || args.group_id <= 0) {
+            const errMsg = 'Error executing tool: Invalid group_id';
+            await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
+            return c.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: errMsg }], isError: true, structuredContent: { error: errMsg } } });
+          }
+          path = `/receipt-groups/${args.group_id}`;
+          break;
         case 'analytics_get':
           path = '/analytics';
           httpMethod = 'POST';
@@ -2334,8 +3160,11 @@ mcpApp.post('/mcp', async (c) => {
           throw new Error(`API error: ${response.status} ${await response.text()}`);
         }
 
-        const data = await response.json();
-        await recordToolAudit(c.env.DB, clientId, name, 'success', summarizeToolResult(data));
+        const rawData = await response.json();
+        const data = name === 'backup_export' ? capBackupExport(rawData) : rawData;
+        await recordToolAudit(c.env.DB, clientId, name, 'success', name === 'backup_export'
+          ? `backup_export ${(data as any).truncated ? 'summary' : 'inline'} ${(data as any).size_bytes} bytes`
+          : summarizeToolResult(data));
 
         return c.json({
           jsonrpc: '2.0',
@@ -2373,6 +3202,34 @@ mcpApp.post('/mcp', async (c) => {
           id,
           error: { code: -32001, message: 'Insufficient permissions. "write" scope required.' }
         });
+      }
+
+      if (name === 'statement_import_upload_create') {
+        try {
+          const data = await createStatementUploadForMcp(c.env.DB, c.env.SESSION_SECRET, args.filename, new URL(c.req.url).origin);
+          await recordToolAudit(c.env.DB, clientId, name, 'success', `upload slot ${String(data.upload_id)}`);
+          return c.json({
+            jsonrpc: '2.0',
+            id,
+            result: callToolResult({
+              content: [{ type: 'text', text: JSON.stringify(data) }],
+              structuredContent: data,
+            }),
+          });
+        } catch (error) {
+          const detail = error instanceof ValidationError ? `${error.code}: ${error.message}` : (error instanceof Error ? error.message : 'Upload slot failed');
+          const errMsg = `Error executing tool: ${detail}`;
+          await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
+          return c.json({
+            jsonrpc: '2.0',
+            id,
+            result: callToolResult({
+              content: [{ type: 'text', text: errMsg }],
+              isError: true,
+              structuredContent: { error: errMsg },
+            }),
+          });
+        }
       }
 
       const idempotencyKey = typeof args.idempotency_key === 'string' ? args.idempotency_key.trim() : '';
@@ -2456,10 +3313,77 @@ mcpApp.post('/mcp', async (c) => {
             },
           });
         }
-        // auto_confirm is an execution control advertised uniformly for write
-        // tools. Domain validators must see only domain arguments so the
-        // control cannot be rejected as an unknown financial field or become
-        // part of the signed/persisted mutation payload.
+        // auto_confirm is an execution control advertised for write tools that
+        // are not in NO_AUTO_CONFIRM_TOOLS. Domain validators must see only
+        // domain arguments so the control cannot be rejected as an unknown
+        // financial field or become part of the signed/persisted mutation payload.
+        if (name === 'template_update' && args.auto_confirm === true) {
+          const decision = await templateUpdateAutoConfirmDecision(c.env.DB, clientId, args.template_id);
+          if (decision === 'deny') {
+            const errMsg = 'Error executing tool: auto_confirm is not accepted for template_update unless this MCP client created the template and it has not been used in an import batch; a human confirmation through requestState is required';
+            await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
+            return c.json({
+              jsonrpc: '2.0', id,
+              result: { content: [{ type: 'text', text: errMsg }], isError: true, structuredContent: { error: errMsg } },
+            });
+          }
+        }
+        if (name === 'setting_set' && NO_AUTO_CONFIRM_SETTING_KEYS.has(String(args.key)) && 'auto_confirm' in args) {
+          const errMsg = `Error executing tool: auto_confirm is not accepted for setting_set with key ${String(args.key)}; changing the base currency recalculates all conversions and reports and always needs a human confirmation through requestState`;
+          await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
+          return c.json({
+            jsonrpc: '2.0', id,
+            result: { content: [{ type: 'text', text: errMsg }], isError: true, structuredContent: { error: errMsg } },
+          });
+        }
+        if (name === 'backup_import' && args.dry_run === true && !('auto_confirm' in args)) {
+          // Dry run: validate through parseBackupDocument and count rows. Nothing is written,
+          // no confirmation is stored and no idempotency execution is claimed.
+          const extra = Object.keys(args).filter((key) => !['backup', 'dry_run', 'confirm_phrase', 'idempotency_key'].includes(key));
+          let structured: Record<string, unknown>;
+          let isError = false;
+          if (extra.length > 0) {
+            structured = { error: `Error executing tool: Fields not allowed for backup_import: ${extra.join(', ')}. Allowed fields: backup, dry_run, confirm_phrase, idempotency_key, requestState` };
+            isError = true;
+          } else {
+            try {
+              const document = parseBackupDocument({ confirm: true, backup: args.backup });
+              const current: Record<string, number> = {};
+              for (const table of USER_TABLES) {
+                const row = await c.env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first<{ n: number }>();
+                current[table] = row?.n ?? 0;
+              }
+              const existingOrders = backupOmitsOrderGroupings(document.tables)
+                ? await countOrderGroupings(c.env.DB)
+                : { purchase_orders: 0, purchase_order_components: 0 };
+              const orderRemoval = existingOrders.purchase_orders > 0 || existingOrders.purchase_order_components > 0
+                ? `This backup contains no order groupings. ${existingOrders.purchase_orders} existing groupings and ${existingOrders.purchase_order_components} links will be removed.`
+                : undefined;
+              structured = {
+                dry_run: true, written: false, resultType: 'complete', tool: name,
+                counts: backupTableCounts(document.tables), current_counts: current,
+                ...(orderRemoval ? { order_removal_warning: orderRemoval, omitted_groupings: existingOrders } : {}),
+                description: `Dry run only, nothing was written. To import, call backup_import again without dry_run and with confirm_phrase ${IMPORT_CONFIRM_PHRASE}, then confirm.`,
+              };
+            } catch (e: any) {
+              structured = { error: `Error executing tool: The backup document is invalid: ${e?.code ?? 'BACKUP_FORMAT_INVALID'}${e?.message ? ` (${e.message})` : ''}` };
+              isError = true;
+            }
+          }
+          await recordToolAudit(c.env.DB, clientId, name, isError ? 'error' : 'success', isError ? String(structured.error) : 'dry run: nothing written');
+          return c.json({
+            jsonrpc: '2.0', id,
+            result: { content: [{ type: 'text', text: JSON.stringify(structured) }], ...(isError ? { isError: true } : {}), structuredContent: structured },
+          });
+        }
+        if (NO_AUTO_CONFIRM_TOOLS.has(name) && 'auto_confirm' in args) {
+          const errMsg = `Error executing tool: auto_confirm is not accepted for ${name}; a destructive change always needs a human confirmation through requestState`;
+          await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
+          return c.json({
+            jsonrpc: '2.0', id,
+            result: { content: [{ type: 'text', text: errMsg }], isError: true, structuredContent: { error: errMsg } },
+          });
+        }
         const { auto_confirm: _ignoredAutoConfirm, ...validationArgs } = args;
         const validation = await validateWriteArgs(name, validationArgs, c.env.DB, hasReadScope);
         if (validation.error) {
@@ -2483,7 +3407,7 @@ mcpApp.post('/mcp', async (c) => {
 
         const isAgent = clientId !== 'anonymous';
         // Allow a non-anonymous client to perform a direct write (Single Round-Trip).
-        // For fx_rate_set, allow it by default (as Gemini requested) unless auto_confirm: false is passed explicitly (for MRTR tests).
+        // auto_confirm defaults to true for fx_rate_set (unattended daily FX skill).
         const autoConfirm = args.auto_confirm === true || (name === 'fx_rate_set' && args.auto_confirm !== false);
         const shouldDirectExecute = isAgent && autoConfirm;
 
@@ -2512,6 +3436,9 @@ mcpApp.post('/mcp', async (c) => {
             argumentFingerprint: incomingArgumentFingerprint,
             createdAt: Date.now()
           });
+          if (validation.uploadIds && validation.uploadIds.length > 0) {
+            await consumePreparedUploads(c.env.DB, validation.uploadIds);
+          }
 
           const visibleDescription = clientWriteDescription(
             name,
@@ -2607,7 +3534,7 @@ mcpApp.post('/mcp', async (c) => {
           if (storedWriteFingerprint(claim.resultSummary) !== state.argumentFingerprint) {
             return idempotencyArgumentConflictResult(id);
           }
-          if (!hasReadScope && !WRITE_CREATE_TOOLS.has(name)) {
+          if (!hasReadScope && !WRITE_CREATE_TOOLS.has(name) && !STATEMENT_MUTATION_TOOLS.has(name)) {
             try {
               const parsed = JSON.parse(claim.resultSummary) as Record<string, unknown>;
               delete parsed[IDEMPOTENCY_FINGERPRINT_FIELD];
@@ -2645,14 +3572,23 @@ mcpApp.post('/mcp', async (c) => {
       subHeaders.set('content-type', 'application/json');
       let subReq: Request;
       let operationDeleteSnapshot: Record<string, unknown> | null = null;
+      let accountDeleteSnapshot: Record<string, any> | null = null;
       const ledgerInvariantBefore = (
         name === 'planned_item_fulfill_existing'
         || name === 'recurring_item_fulfill_existing'
         || name === 'recurring_item_skip_period'
         || name === 'recurring_item_cancel_period_fulfillment'
+        || (PURCHASE_WRITE_TOOLS as readonly string[]).includes(name)
+        || (RECEIPT_GROUP_WRITE_TOOLS as readonly string[]).includes(name)
       ) ? await loadLedgerInvariant(c.env.DB) : null;
 
-      if (name === 'operation_add') {
+      const purchaseRequest = purchaseOrderWriteRequest(name, state.confirmedArgs, reqUrl.origin, subHeaders);
+      const receiptGroupRequest = receiptGroupWriteRequest(name, state.confirmedArgs, reqUrl.origin, subHeaders);
+      if (purchaseRequest) {
+        subReq = purchaseRequest;
+      } else if (receiptGroupRequest) {
+        subReq = receiptGroupRequest;
+      } else if (name === 'operation_add') {
         subReq = new Request(new URL('/operations', reqUrl.origin).toString(), {
           method: 'POST',
           headers: subHeaders,
@@ -2776,12 +3712,72 @@ mcpApp.post('/mcp', async (c) => {
           method: 'DELETE',
           headers: subHeaders
         });
+      } else if (name === 'account_add') {
+        const { idempotency_key: _ignoredIdempotencyKey, ...createArgs } = state.confirmedArgs;
+        subReq = new Request(new URL('/accounts', reqUrl.origin).toString(), {
+          method: 'POST', headers: subHeaders, body: JSON.stringify(createArgs),
+        });
+      } else if (name === 'account_update') {
+        const { account_id, idempotency_key: _ignoredIdempotencyKey, ...patchArgs } = state.confirmedArgs;
+        subReq = new Request(new URL(`/accounts/${account_id}`, reqUrl.origin).toString(), {
+          method: 'PATCH', headers: subHeaders, body: JSON.stringify(patchArgs),
+        });
+      } else if (name === 'account_delete') {
+        accountDeleteSnapshot = {
+          account: await c.env.DB.prepare('SELECT * FROM accounts WHERE id = ?').bind(state.confirmedArgs.account_id).first(),
+          aliases: await listAliases(c.env.DB, state.confirmedArgs.account_id),
+        };
+        subReq = new Request(new URL(`/accounts/${state.confirmedArgs.account_id}`, reqUrl.origin).toString(), {
+          method: 'DELETE', headers: subHeaders,
+        });
+      } else if (name === 'account_alias_add') {
+        subReq = new Request(new URL(`/accounts/${state.confirmedArgs.account_id}/aliases`, reqUrl.origin).toString(), {
+          method: 'POST', headers: subHeaders, body: JSON.stringify({ alias_text: state.confirmedArgs.alias_text }),
+        });
+      } else if (name === 'account_alias_delete') {
+        accountDeleteSnapshot = {
+          alias: await c.env.DB.prepare('SELECT id, account_id, alias_text, created_at FROM account_aliases WHERE id = ? AND account_id = ?')
+            .bind(state.confirmedArgs.alias_id, state.confirmedArgs.account_id).first(),
+        };
+        subReq = new Request(new URL(`/accounts/${state.confirmedArgs.account_id}/aliases/${state.confirmedArgs.alias_id}`, reqUrl.origin).toString(), {
+          method: 'DELETE', headers: subHeaders,
+        });
+      } else if (name === 'pending_account_bind') {
+        subReq = new Request(new URL(`/accounts/pending/${state.confirmedArgs.pending_id}/bind`, reqUrl.origin).toString(), {
+          method: 'POST', headers: subHeaders, body: JSON.stringify({ account_id: state.confirmedArgs.account_id }),
+        });
+      } else if (name === 'transfer_update') {
+        const { transfer_id, idempotency_key: _ignoredIdempotencyKey, ...patchArgs } = state.confirmedArgs;
+        subReq = new Request(new URL(`/transfers/${transfer_id}`, reqUrl.origin).toString(), {
+          method: 'PUT', headers: subHeaders, body: JSON.stringify(patchArgs),
+        });
+      } else if (name === 'transfer_delete') {
+        accountDeleteSnapshot = { legs: await loadTransferLegs(c.env.DB, state.confirmedArgs.transfer_id) };
+        subReq = new Request(new URL(`/transfers/${state.confirmedArgs.transfer_id}`, reqUrl.origin).toString(), {
+          method: 'DELETE', headers: subHeaders,
+        });
+      } else if (name === 'setting_set') {
+        subReq = new Request(new URL(`/settings/${encodeURIComponent(state.confirmedArgs.key)}`, reqUrl.origin).toString(), {
+          method: 'PUT', headers: subHeaders, body: JSON.stringify({ value: state.confirmedArgs.value }),
+        });
+      } else if (name === 'backup_import') {
+        subReq = new Request(new URL('/backup/import', reqUrl.origin).toString(), {
+          method: 'POST',
+          headers: subHeaders,
+          body: JSON.stringify({
+            confirm: true,
+            backup: state.confirmedArgs.backup,
+            ...(state.confirmedArgs.acknowledge_order_removal === true ? { acknowledge_order_removal: true } : {}),
+          }),
+        });
       } else if (name === 'data_reset') {
         subReq = new Request(new URL('/data/reset', reqUrl.origin).toString(), {
           method: 'POST',
           headers: subHeaders,
           body: JSON.stringify({ confirm: true, phrase: RESET_CONFIRM_PHRASE }),
         });
+      } else if (STATEMENT_MUTATION_TOOLS.has(name)) {
+        subReq = new Request(new URL('/statement-mcp', reqUrl.origin).toString(), { method: 'POST', headers: subHeaders });
       } else {
         return c.json({
           jsonrpc: '2.0',
@@ -2793,7 +3789,22 @@ mcpApp.post('/mcp', async (c) => {
       let mutationStarted = false;
       try {
         mutationStarted = true;
-        const response = await apiV2.fetch(subReq, c.env, { ...(c.executionCtx as any), isInternalMcp: true });
+        const response = STATEMENT_MUTATION_TOOLS.has(name)
+          ? await (async () => {
+            try {
+              const data = await executeStatementMutation(c.env.DB, name, state.confirmedArgs, clientId);
+              return new Response(JSON.stringify(data), { status: 200, headers: { 'content-type': 'application/json' } });
+            } catch (error) {
+              if (error instanceof ValidationError) {
+                return new Response(JSON.stringify(apiErrorBody(error.code, error.params)), {
+                  status: error.status,
+                  headers: { 'content-type': 'application/json' },
+                });
+              }
+              throw error;
+            }
+          })()
+          : await apiV2.fetch(subReq, c.env, { ...(c.executionCtx as any), isInternalMcp: true });
         if (!response.ok) {
           const errText = await response.text();
           if (response.status >= 500) {
@@ -2806,7 +3817,9 @@ mcpApp.post('/mcp', async (c) => {
           }
           await recordToolAudit(c.env.DB, clientId, name, 'error', errText);
 
-          const errMsg = `Error executing tool: ${errText}`;
+          const errMsg = name === 'account_delete' && response.status === 409
+            ? `Error executing tool: ${accountInUseMessage(state.confirmedArgs.account_id, await countAccountRefs(c.env.DB, state.confirmedArgs.account_id))}`
+            : `Error executing tool: ${errText}`;
           return c.json({
             jsonrpc: '2.0',
             id,
@@ -3052,13 +4065,120 @@ mcpApp.post('/mcp', async (c) => {
           };
         }
 
+        if ((PURCHASE_WRITE_TOOLS as readonly string[]).includes(name)) {
+          const listed = await providerGet('/purchase-orders');
+          if (name === 'purchase_order_delete') {
+            if (listed.orders?.some((order: { id: number }) => order.id === state.confirmedArgs.order_id)) {
+              throw new Error('Provider read-back failed: purchase order still exists');
+            }
+          } else if (name === 'purchase_order_component_unlink') {
+            const order = listed.orders?.find((item: { id: number }) => item.id === state.confirmedArgs.order_id);
+            if (order?.components?.some((component: { id: number }) => component.id === state.confirmedArgs.component_id)) {
+              throw new Error('Provider read-back failed: purchase order component still exists');
+            }
+          } else if (
+            name === 'purchase_order_upsert'
+            || name === 'purchase_order_update'
+            || name === 'purchase_order_component_link'
+            || name === 'purchase_order_component_update'
+          ) {
+            const orderId = data.order?.id ?? state.confirmedArgs.order_id;
+            const order = listed.orders?.find((item: { id: number }) => item.id === orderId);
+            if (!order) throw new Error('Provider read-back failed: purchase order not found');
+            if (name === 'purchase_order_update') {
+              for (const field of ['order_date', 'order_total_minor', 'order_total_currency', 'order_total_source', 'order_total_reference', 'note'] as const) {
+                if (field in state.confirmedArgs && order[field] !== state.confirmedArgs[field]) {
+                  throw new Error('Provider read-back failed: purchase order metadata was not saved');
+                }
+              }
+            }
+            if (name === 'purchase_order_component_link' && !order.components?.some((component: { id: number }) => component.id === data.component_id)) {
+              throw new Error('Provider read-back failed: purchase order component not found');
+            }
+            if (name === 'purchase_order_component_update') {
+              const component = order.components?.find((item: { id: number }) => item.id === state.confirmedArgs.component_id);
+              if (!component) throw new Error('Provider read-back failed: purchase order component not found');
+              if (state.confirmedArgs.component_type !== undefined && component.component_type !== state.confirmedArgs.component_type) {
+                throw new Error('Provider read-back failed: component role was not saved');
+              }
+              if (typeof state.confirmedArgs.fiscal_receipt_id === 'string') {
+                const parsed = canonicalizePfr(state.confirmedArgs.fiscal_receipt_id);
+                if (!parsed.ok || component.pfr_canonical !== parsed.value) {
+                  throw new Error('Provider read-back failed: component link was not saved');
+                }
+              }
+            }
+          }
+          data = { ...data, ...(await verifyLedgerInvariant()) };
+        }
+
+        if ((RECEIPT_GROUP_WRITE_TOOLS as readonly string[]).includes(name)) {
+          const listed = await providerGet('/receipt-groups');
+          if (name === 'receipt_group_delete') {
+            if (listed.groups?.some((group: { id: number }) => group.id === state.confirmedArgs.group_id)) {
+              throw new Error('Provider read-back failed: receipt group still exists');
+            }
+          } else if (name === 'receipt_group_receipt_unlink') {
+            const group = listed.groups?.find((item: { id: number }) => item.id === state.confirmedArgs.group_id);
+            const removed = !group?.receipts?.some((receipt: { receipt_key: string }) => receipt.receipt_key === state.confirmedArgs.receipt_key);
+            if (!removed) throw new Error('Provider read-back failed: receipt is still in the group');
+          } else if (name === 'receipt_group_create') {
+            const groupId = data.group?.id;
+            const group = listed.groups?.find((item: { id: number }) => item.id === groupId);
+            if (!group) throw new Error('Provider read-back failed: receipt group not found');
+            const keys = new Set((state.confirmedArgs.receipt_keys as string[]).slice().sort());
+            const stored = new Set((group.receipts as Array<{ receipt_key: string }>).map((receipt) => receipt.receipt_key));
+            if (keys.size !== stored.size || [...keys].some((key) => !stored.has(key))) {
+              throw new Error('Provider read-back failed: receipt group members do not match');
+            }
+          } else if (name === 'receipt_group_rename') {
+            const group = listed.groups?.find((item: { id: number }) => item.id === state.confirmedArgs.group_id);
+            if (!group) throw new Error('Provider read-back failed: receipt group not found');
+            const typed = typeof state.confirmedArgs.name === 'string' ? state.confirmedArgs.name.trim() : '';
+            if (typed) {
+              if (group.place !== typed && group.name !== typed) {
+                throw new Error('Provider read-back failed: receipt group title was not saved');
+              }
+            } else if (typeof group.place !== 'string' || group.place.trim().length === 0) {
+              throw new Error('Provider read-back failed: receipt group place was not resolved');
+            }
+            const returned = new Set((data.group?.receipts as Array<{ receipt_key: string }> | undefined)?.map((receipt) => receipt.receipt_key));
+            const stored = new Set((group.receipts as Array<{ receipt_key: string }>).map((receipt) => receipt.receipt_key));
+            if (returned.size !== stored.size || [...returned].some((key) => !stored.has(key))) {
+              throw new Error('Provider read-back failed: receipt group members do not match');
+            }
+          }
+          data = { ...data, ...(await verifyLedgerInvariant()) };
+        }
+
         // fx_rate_delete answers { success: true, ...WRITE_OUTPUT_COMMON } per outputSchema;
         // a 204 has no body, so success is filled in explicitly without touching the API contract.
         let written: Record<string, unknown> =
-          name === 'fx_rate_delete'
+          name === 'statement_import_commit'
+            ? { ...data, resultType: 'complete', written: data.written === true }
+          : name === 'fx_rate_delete'
             ? { ...data, success: true, written: true, resultType: 'complete' }
             : name === 'data_reset'
               ? { ...data, success: true, reset: true, written: true, resultType: 'complete' }
+            : name === 'account_delete'
+              ? {
+                  ...data, success: true, account_id: state.confirmedArgs.account_id,
+                  deleted_account: accountDeleteSnapshot?.account ?? null,
+                  removed_aliases: accountDeleteSnapshot?.aliases ?? [],
+                  written: true, resultType: 'complete',
+                }
+            : name === 'transfer_delete'
+              ? {
+                  ...data, success: true, transfer_id: state.confirmedArgs.transfer_id,
+                  deleted_legs: accountDeleteSnapshot?.legs ?? [],
+                  written: true, resultType: 'complete',
+                }
+            : name === 'account_alias_delete'
+              ? {
+                  ...data, success: true, account_id: state.confirmedArgs.account_id, alias_id: state.confirmedArgs.alias_id,
+                  deleted_alias: accountDeleteSnapshot?.alias ?? null,
+                  written: true, resultType: 'complete',
+                }
             : name === 'operation_delete'
               ? {
                   ...data,
@@ -3069,7 +4189,7 @@ mcpApp.post('/mcp', async (c) => {
                   resultType: 'complete'
                 }
               : { ...data, written: true, resultType: 'complete' };
-        if (!hasReadScope && !WRITE_CREATE_TOOLS.has(name)) {
+        if (!hasReadScope && !WRITE_CREATE_TOOLS.has(name) && !STATEMENT_MUTATION_TOOLS.has(name)) {
           written = redactWriteOnlyMutationResult(name, written, state.confirmedArgs);
         }
         const summary = JSON.stringify(written);

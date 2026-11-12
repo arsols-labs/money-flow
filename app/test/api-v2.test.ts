@@ -3250,10 +3250,10 @@ describe('existing-operation fulfillment', () => {
     it('allows same-PFR multi-line expenses and still 409s an exact line as ValidationError', async () => {
       const { account } = await createAccount({ balance_minor: 100000 });
       const pfr = 'JDEKKL35-GESE6HO0-136069';
-      const receiptUrl = 'https://suf.purs.gov.rs/v/?vl=aroma';
+      const receiptUrl = 'https://suf.purs.gov.rs/v/?vl=corner-cafe';
       const first = await api('POST', '/api/v2/operations', {
         date: '2026-09-20', account_id: account.id, kind: 'expense',
-        item: 'Espresso', store: 'Aroma', amount_minor: -25000,
+        item: 'Espresso', store: 'Corner Cafe', amount_minor: -25000,
         fiscal_receipt_id: pfr, receipt_url: receiptUrl,
       });
       expect(first.status).toBe(201);
@@ -3261,14 +3261,14 @@ describe('existing-operation fulfillment', () => {
 
       const second = await api('POST', '/api/v2/operations', {
         date: '2026-09-20', account_id: account.id, kind: 'expense',
-        item: 'Croissant', store: 'Aroma', amount_minor: -18000,
+        item: 'Croissant', store: 'Corner Cafe', amount_minor: -18000,
         fiscal_receipt_id: pfr, receipt_url: receiptUrl,
       });
       expect(second.status).toBe(201);
 
       const duplicate = await api('POST', '/api/v2/operations', {
         date: '2026-09-20', account_id: account.id, kind: 'expense',
-        item: 'Espresso', store: 'Aroma', amount_minor: -25000,
+        item: 'Espresso', store: 'Corner Cafe', amount_minor: -25000,
         fiscal_receipt_id: pfr, receipt_url: receiptUrl,
       });
       expect(duplicate.status).toBe(409);
@@ -3276,6 +3276,173 @@ describe('existing-operation fulfillment', () => {
         code: 'DUPLICATE_EXPENSE',
         params: { existingOperationId: firstId },
       });
+    });
+
+    it('accepts a delivery fee that shares an order id with a different seller receipt', async () => {
+      const { account } = await createAccount({ name: 'RSD synthetic', currency: 'RSD', balance_minor: 500000 });
+      const seller = {
+        date: '2026-10-06',
+        account_id: account.id,
+        kind: 'expense',
+        store: 'Apoteka Synth',
+        category: 'Pharmacy',
+        comment: 'Delivery order SYNTH77',
+        fiscal_receipt_id: 'SYNTH-PFR-SELLER-001',
+        receipt_url: 'https://receipts.example.test/seller/synth-001',
+      };
+      const goodsA = await api('POST', '/api/v2/operations', {
+        ...seller, item: 'Goods A', amount_minor: -18900,
+      });
+      expect(goodsA.status).toBe(201);
+      const goodsAId = (await goodsA.json() as { operation: { id: number } }).operation.id;
+      const goodsB = await api('POST', '/api/v2/operations', {
+        ...seller, item: 'Goods B', amount_minor: -79900,
+      });
+      expect(goodsB.status).toBe(201);
+
+      const fee = await api('POST', '/api/v2/operations', {
+        date: '2026-10-06',
+        account_id: account.id,
+        kind: 'expense',
+        item: 'Delivery fee',
+        store: 'Wolt d.o.o.',
+        category: 'Cafe',
+        subcategory: 'Delivery',
+        amount_minor: -8398,
+        comment: 'Wolt order SYNTH77',
+        fiscal_receipt_id: 'SYNTH-PFR-COURIER-002',
+        receipt_url: 'https://receipts.example.test/courier/synth-002',
+      });
+      expect(fee.status).toBe(201);
+      const feeBody = await fee.json() as { operation: { id: number; amount_minor: number; fiscal_receipt_id: string } };
+      expect(feeBody.operation.amount_minor).toBe(-8398);
+      expect(feeBody.operation.fiscal_receipt_id).toBe('SYNTH-PFR-COURIER-002');
+      expect(feeBody.operation.id).not.toBe(goodsAId);
+
+      const sameLine = await api('POST', '/api/v2/operations', {
+        date: '2026-10-06',
+        account_id: account.id,
+        kind: 'expense',
+        item: 'Delivery fee',
+        store: 'Wolt d.o.o.',
+        amount_minor: -8398,
+        comment: 'posted again',
+        fiscal_receipt_id: 'SYNTH-PFR-COURIER-002',
+        receipt_url: 'https://receipts.example.test/courier/synth-002',
+      });
+      expect(sameLine.status).toBe(409);
+      expect(await errorBody(sameLine)).toMatchObject({
+        code: 'DUPLICATE_EXPENSE',
+        params: { existingOperationId: feeBody.operation.id },
+      });
+
+      const sameFingerprint = await api('POST', '/api/v2/operations', {
+        date: '2026-10-06',
+        account_id: account.id,
+        kind: 'expense',
+        item: 'Relabeled fee',
+        store: 'Wolt d.o.o.',
+        amount_minor: -8398,
+        fiscal_receipt_id: 'SYNTH-PFR-OTHER-003',
+        receipt_url: 'https://receipts.example.test/courier/synth-003',
+      });
+      expect(sameFingerprint.status).toBe(409);
+      expect((await errorBody(sameFingerprint)).code).toBe('DUPLICATE_EXPENSE');
+
+      const goodsLineAgain = await api('POST', '/api/v2/operations', {
+        ...seller, item: 'Goods A', amount_minor: -18900,
+      });
+      expect(goodsLineAgain.status).toBe(409);
+      expect(await errorBody(goodsLineAgain)).toMatchObject({
+        code: 'DUPLICATE_EXPENSE',
+        params: { existingOperationId: goodsAId },
+      });
+    });
+
+    it('keeps the order-id guard for URL variants, the same PFR, and an arbitrary URL', async () => {
+      const { account } = await createAccount({ name: 'RSD url identity', currency: 'RSD', balance_minor: 500000 });
+      const sellerPfr = 'SYNTHPFR-SELLER01-189';
+      const sellerUrl = `https://suf.purs.gov.rs/v/?vl=${encodeURIComponent(sellerPfr)}`;
+      const goods = await api('POST', '/api/v2/operations', {
+        date: '2026-10-06', account_id: account.id, kind: 'expense',
+        item: 'Goods A', store: 'Apoteka Synth', amount_minor: -18900,
+        comment: 'Delivery order SYNTH77', receipt_url: sellerUrl,
+      });
+      expect(goods.status).toBe(201);
+      const goodsId = (await goods.json() as { operation: { id: number } }).operation.id;
+
+      const variant = await api('POST', '/api/v2/operations', {
+        date: '2026-10-06', account_id: account.id, kind: 'expense',
+        item: 'Delivery fee', store: 'Wolt d.o.o.', amount_minor: -8398,
+        comment: 'Wolt order SYNTH77',
+        receipt_url: `http://www.purs.gov.rs/v/?fbclid=z&vl=${encodeURIComponent(sellerPfr)}&utm_source=qr`,
+      });
+      expect(variant.status).toBe(409);
+      expect(await errorBody(variant)).toMatchObject({
+        code: 'DUPLICATE_EXPENSE',
+        params: { existingOperationId: goodsId },
+      });
+
+      const samePfr = await api('POST', '/api/v2/operations', {
+        date: '2026-10-06', account_id: account.id, kind: 'expense',
+        item: 'Goods A', store: 'Apoteka Synth', amount_minor: -18900,
+        fiscal_receipt_id: sellerPfr,
+        receipt_url: 'https://cdn.example/wrapped-copy',
+      });
+      expect(samePfr.status).toBe(409);
+      expect((await errorBody(samePfr)).code).toBe('DUPLICATE_EXPENSE');
+
+      const garbage = await api('POST', '/api/v2/operations', {
+        date: '2026-10-06', account_id: account.id, kind: 'expense',
+        item: 'Delivery fee', store: 'Wolt d.o.o.', amount_minor: -16140,
+        comment: 'Wolt order SYNTH77',
+        receipt_url: 'https://tracking.example/click?id=1',
+      });
+      expect(garbage.status).toBe(409);
+      expect((await errorBody(garbage)).code).toBe('DUPLICATE_EXPENSE');
+    });
+
+    it('rejects a shared order id when the verification URL has no extractable fiscal id', async () => {
+      const { account } = await createAccount({ name: 'RSD opaque url', currency: 'RSD', balance_minor: 500000 });
+      const sellerOpaque = 'SYNTHOPAQUESELLER01';
+      const goods = await api('POST', '/api/v2/operations', {
+        date: '2026-10-06', account_id: account.id, kind: 'expense',
+        item: 'Goods A', store: 'Apoteka Synth', amount_minor: -18900,
+        comment: 'Delivery order SYNTH77',
+        receipt_url: `https://suf.purs.gov.rs/v/?vl=${sellerOpaque}`,
+      });
+      expect(goods.status).toBe(201);
+      const goodsId = (await goods.json() as { operation: { id: number } }).operation.id;
+
+      const otherOpaque = await api('POST', '/api/v2/operations', {
+        date: '2026-10-06', account_id: account.id, kind: 'expense',
+        item: 'Delivery fee', store: 'Wolt d.o.o.', amount_minor: -8398,
+        comment: 'Wolt order SYNTH77',
+        receipt_url: 'https://suf.purs.gov.rs/v/?vl=SYNTHOPAQUECOURIER02',
+      });
+      expect(otherOpaque.status).toBe(409);
+      expect(await errorBody(otherOpaque)).toMatchObject({
+        code: 'DUPLICATE_EXPENSE',
+        params: { existingOperationId: goodsId },
+      });
+
+      const opaqueAgainstPfr = await api('POST', '/api/v2/operations', {
+        date: '2026-10-06', account_id: account.id, kind: 'expense',
+        item: 'Delivery fee', store: 'Wolt d.o.o.', amount_minor: -15453,
+        comment: 'Wolt order SYNTH77',
+        receipt_url: 'https://suf.purs.gov.rs/v/?vl=SYNTHPFR-SELLER01-189',
+      });
+      expect(opaqueAgainstPfr.status).toBe(409);
+      expect((await errorBody(opaqueAgainstPfr)).code).toBe('DUPLICATE_EXPENSE');
+
+      const sameOpaque = await api('POST', '/api/v2/operations', {
+        date: '2026-10-06', account_id: account.id, kind: 'expense',
+        item: 'Delivery fee', store: 'Wolt d.o.o.', amount_minor: -14940,
+        comment: null,
+        receipt_url: `http://www.purs.gov.rs/v/?utm_source=qr&vl=${sellerOpaque}`,
+      });
+      expect(sameOpaque.status).toBe(409);
+      expect((await errorBody(sameOpaque)).code).toBe('DUPLICATE_EXPENSE');
     });
   });
 
@@ -3858,6 +4025,22 @@ describe('API v2: transfers between accounts (/api/v2/transfers)', () => {
     // Balances: the debit stayed -15000 (unchanged), the credit became +992512.
     expect(await balanceOf(from.id)).toBe(85000);
     expect(await balanceOf(to.id)).toBe(50000 + 992512);
+  });
+
+  it('PUT /transfers/:id without date keeps the existing transfer date', async () => {
+    const from = (await createAccount({ balance_minor: 100000, currency: 'RSD', name: 'From' })).account;
+    const to = (await createAccount({ balance_minor: 0, currency: 'RSD', name: 'To' })).account;
+    const createRes = await api('POST', '/api/v2/transfers', {
+      date: '2026-08-15', from_account_id: from.id, to_account_id: to.id,
+      from_amount_minor: 1000, to_amount_minor: 1000,
+    });
+    const { transfer } = (await createRes.json()) as { transfer: { id: number } };
+    const putRes = await api('PUT', `/api/v2/transfers/${transfer.id}`, { from_amount_minor: 2000, to_amount_minor: 2000 });
+    expect(putRes.status).toBe(200);
+    const body = (await putRes.json()) as { transfer: { from_operation: { date: string; amount_minor: number }; to_operation: { date: string } } };
+    expect(body.transfer.from_operation.date).toBe('2026-08-15');
+    expect(body.transfer.to_operation.date).toBe('2026-08-15');
+    expect(body.transfer.from_operation.amount_minor).toBe(-2000);
   });
 
   it('PUT /transfers/:id rejects a zero amount and does not corrupt the balance', async () => {

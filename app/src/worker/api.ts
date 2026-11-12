@@ -36,11 +36,13 @@ import dataApi from './api-data';
 import { ValidationError, fail, failCaught } from './api-error';
 import { browserMutationRejection } from './csrf';
 import { ANALYTICS_MAX_JSON_BYTES, BodyTooLargeError, readLimitedJson } from './limited-body';
-import {
-  expenseLooksLikeDuplicate,
-  isAnalyticalSkipOnlyRecurringId,
-  type ExpenseDuplicateCandidate,
-} from '../shared/booking-guards';
+import { isAnalyticalSkipOnlyRecurringId } from '../shared/booking-guards';
+import { findDuplicateExpenseId } from './duplicate-expense';
+import statementImportApi from './api-statement-import';
+import statementTemplatesApi from './api-statement-templates';
+import purchaseOrdersApi from './api-purchase-orders';
+import receiptGroupsApi from './api-receipt-groups';
+import { PURCHASE_ORDERS_EPOCH_KEY } from '../shared/purchase-orders';
 
 const apiV2 = new Hono<{ Bindings: Env }>();
 
@@ -48,6 +50,11 @@ const apiV2 = new Hono<{ Bindings: Env }>();
 // runs middleware and routes in registration order, not "middleware always
 // first" — a `use()` declared after the routes would not intercept them.
 apiV2.use('*', async (c, next) => {
+  // The upload token is the capability. MCP clients PUT the raw file with no session cookie.
+  if (c.req.method === 'PUT' && /\/statement-imports\/uploads\/[^/]+$/.test(new URL(c.req.url).pathname)) {
+    await next();
+    return;
+  }
   // Internal calls from the MCP server inside the Worker
   let isInternalMcp = false;
   try {
@@ -430,7 +437,7 @@ const ACCOUNT_LOCKED_FIELDS = ['owner', 'currency', 'country', 'bank', 'type'] a
 const ACCOUNT_REF_TABLES = ['operations', 'planned_items', 'recurring_items'] as const;
 
 /** How many operations, planned rows, and recurring rows reference the account. */
-async function countAccountRefs(db: D1Database, id: number): Promise<number> {
+export async function countAccountRefs(db: D1Database, id: number): Promise<number> {
   // An explicit COUNT instead of relying on the FK firing: an FK without
   // ON DELETE (the schema) would reject the DELETE anyway, but we need our own
   // error text and a 409, not whatever D1 returns when the FK is violated.
@@ -1001,25 +1008,6 @@ async function loadAccountForReference(
   return db.prepare('SELECT name, currency, balance_minor FROM accounts WHERE id = ?')
     .bind(id)
     .first<{ name: string; currency: string; balance_minor: number }>();
-}
-
-const DUPLICATE_EXPENSE_LOOKBACK_DAYS = 14;
-
-async function findDuplicateExpenseId(
-  db: D1Database,
-  candidate: ExpenseDuplicateCandidate,
-): Promise<number | null> {
-  const from = addDays(candidate.date, -DUPLICATE_EXPENSE_LOOKBACK_DAYS);
-  const to = addDays(candidate.date, 1);
-  const { results } = await db.prepare(
-    `SELECT id, date, account_id, store, item, comment, fiscal_receipt_id, amount_minor
-     FROM operations
-     WHERE kind = 'expense' AND account_id = ? AND date >= ? AND date <= ?`,
-  ).bind(candidate.account_id, from, to).all<ExpenseDuplicateCandidate & { id: number }>();
-  for (const row of results) {
-    if (expenseLooksLikeDuplicate(candidate, row)) return row.id;
-  }
-  return null;
 }
 
 /**
@@ -2185,6 +2173,7 @@ apiV2.post('/recurring-items/:id/close-period', async (c) => {
       item,
       comment: null,
       fiscal_receipt_id: null,
+      receipt_url: null,
     });
     if (duplicateId !== null) {
       return fail(c, 'DUPLICATE_EXPENSE', 409, { existingOperationId: duplicateId });
@@ -2760,6 +2749,10 @@ interface OperationRow {
   comment: string | null;
   receipt_url: string | null;
   fiscal_receipt_id: string | null;
+  receipt_identity_token: string | null;
+  import_batch_id: number | null;
+  bank_transaction_id: string | null;
+  import_fingerprint: string | null;
 }
 
 /** An operation row together with the account currency — the shape sent to the client. */
@@ -2788,6 +2781,10 @@ function toOperationJson(row: OperationRowWithCurrency, fulfillment?: OperationF
     comment: row.comment,
     receipt_url: row.receipt_url,
     fiscal_receipt_id: row.fiscal_receipt_id,
+    receipt_identity_token: row.receipt_identity_token ?? null,
+    import_batch_id: row.import_batch_id,
+    bank_transaction_id: row.bank_transaction_id,
+    import_fingerprint: row.import_fingerprint,
     fulfillment: fulfillment
       ? {
           type: fulfillment.fulfillment_type,
@@ -2953,6 +2950,7 @@ apiV2.post('/operations', async (c) => {
         item,
         comment,
         fiscal_receipt_id: fiscalReceiptId,
+        receipt_url: receiptUrl,
       });
       if (duplicateId !== null) {
         // Must be ValidationError so MCP's apiV2.fetch path maps 409 (not 500/UNCERTAIN).
@@ -3444,8 +3442,8 @@ apiV2.put('/transfers/:id', async (c) => {
   if (!transfer) return fail(c, 'NOT_FOUND', 404);
 
   const currentOps = await c.env.DB.prepare(
-    'SELECT id, account_id, amount_minor, kind, store, item, category, subcategory, comment, receipt_url, fiscal_receipt_id FROM operations WHERE transfer_id = ? ORDER BY kind',
-  ).bind(id).all<{ id: number; account_id: number; amount_minor: number; kind: OperationKind; store: string | null; item: string | null; category: string | null; subcategory: string | null; comment: string | null; receipt_url: string | null; fiscal_receipt_id: string | null }>();
+    'SELECT id, date, account_id, amount_minor, kind, store, item, category, subcategory, comment, receipt_url, fiscal_receipt_id FROM operations WHERE transfer_id = ? ORDER BY kind',
+  ).bind(id).all<{ id: number; date: string; account_id: number; amount_minor: number; kind: OperationKind; store: string | null; item: string | null; category: string | null; subcategory: string | null; comment: string | null; receipt_url: string | null; fiscal_receipt_id: string | null }>();
   if (currentOps.results.length !== 2) {
     return fail(c, 'TRANSFER_CORRUPT', 409);
   }
@@ -3469,7 +3467,7 @@ apiV2.put('/transfers/:id', async (c) => {
 
   const body = await readBody(c);
   try {
-    date = normalizeDateString(body.date ?? outOp, 'date');
+    date = normalizeDateString(body.date ?? outOp.date, 'date');
     fromAccountId = normalizeAccountId(body.from_account_id ?? outOp.account_id);
     toAccountId = normalizeAccountId(body.to_account_id ?? inOp.account_id);
     if (fromAccountId === toAccountId) {
@@ -3725,11 +3723,16 @@ apiV2.get('/forecast', async (c) => {
 async function readAllSettings(db: D1Database): Promise<Record<string, string>> {
   const { results } = await db.prepare('SELECT key, value FROM settings').all<{ key: string; value: string }>();
   const settings: Record<string, string> = {};
-  for (const row of results) settings[row.key] = row.value;
+  for (const row of results) {
+    if (row.key === PURCHASE_ORDERS_EPOCH_KEY) continue;
+    settings[row.key] = row.value;
+  }
   return settings;
 }
 
-apiV2.get('/settings', async (c) => c.json({ settings: await readAllSettings(c.env.DB) }));
+apiV2.get('/settings', async (c) => {
+  return c.json({ settings: await readAllSettings(c.env.DB) });
+});
 
 const SETTINGS_WRITABLE_KEYS = new Set(['low_balance_threshold_minor', 'base_currency']);
 
@@ -3765,6 +3768,7 @@ function normalizeSettingValue(key: string, input: unknown): string {
 
 apiV2.put('/settings/:key', async (c) => {
   const key = c.req.param('key');
+  if (key === PURCHASE_ORDERS_EPOCH_KEY) return fail(c, 'SETTING_KEY_RESERVED', 403);
   if (!SETTINGS_WRITABLE_KEYS.has(key)) return fail(c, 'NOT_FOUND', 404);
 
   try {
@@ -3900,7 +3904,11 @@ apiV2.post('/analytics', async (c) => {
 });
 
 // ---------- Backup export/import ----------
+apiV2.route('/', statementImportApi);
+apiV2.route('/', statementTemplatesApi);
 apiV2.route('/backup', backupApi);
+apiV2.route('/purchase-orders', purchaseOrdersApi);
+apiV2.route('/receipt-groups', receiptGroupsApi);
 
 // ---------- Instance reset ----------
 apiV2.route('/data', dataApi);

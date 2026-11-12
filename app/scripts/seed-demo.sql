@@ -751,6 +751,114 @@ INSERT INTO operations (
   source, comment, receipt_url, fiscal_receipt_id
 )
 SELECT
+  date('now', '-2 days'),
+  a.id,
+  'expense',
+  'Corner Pharmacy',
+  'Cold medicine',
+  'Health',
+  'Pharmacy',
+  -1890,
+  'manual',
+  'Sample same-day receipts so grouping can be tried',
+  'https://example.com/receipts/demo-fiscal-2501',
+  'DEMO-FISCAL-2501'
+FROM accounts a
+WHERE a.name = 'Everyday Checking' AND a.owner = 'Household'
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM operations
+    WHERE item = 'Cold medicine'
+      AND date = date('now', '-2 days')
+      AND store = 'Corner Pharmacy'
+  );
+
+INSERT INTO operations (
+  date, account_id, kind, store, item, category, subcategory, amount_minor,
+  source, comment, receipt_url, fiscal_receipt_id
+)
+SELECT
+  date('now', '-2 days'),
+  a.id,
+  'expense',
+  'Wolt',
+  'Pharmacy delivery',
+  'Health',
+  'Pharmacy',
+  -490,
+  'manual',
+  'Sample same-day receipts so grouping can be tried',
+  'https://example.com/receipts/demo-fiscal-2502',
+  'DEMO-FISCAL-2502'
+FROM accounts a
+WHERE a.name = 'Everyday Checking' AND a.owner = 'Household'
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM operations
+    WHERE item = 'Pharmacy delivery'
+      AND date = date('now', '-2 days')
+      AND store = 'Wolt'
+  );
+
+INSERT INTO operations (
+  date, account_id, kind, store, item, category, subcategory, amount_minor,
+  source, comment, receipt_url, fiscal_receipt_id
+)
+SELECT
+  date('now', '-1 days'),
+  a.id,
+  'expense',
+  'Cedar Bistro Food',
+  'Dinner plates',
+  'Dining',
+  NULL,
+  -6400,
+  'manual',
+  'Sample same-day receipts so grouping can be tried',
+  'https://example.com/receipts/demo-fiscal-2503',
+  'DEMO-FISCAL-2503'
+FROM accounts a
+WHERE a.name = 'Everyday Checking' AND a.owner = 'Household'
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM operations
+    WHERE item = 'Dinner plates'
+      AND date = date('now', '-1 days')
+      AND store = 'Cedar Bistro Food'
+  );
+
+INSERT INTO operations (
+  date, account_id, kind, store, item, category, subcategory, amount_minor,
+  source, comment, receipt_url, fiscal_receipt_id
+)
+SELECT
+  date('now', '-1 days'),
+  a.id,
+  'expense',
+  'Cedar Bistro Bar',
+  'Drinks',
+  'Dining',
+  NULL,
+  -1800,
+  'manual',
+  'Sample same-day receipts so grouping can be tried',
+  'https://example.com/receipts/demo-fiscal-2504',
+  'DEMO-FISCAL-2504'
+FROM accounts a
+WHERE a.name = 'Everyday Checking' AND a.owner = 'Household'
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM operations
+    WHERE item = 'Drinks'
+      AND date = date('now', '-1 days')
+      AND store = 'Cedar Bistro Bar'
+  );
+
+INSERT INTO operations (
+  date, account_id, kind, store, item, category, subcategory, amount_minor,
+  source, comment, receipt_url, fiscal_receipt_id
+)
+SELECT
   date('now', '-88 days'),
   a.id,
   'expense',

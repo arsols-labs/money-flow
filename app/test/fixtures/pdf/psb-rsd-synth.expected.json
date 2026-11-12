@@ -1,0 +1,207 @@
+{
+  "synthetic": true,
+  "note": "Invented data only. Lookalike of a BPS IZVOD RSD statement layout (column-ordered content stream, no whitespace items between cells).",
+  "layout": "bps-izvod",
+  "currency": "RSD",
+  "accountRef": "999-0000000000001-11",
+  "statementNo": 10,
+  "period": {
+    "from": "2026-10-01",
+    "to": "2026-10-31"
+  },
+  "dateFormat": "DD.MM.YYYY",
+  "pages": 2,
+  "totals": {
+    "openingMinor": 500000,
+    "creditsCount": 3,
+    "inMinor": 14500000,
+    "debitsCount": 13,
+    "outMinor": 3019167,
+    "netMinor": 11480833,
+    "closingMinor": 11980833,
+    "opening": "5,000.00",
+    "in": "145,000.00",
+    "out": "30,191.67",
+    "net": "114,808.33",
+    "closing": "119,808.33"
+  },
+  "reconciles": true,
+  "rows": [
+    {
+      "sourceIndex": 1,
+      "date": "2026-10-01",
+      "code": "102",
+      "card": "400000******0001",
+      "description": "SYNTH SHOP 1, GRAD",
+      "extraLine": "Iznos transakcije: 450.00 u valuti RSD Iznos u obračunskoj valuti: 450.00 u valuti RSD",
+      "reference": "1000000000001-3",
+      "amountMinor": -45000,
+      "balanceMinor": 455000
+    },
+    {
+      "sourceIndex": 2,
+      "date": "2026-10-01",
+      "code": "102",
+      "card": "400000******0001",
+      "description": "SYNTH MARKET 2, GRAD",
+      "extraLine": "Iznos transakcije: 1,250.40 u valuti RSD Iznos u obračunskoj valuti: 1,250.40 u valuti RSD",
+      "reference": "1000000000002-3",
+      "amountMinor": -125040,
+      "balanceMinor": 329960
+    },
+    {
+      "sourceIndex": 3,
+      "date": "2026-10-01",
+      "code": "793",
+      "card": null,
+      "description": "EB 90000000003 - otkup strane valute preko m-banking kanala",
+      "extraLine": "'Prodaja 10,000.00 RSD po kursu 100.0000 za 100.00 USD'",
+      "reference": "2000000000000003-2",
+      "amountMinor": 1000000,
+      "balanceMinor": 1329960
+    },
+    {
+      "sourceIndex": 4,
+      "date": "2026-10-01",
+      "code": "400",
+      "card": null,
+      "description": "Naplata mesecne naknade za vodenje racuna",
+      "extraLine": null,
+      "reference": "2000000000000004-3",
+      "amountMinor": -25000,
+      "balanceMinor": 1304960
+    },
+    {
+      "sourceIndex": 5,
+      "date": "2026-10-03",
+      "code": "102",
+      "card": "400000******0001",
+      "description": "SYNTH PHARMACY 3, GRAD",
+      "extraLine": "Iznos transakcije: 2,345.67 u valuti RSD Iznos u obračunskoj valuti: 2,345.67 u valuti RSD",
+      "reference": "1000000000005-3",
+      "amountMinor": -234567,
+      "balanceMinor": 1070393
+    },
+    {
+      "sourceIndex": 6,
+      "date": "2026-10-05",
+      "code": "102",
+      "card": "400000******0002",
+      "description": "SYNTH TELECOM 4 doo, GRAD",
+      "extraLine": "Iznos transakcije: 999.99 u valuti RSD Iznos u obračunskoj valuti: 999.99 u valuti RSD",
+      "reference": "1000000000006-3",
+      "amountMinor": -99999,
+      "balanceMinor": 970394
+    },
+    {
+      "sourceIndex": 7,
+      "date": "2026-10-06",
+      "code": "102",
+      "card": "400000******0001",
+      "description": "SYNTH GROCER 5, GRAD",
+      "extraLine": "Iznos transakcije: 3,210.00 u valuti RSD Iznos u obračunskoj valuti: 3,210.00 u valuti RSD",
+      "reference": "1000000000007-3",
+      "amountMinor": -321000,
+      "balanceMinor": 649394
+    },
+    {
+      "sourceIndex": 8,
+      "date": "2026-10-08",
+      "code": "793",
+      "card": null,
+      "description": "EB 90000000008 - otkup strane valute preko m-banking kanala",
+      "extraLine": "'Prodaja 15,000.00 RSD po kursu 100.0000 za 150.00 USD'",
+      "reference": "2000000000000008-2",
+      "amountMinor": 1500000,
+      "balanceMinor": 2149394
+    },
+    {
+      "sourceIndex": 9,
+      "date": "2026-10-10",
+      "code": "102",
+      "card": "400000******0001",
+      "description": "SYNTH SHOP 1, GRAD",
+      "extraLine": "Iznos transakcije: 1,111.11 u valuti RSD Iznos u obračunskoj valuti: 1,111.11 u valuti RSD",
+      "reference": "1000000000009-3",
+      "amountMinor": -111111,
+      "balanceMinor": 2038283
+    },
+    {
+      "sourceIndex": 10,
+      "date": "2026-10-12",
+      "code": "102",
+      "card": "400000******0001",
+      "description": "SYNTH CAFE 6, GRAD",
+      "extraLine": "Iznos transakcije: 678.90 u valuti RSD Iznos u obračunskoj valuti: 678.90 u valuti RSD",
+      "reference": "1000000000010-3",
+      "amountMinor": -67890,
+      "balanceMinor": 1970393
+    },
+    {
+      "sourceIndex": 11,
+      "date": "2026-10-15",
+      "code": "102",
+      "card": "400000******0001",
+      "description": "SYNTH MARKET 2, GRAD",
+      "extraLine": "Iznos transakcije: 4,500.00 u valuti RSD Iznos u obračunskoj valuti: 4,500.00 u valuti RSD",
+      "reference": "1000000000011-3",
+      "amountMinor": -450000,
+      "balanceMinor": 1520393
+    },
+    {
+      "sourceIndex": 12,
+      "date": "2026-10-18",
+      "code": "102",
+      "card": "400000******0002",
+      "description": "SYNTH TELECOM 4 doo, GRAD",
+      "extraLine": "Iznos transakcije: 800.00 u valuti RSD Iznos u obračunskoj valuti: 800.00 u valuti RSD",
+      "reference": "1000000000012-3",
+      "amountMinor": -80000,
+      "balanceMinor": 1440393
+    },
+    {
+      "sourceIndex": 13,
+      "date": "2026-10-20",
+      "code": "793",
+      "card": null,
+      "description": "EB 90000000013 - otkup strane valute preko m-banking kanala",
+      "extraLine": "'Prodaja 120,000.00 RSD po kursu 100.0000 za 1200.00 USD'",
+      "reference": "2000000000000013-2",
+      "amountMinor": 12000000,
+      "balanceMinor": 13440393
+    },
+    {
+      "sourceIndex": 14,
+      "date": "2026-10-25",
+      "code": "102",
+      "card": "400000******0001",
+      "description": "SYNTH ELECTRO 7, GRAD",
+      "extraLine": "Iznos transakcije: 12,345.60 u valuti RSD Iznos u obračunskoj valuti: 12,345.60 u valuti RSD",
+      "reference": "1000000000014-3",
+      "amountMinor": -1234560,
+      "balanceMinor": 12205833
+    },
+    {
+      "sourceIndex": 15,
+      "date": "2026-10-31",
+      "code": "102",
+      "card": "400000******0001",
+      "description": "SYNTH GROCER 5, GRAD",
+      "extraLine": "Iznos transakcije: 2,000.00 u valuti RSD Iznos u obračunskoj valuti: 2,000.00 u valuti RSD",
+      "reference": "1000000000015-3",
+      "amountMinor": -200000,
+      "balanceMinor": 12005833
+    },
+    {
+      "sourceIndex": 16,
+      "date": "2026-10-31",
+      "code": "400",
+      "card": null,
+      "description": "Naplata mesecne naknade za vodenje racuna",
+      "extraLine": null,
+      "reference": "2000000000000016-3",
+      "amountMinor": -25000,
+      "balanceMinor": 11980833
+    }
+  ]
+}

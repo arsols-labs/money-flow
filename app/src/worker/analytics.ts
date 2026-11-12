@@ -66,7 +66,7 @@ export function normalizeAnalyticsFilters(body: Record<string, unknown>): {
   };
 }
 
-const MERCHANT_RULES: [string, string][] = [
+export const MERCHANT_RULES: [string, string][] = [
   ['AMAZON', 'Amazon'],
   ['APPLE', 'Apple'],
   ['GOOGLE', 'Google'],
@@ -76,27 +76,42 @@ const MERCHANT_RULES: [string, string][] = [
   ['STARBUCKS', 'Starbucks'],
   ['MAXI', 'Maxi'],
   ['DELHAIZE', 'Maxi'],
-  ['AROMA', 'Aroma 57'],
+  ['CORNER CAFE', 'Corner Cafe'],
   ['DR.MAX', 'Dr. Max'],
   ['DR. MAX', 'Dr. Max'],
-  ['ALBA GRAECA', 'Apoteka Alba Graeca'],
+  ['SAMPLE PHARMACY', 'Sample Pharmacy'],
   ['LILLY', 'Lilly'],
   ['IDEA', 'Idea'],
   ['POŠTA', 'Pošta Srbije'],
   ['POSTA SRBIJE', 'Pošta Srbije'],
   ['ПОШТА', 'Pošta Srbije'],
-  ['VIZIM', 'Дом здравља Vizim'],
-  ['ЧАРОБЊАК', 'Чаробњак'],
-  ['GIROSLAV', 'Giroslav'],
-  ['AKVAFOR', 'Akvafor'],
-  ['BOJEL', 'Bojel Trade'],
+  ['SAMPLE CLINIC', 'Sample Clinic'],
+  ['SAMPLE TOY SHOP', 'Sample Toy Shop'],
+  ['SAMPLE GRILL', 'Sample Grill'],
+  ['SAMPLE WATER STORE', 'Sample Water Store'],
+  ['SAMPLE TRADING', 'Sample Trading'],
 ];
+
+// A needle matches only when no Unicode letter or digit is glued to either end.
+// `includes` labeled GUBERNIJA as Uber. ASCII `\b` is not enough: it ignores
+// non-ASCII letters, so a Cyrillic post-office needle would stop matching.
+// Patterns are compiled once.
+function escapeMerchantNeedle(needle: string): string {
+  return needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const COMPILED_MERCHANT_RULES: readonly [RegExp, string][] = MERCHANT_RULES.map(
+  ([needle, canon]) => [
+    new RegExp(`(?<![\\p{L}\\p{N}])${escapeMerchantNeedle(needle)}(?![\\p{L}\\p{N}])`, 'u'),
+    canon,
+  ],
+);
 
 export function normMerchant(raw: string | null | undefined): string {
   if (!raw) return '—';
   const upper = String(raw).toUpperCase();
-  for (const [needle, canon] of MERCHANT_RULES) {
-    if (upper.includes(needle)) return canon;
+  for (const [pattern, canon] of COMPILED_MERCHANT_RULES) {
+    if (pattern.test(upper)) return canon;
   }
   const cleaned = String(raw).split(',')[0].replace(/\s+/g, ' ').trim();
   return cleaned.length > 28 ? cleaned.slice(0, 27) + '…' : cleaned || '—';

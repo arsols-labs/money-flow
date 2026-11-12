@@ -1,4 +1,4 @@
-/** Public demo gate. Set `DEMO_MODE=1` only on the demo Worker. */
+/** Session-isolated demo gate. Set `DEMO_MODE=1` on preview/dev or a demo Worker, never on kitchen production. */
 export function isDemoMode(env: { DEMO_MODE?: string } | undefined): boolean {
   return env?.DEMO_MODE === '1';
 }

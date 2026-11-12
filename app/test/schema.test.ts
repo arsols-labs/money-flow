@@ -10,7 +10,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 const EXPECTED_TABLES = [
   'account_aliases',
   'accounts',
+  'category_rules',
   'fx_rates',
+  'import_batches',
   'imported_receipt_items',
   'mcp_audit_log',
   'oauth_clients',
@@ -20,10 +22,16 @@ const EXPECTED_TABLES = [
   'operations',
   'pending_account_strings',
   'planned_items',
+  'purchase_order_components',
+  'purchase_orders',
+  'receipt_group_requests',
+  'receipt_membership',
   'receipts',
   'recurring_items',
   'recurring_period_fulfillments',
   'settings',
+  'statement_import_uploads',
+  'statement_templates',
   'transfers',
 ];
 
@@ -31,6 +39,8 @@ const EXPECTED_INDEXES = [
   'idx_account_aliases_account_id',
   'idx_account_aliases_alias_norm',
   'idx_accounts_archived_sort',
+  'idx_category_rules_priority',
+  'idx_import_batches_created_at',
   'idx_imported_receipt_items_acct',
   'idx_imported_receipt_items_op',
   'idx_mcp_audit_log_client_id',
@@ -41,21 +51,31 @@ const EXPECTED_INDEXES = [
   'idx_operation_fulfillment_planned_item',
   'idx_operation_fulfillment_recurring_period',
   'idx_operations_account_id',
+  'idx_operations_bank_transaction_id',
   'idx_operations_category',
   'idx_operations_date',
   'idx_operations_fiscal_receipt_id',
   'idx_operations_id_recurring_item_id',
+  'idx_operations_import_batch_id',
+  'idx_operations_import_fingerprint',
   'idx_operations_planned_item_id',
   'idx_operations_receipt_id',
+  'idx_operations_receipt_identity_token',
   'idx_operations_recurring_item_id',
   'idx_operations_transfer_id',
   'idx_pending_account_strings_raw_norm',
   'idx_planned_items_account_id',
   'idx_planned_items_date',
+  'idx_poc_order',
+  'idx_poc_pfr',
+  'idx_receipt_membership_order',
   'idx_receipts_created_at',
   'idx_receipts_status',
   'idx_recurring_items_account_id',
   'idx_recurring_items_next_due_date',
+  'idx_statement_import_uploads_expires',
+  'idx_statement_templates_updated_at',
+  'idx_statement_templates_used_batch',
 ];
 
 const NOW = '2026-08-09T12:00:00Z';
@@ -70,9 +90,17 @@ beforeEach(async () => {
     env.DB.prepare('DELETE FROM oauth_tokens'),
     env.DB.prepare('DELETE FROM oauth_consents'),
     env.DB.prepare('DELETE FROM oauth_clients'),
+    env.DB.prepare('DELETE FROM receipt_membership'),
+    env.DB.prepare('DELETE FROM purchase_order_components'),
+    env.DB.prepare('DELETE FROM receipt_group_requests'),
+    env.DB.prepare('DELETE FROM purchase_orders'),
+    env.DB.prepare('DELETE FROM statement_import_uploads'),
+    env.DB.prepare('DELETE FROM statement_templates'),
+    env.DB.prepare('DELETE FROM category_rules'),
     env.DB.prepare('DELETE FROM operation_fulfillment_links'),
     env.DB.prepare('DELETE FROM recurring_period_fulfillments'),
     env.DB.prepare('DELETE FROM operations'),
+    env.DB.prepare('DELETE FROM import_batches'),
     env.DB.prepare('DELETE FROM transfers'),
     env.DB.prepare('DELETE FROM planned_items'),
     env.DB.prepare('DELETE FROM recurring_items'),
@@ -1682,6 +1710,20 @@ const OPERATIONS_DDL = `
     comment TEXT,
     receipt_url TEXT,
     fiscal_receipt_id TEXT,
+    import_batch_id INTEGER,
+    bank_transaction_id TEXT,
+    import_fingerprint TEXT,
+    receipt_identity_token TEXT CHECK (
+      receipt_identity_token IS NULL
+      OR (
+        length(receipt_identity_token) = 36
+        AND receipt_identity_token = lower(receipt_identity_token)
+        AND substr(receipt_identity_token, 9, 1) = '-'
+        AND substr(receipt_identity_token, 14, 1) = '-'
+        AND substr(receipt_identity_token, 19, 1) = '-'
+        AND substr(receipt_identity_token, 24, 1) = '-'
+      )
+    ),
     CONSTRAINT operations_source_matches_receipt CHECK (
       (source IN ('manual', 'planned', 'recurring', 'agent') AND receipt_id IS NULL)
       OR (source = 'receipt' AND receipt_id IS NOT NULL)
@@ -1720,12 +1762,16 @@ describe('operations — table rebuild by migration 0011', () => {
     ).all<{ name: string; sql: string }>();
     expect(results.map((i) => i.sql.replace(/\s+/g, ' ').trim())).toEqual([
       'CREATE INDEX idx_operations_account_id ON operations (account_id)',
+      'CREATE UNIQUE INDEX idx_operations_bank_transaction_id ON operations (account_id, bank_transaction_id) WHERE bank_transaction_id IS NOT NULL',
       'CREATE INDEX idx_operations_category ON operations (category)',
       'CREATE INDEX idx_operations_date ON operations (date DESC)',
       'CREATE INDEX idx_operations_fiscal_receipt_id ON operations (fiscal_receipt_id) WHERE fiscal_receipt_id IS NOT NULL',
       'CREATE UNIQUE INDEX idx_operations_id_recurring_item_id ON operations (id, recurring_item_id)',
+      'CREATE INDEX idx_operations_import_batch_id ON operations (import_batch_id) WHERE import_batch_id IS NOT NULL',
+      'CREATE UNIQUE INDEX idx_operations_import_fingerprint ON operations (import_fingerprint) WHERE import_fingerprint IS NOT NULL',
       'CREATE UNIQUE INDEX idx_operations_planned_item_id ON operations (planned_item_id) WHERE planned_item_id IS NOT NULL',
       'CREATE INDEX idx_operations_receipt_id ON operations (receipt_id)',
+      'CREATE UNIQUE INDEX idx_operations_receipt_identity_token ON operations (receipt_identity_token) WHERE receipt_identity_token IS NOT NULL',
       'CREATE INDEX idx_operations_recurring_item_id ON operations (recurring_item_id) WHERE recurring_item_id IS NOT NULL',
       'CREATE INDEX idx_operations_transfer_id ON operations (transfer_id) WHERE transfer_id IS NOT NULL',
     ]);

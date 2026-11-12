@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://www.money-flow.arsols.com/schemas/statement-template/v1",
+  "title": "Money Flow statement template v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "label", "format"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+    },
+    "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "format": { "enum": ["csv", "xls", "ofx", "pdf"] },
+    "csv": { "$ref": "#/$defs/csvLayout" },
+    "xls": { "$ref": "#/$defs/xlsLayout" },
+    "ofx": { "$ref": "#/$defs/ofxLayout" },
+    "pdf": { "$ref": "#/$defs/pdfLayout" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "required": ["format"],
+        "properties": { "format": { "const": "csv" } }
+      },
+      "then": {
+        "required": ["csv"],
+        "properties": { "xls": false, "ofx": false, "pdf": false }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "required": ["format"],
+        "properties": { "format": { "const": "xls" } }
+      },
+      "then": {
+        "required": ["xls"],
+        "properties": { "csv": false, "ofx": false, "pdf": false }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "required": ["format"],
+        "properties": { "format": { "const": "ofx" } }
+      },
+      "then": {
+        "required": ["ofx"],
+        "properties": { "csv": false, "xls": false, "pdf": false }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "required": ["format"],
+        "properties": { "format": { "const": "pdf" } }
+      },
+      "then": {
+        "required": ["pdf"],
+        "properties": { "csv": false, "xls": false, "ofx": false }
+      }
+    }
+  ],
+  "$defs": {
+    "descriptionFlag": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "pattern"],
+      "properties": {
+        "id": { "const": "possible_own_account_transfer" },
+        "pattern": { "type": "string", "minLength": 1, "maxLength": 80 }
+      }
+    },
+    "aliasList": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 24,
+      "items": { "type": "string", "minLength": 1, "maxLength": 80 }
+    },
+    "csvMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["date"],
+      "properties": {
+        "date": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "amount": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "debit": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "credit": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "currency": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "merchant": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "counterparty": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "reference": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "balance": { "type": "string", "minLength": 1, "maxLength": 80 }
+      }
+    },
+    "csvOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["delimiter", "decimalSeparator", "dateFormat", "encoding", "hasHeader"],
+      "properties": {
+        "delimiter": { "enum": [",", ";", "\t", "|"] },
+        "decimalSeparator": { "enum": [".", ","] },
+        "dateFormat": {
+          "enum": ["YYYY-MM-DD", "MM/DD/YYYY", "DD/MM/YYYY", "DD.MM.YYYY", "YYYY/MM/DD"]
+        },
+        "encoding": { "enum": ["utf-8", "windows-1252", "iso-8859-1"] },
+        "hasHeader": { "type": "boolean" },
+        "defaultCurrency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "skipEmptyAmount": { "type": "boolean" },
+        "checkRunningBalance": { "type": "boolean" },
+        "headerSearch": {
+          "type": "boolean",
+          "default": true,
+          "description": "When omitted, the parser scans every row after skipRows for the header names. Set false to read the header only at skipRows."
+        },
+        "skipRows": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50,
+          "default": 0,
+          "description": "When omitted, no leading rows are skipped before the header search or the first data row."
+        },
+        "descriptionFlags": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/descriptionFlag" }
+        }
+      }
+    },
+    "csvLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mapping", "options"],
+      "properties": {
+        "mapping": { "$ref": "#/$defs/csvMapping" },
+        "options": { "$ref": "#/$defs/csvOptions" }
+      }
+    },
+    "xlsColumn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "header"],
+      "properties": {
+        "index": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "header": { "type": "string", "minLength": 1, "maxLength": 80 }
+      }
+    },
+    "xlsColumns": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["valueDate", "transactionDate", "currency", "credit", "debit", "description"],
+      "properties": {
+        "valueDate": { "$ref": "#/$defs/xlsColumn" },
+        "transactionDate": { "$ref": "#/$defs/xlsColumn" },
+        "currency": { "$ref": "#/$defs/xlsColumn" },
+        "credit": { "$ref": "#/$defs/xlsColumn" },
+        "debit": { "$ref": "#/$defs/xlsColumn" },
+        "description": { "$ref": "#/$defs/xlsColumn" }
+      }
+    },
+    "xlsLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "columns",
+        "headerAliases",
+        "dateFormat",
+        "decimalSeparator",
+        "amountMode",
+        "currencyMode"
+      ],
+      "properties": {
+        "sheetName": { "type": ["string", "null"], "minLength": 1, "maxLength": 80 },
+        "columns": { "$ref": "#/$defs/xlsColumns" },
+        "headerVariants": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "columns"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32,
+                "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+              },
+              "columns": { "$ref": "#/$defs/xlsColumns" }
+            }
+          }
+        },
+        "headerAliases": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["valueDate", "transactionDate", "currency", "credit", "debit", "description"],
+          "properties": {
+            "valueDate": { "$ref": "#/$defs/aliasList" },
+            "transactionDate": { "$ref": "#/$defs/aliasList" },
+            "currency": { "$ref": "#/$defs/aliasList" },
+            "credit": { "$ref": "#/$defs/aliasList" },
+            "debit": { "$ref": "#/$defs/aliasList" },
+            "description": { "$ref": "#/$defs/aliasList" }
+          }
+        },
+        "dateFormat": {
+          "enum": ["YYYY-MM-DD", "MM/DD/YYYY", "DD/MM/YYYY", "DD.MM.YYYY", "YYYY/MM/DD"]
+        },
+        "decimalSeparator": { "enum": [".", ","] },
+        "accountLabel": { "type": ["string", "null"], "minLength": 1, "maxLength": 80 },
+        "accountAliases": { "$ref": "#/$defs/aliasList" },
+        "amountMode": { "const": "credit-debit" },
+        "currencyMode": { "const": "per-row" },
+        "descriptionFlags": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/descriptionFlag" }
+        }
+      }
+    },
+    "ofxLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "defaultCurrency": { "type": "string", "pattern": "^[A-Z]{3}$" }
+      }
+    },
+    "pdfLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["textLayer"],
+      "properties": {
+        "textLayer": { "const": true },
+        "pageSize": { "enum": ["A4", "Letter", "any"] },
+        "headerRow": { "type": "integer", "minimum": 1, "maximum": 80 },
+        "columns": { "$ref": "#/$defs/xlsColumns" }
+      }
+    }
+  }
+}

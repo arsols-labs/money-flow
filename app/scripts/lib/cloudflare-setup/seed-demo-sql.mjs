@@ -187,6 +187,29 @@ function buildOperations() {
     });
   }
 
+  const sameDayReceipts = [
+    [2, 'Corner Pharmacy', 'Cold medicine', 'Health', 'Pharmacy', -1890, 'DEMO-FISCAL-2501'],
+    [2, 'Wolt', 'Pharmacy delivery', 'Health', 'Pharmacy', -490, 'DEMO-FISCAL-2502'],
+    [1, 'Cedar Bistro Food', 'Dinner plates', 'Dining', null, -6400, 'DEMO-FISCAL-2503'],
+    [1, 'Cedar Bistro Bar', 'Drinks', 'Dining', null, -1800, 'DEMO-FISCAL-2504'],
+  ];
+  for (const [days, store, item, category, subcategory, amount_minor, fiscal] of sameDayReceipts) {
+    operations.push({
+      date: daysAgo(days),
+      account: 'Everyday Checking',
+      kind: 'expense',
+      store,
+      item,
+      category,
+      subcategory,
+      amount_minor,
+      source: 'manual',
+      comment: 'Sample same-day receipts so grouping can be tried',
+      receipt_url: `https://example.com/receipts/${String(fiscal).toLowerCase()}`,
+      fiscal_receipt_id: fiscal,
+    });
+  }
+
   for (const days of [88, 58, 27]) {
     operations.push({
       date: daysAgo(days),

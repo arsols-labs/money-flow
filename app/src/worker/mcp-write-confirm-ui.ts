@@ -112,7 +112,14 @@ ${MCP_WIDGET_I18N_SCRIPT}
         if (!sc || !sc.requestState || sc.written !== false) return;
         pending = sc;
         document.getElementById('desc').textContent = sc.description || t('confirm.prompt');
-        document.getElementById('confirmBtn').disabled = false;
+        var purchase = String(sc.tool || '').indexOf('purchase_order') === 0;
+        document.getElementById('hint').textContent = purchase ? t('confirm.purchaseOrdersHint') : t('confirm.hint');
+        var button = document.getElementById('confirmBtn');
+        button.disabled = false;
+        if (sc.tool === 'purchase_order_component_unlink') button.textContent = t('confirm.purchaseOrderUnlink');
+        else if (sc.tool === 'purchase_order_delete') button.textContent = t('confirm.purchaseOrderDelete');
+        else if (purchase) button.textContent = t('confirm.purchaseOrderWrite');
+        else button.textContent = t('confirm.button');
       }
 
       async function confirmWrite() {

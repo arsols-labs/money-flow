@@ -1,7 +1,7 @@
 // Backup on the "Data" screen.
 // v2 has no separate `#/settings` — the section lives here, like the other
 // data settings. `#/settings` and `#/data/backup` only scroll to here.
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle, AlertTriangle, Download, Upload, X } from 'lucide-react';
 import { api } from './api';
@@ -25,7 +25,7 @@ function looksLikeBackup(value) {
   );
 }
 
-function RestoreConfirmModal({ filename, onClose, onConfirm, busy, error }) {
+function RestoreConfirmModal({ filename, onClose, onConfirm, busy, error, orderRemoval }) {
   const { t } = useTranslation();
   return (
     <div className="mcp-modal-backdrop" onClick={busy ? undefined : onClose}>
@@ -50,6 +50,11 @@ function RestoreConfirmModal({ filename, onClose, onConfirm, busy, error }) {
             <AlertCircle size={16} />
             <div>{t('data.backup.restoreWarning')}</div>
           </div>
+          {orderRemoval && (
+            <p className="form-error" role="alert" style={{ marginTop: 12 }}>
+              {t('data.backup.restoreOrdersWarning', orderRemoval)}
+            </p>
+          )}
           {filename && (
             <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '12px 0 0' }}>
               {filename}
@@ -87,13 +92,27 @@ export default function BackupSection() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(null);
   const [error, setError] = useState(null);
+  const [omitted, setOmitted] = useState({ orders: 0, components: 0 });
+  const [compatDownloading, setCompatDownloading] = useState(false);
+
+  const refreshOmitted = useCallback(async () => {
+    try {
+      const res = await api.listPurchaseOrders();
+      const orders = res.orders ?? [];
+      const components = orders.reduce((sum, order) => sum + (order.components?.length ?? 0), 0);
+      setOmitted({ orders: orders.length, components });
+    } catch {
+      setOmitted({ orders: 0, components: 0 });
+    }
+  }, []);
 
   useEffect(() => {
     const hash = typeof window !== 'undefined' ? window.location.hash : '';
     if (hash === '#/settings' || hash === '#/data/backup') {
       document.getElementById('backup')?.scrollIntoView({ block: 'start' });
     }
-  }, []);
+    refreshOmitted();
+  }, [refreshOmitted]);
 
   const handleDownload = async () => {
     setDownloading(true);
@@ -117,6 +136,33 @@ export default function BackupSection() {
     }
   };
 
+  const handleCompatDownload = async () => {
+    setCompatDownloading(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const backup = await api.exportBackupCompat();
+      const leftOut = backup.omitted ?? { purchase_orders: omitted.orders, purchase_order_components: omitted.components };
+      setMessage(t('data.backup.compatWarning', {
+        orders: leftOut.purchase_orders,
+        components: leftOut.purchase_order_components,
+      }));
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = backupDownloadName(backup.exported_at).replace(/\.json$/, '-compat-v235.json');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('data.backup.exportFailed'));
+    } finally {
+      setCompatDownloading(false);
+    }
+  };
+
   const handleFile = async (event) => {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -129,7 +175,17 @@ export default function BackupSection() {
         setError(t('data.backup.fileInvalid'));
         return;
       }
-      setPending({ filename: file.name, backup: parsed });
+      const tables = parsed.tables ?? {};
+      const fileOrders = Array.isArray(tables.purchase_orders) ? tables.purchase_orders.length : 0;
+      const fileComponents = Array.isArray(tables.purchase_order_components) ? tables.purchase_order_components.length : 0;
+      let orderRemoval = null;
+      if (fileOrders === 0 && fileComponents === 0) {
+        const res = await api.listPurchaseOrders();
+        const orders = res.orders ?? [];
+        const components = orders.reduce((sum, order) => sum + (order.components?.length ?? 0), 0);
+        if (orders.length > 0 || components > 0) orderRemoval = { orders: orders.length, components };
+      }
+      setPending({ filename: file.name, backup: parsed, orderRemoval });
     } catch {
       setError(t('data.backup.fileInvalid'));
     }
@@ -139,7 +195,7 @@ export default function BackupSection() {
     if (!pending) return;
     setBusy(true);
     try {
-      await api.importBackup(pending.backup);
+      await api.importBackup(pending.backup, pending.orderRemoval ? { acknowledge_order_removal: true } : {});
       setPending(null);
       setMessage(t('data.backup.importOk'));
       refresh();
@@ -162,6 +218,11 @@ export default function BackupSection() {
           <Download size={14} />
           {downloading ? t('data.backup.downloading') : t('data.backup.download')}
         </button>
+        <button type="button" className="btn-secondary" onClick={handleCompatDownload} disabled={compatDownloading}>
+          <Download size={14} />
+          {compatDownloading ? t('data.backup.downloading') : t('data.backup.downloadCompat')}
+        </button>
+        <p className="data-hint">{t('data.backup.compatWarning', omitted)}</p>
         <button type="button" className="btn-danger" onClick={() => fileRef.current?.click()}>
           <Upload size={14} />
           {t('data.backup.restore')}
@@ -179,6 +240,7 @@ export default function BackupSection() {
       {pending && (
         <RestoreConfirmModal
           filename={pending.filename}
+          orderRemoval={pending.orderRemoval}
           onClose={() => { if (!busy) { setPending(null); setError(null); } }}
           onConfirm={handleRestore}
           busy={busy}

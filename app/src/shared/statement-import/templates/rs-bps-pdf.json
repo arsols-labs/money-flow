@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "rs-bps-pdf",
+  "label": "Banka Poštanska štedionica (PDF)",
+  "format": "pdf",
+  "pdf": {
+    "textLayer": true,
+    "pageSize": "A4"
+  }
+}

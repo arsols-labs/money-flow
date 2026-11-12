@@ -1,9 +1,31 @@
 import { DurableObject } from 'cloudflare:workers';
-import migrationSql from '../../migrations/0001_initial_schema.sql';
+import migration0001 from '../../migrations/0001_initial_schema.sql';
+import migration0021 from '../../migrations/0021_statement_import.sql';
+import migration0022 from '../../migrations/0022_import_batch_files.sql';
+import migration0023 from '../../migrations/0023_statement_templates.sql';
+import migration0024 from '../../migrations/0024_statement_template_mcp.sql';
+import migration0025 from '../../migrations/0025_purchase_orders.sql';
+import migration0026 from '../../migrations/0026_receipt_groups.sql';
+import migration0027 from '../../migrations/0027_receipt_group_rename.sql';
 import seedSql from '../../scripts/seed-demo.sql';
 import { DEMO_SESSION_TTL_SECONDS } from './demo-flag';
 import { splitSqlStatements } from './sql-split';
 import type { Env } from './types';
+
+/**
+ * Public baseline is 0001 (end state of the earlier chain). Later files are
+ * additive. Apply every shipped file in order; the seed expects `operations`.
+ */
+const MIGRATION_SQL = [
+  migration0001,
+  migration0021,
+  migration0022,
+  migration0023,
+  migration0024,
+  migration0025,
+  migration0026,
+  migration0027,
+];
 
 type SqlValue = ArrayBuffer | string | number | null;
 
@@ -54,6 +76,65 @@ function applyScript(sql: SqlStorage, script: string): void {
   }
 }
 
+function tableExists(sql: SqlStorage, name: string): boolean {
+  const rows = sql.exec(
+    "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?",
+    name,
+  ).toArray();
+  return rows.length > 0;
+}
+
+function columnNames(sql: SqlStorage, table: string): Set<string> {
+  if (!tableExists(sql, table)) return new Set();
+  const rows = sql.exec(`PRAGMA table_info(${table})`).toArray() as Array<{ name?: string }>;
+  return new Set(rows.map((row) => String(row.name ?? '')));
+}
+
+/**
+ * Sessions created before statement import keep their seed forever.
+ * Replay 0021 and 0022 as missing objects only: CREATE IF NOT EXISTS, and
+ * skip an ALTER when the column is already there.
+ */
+function applyMissingSchema(sql: SqlStorage, script: string): void {
+  for (const statement of splitSqlStatements(script)) {
+    if (skipBootstrapStatement(statement)) continue;
+    const alter = /^ALTER TABLE\s+(\w+)\s+ADD COLUMN\s+(\w+)/i.exec(statement);
+    if (alter) {
+      const table = alter[1]!;
+      const column = alter[2]!;
+      if (columnNames(sql, table).has(column)) continue;
+    }
+    const tolerant = statement
+      .replace(/^CREATE TABLE\s+/i, 'CREATE TABLE IF NOT EXISTS ')
+      .replace(/^CREATE UNIQUE INDEX\s+/i, 'CREATE UNIQUE INDEX IF NOT EXISTS ')
+      .replace(/^CREATE INDEX\s+/i, 'CREATE INDEX IF NOT EXISTS ');
+    try {
+      sql.exec(tolerant).toArray();
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      if (/duplicate column name|already exists/i.test(detail)) continue;
+      throw new Error(`demo schema failed: ${detail} :: ${statement.slice(0, 180)}`);
+    }
+  }
+}
+
+function upgradeStatementImport(sql: SqlStorage): void {
+  applyMissingSchema(sql, migration0021);
+  applyMissingSchema(sql, migration0022);
+  applyMissingSchema(sql, migration0023);
+  applyMissingSchema(sql, migration0024);
+  applyMissingSchema(sql, migration0025);
+  applyMissingSchema(sql, migration0026);
+  if (!tableExists(sql, 'receipt_group_requests')) return;
+  const rows = sql.exec(
+    "SELECT sql AS ddl FROM sqlite_master WHERE type = 'table' AND name = 'receipt_group_requests'",
+  ).toArray() as Array<{ ddl?: string }>;
+  const ddl = String(rows[0]?.ddl ?? '');
+  // 0027 rebuilds the table so `rename` is allowed. Replaying it would drop
+  // the rows, so run it only while the stored CHECK still omits that value.
+  if (!ddl.includes("'rename'")) applyScript(sql, migration0027);
+}
+
 function runStatement(sql: SqlStorage, statement: string, params: SqlValue[]): D1Result {
   const parts = splitSqlStatements(statement);
   if (parts.length !== 1) {
@@ -86,7 +167,7 @@ function runStatement(sql: SqlStorage, statement: string, params: SqlValue[]): D
 
 /**
  * One SQLite ledger per browser session. Shared D1 is never used here.
- * The first touch applies the public schema and stranger-safe demo seed.
+ * The first touch applies every migration in order, then the stranger-safe demo seed.
  */
 export class DemoSession extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
@@ -111,9 +192,17 @@ export class DemoSession extends DurableObject<Env> {
   async ledgerBatch(statements: DemoStatement[]): Promise<D1Result[]> {
     this.#ensureSchema();
     await this.#scheduleEviction();
-    return statements.map((statement) =>
-      runStatement(this.ctx.storage.sql, statement.sql, statement.params),
-    );
+    const sql = this.ctx.storage.sql;
+    // One transaction. A failed statement must not leave import_batches
+    // committed with no operations (Durable Object SQL has no implicit batch).
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        statements.map((statement) => runStatement(sql, statement.sql, statement.params)),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(message);
+    }
   }
 
   async ledgerExec(script: string): Promise<{ count: number; duration: number }> {
@@ -137,7 +226,7 @@ export class DemoSession extends DurableObject<Env> {
       "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'settings'",
     ).toArray();
     if (settings.length === 0) {
-      applyScript(sql, migrationSql);
+      for (const migrationSql of MIGRATION_SQL) applyScript(sql, migrationSql);
       applyScript(sql, seedSql);
       return;
     }
@@ -145,6 +234,7 @@ export class DemoSession extends DurableObject<Env> {
       "SELECT 1 AS ok FROM settings WHERE key = 'setup_demo_seed' LIMIT 1",
     ).toArray();
     if (seeded.length === 0) applyScript(sql, seedSql);
+    upgradeStatementImport(sql);
   }
 
   async #scheduleEviction(): Promise<void> {
