@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "id": "rs-bps",
+  "label": "Banka Poštanska štedionica",
+  "format": "xls",
+  "xls": {
+    "sheetName": "Sheet1",
+    "columns": {
+      "valueDate": { "index": 1, "header": "Value date" },
+      "transactionDate": { "index": 2, "header": "Transaction date" },
+      "currency": { "index": 6, "header": "Currency code" },
+      "credit": { "index": 8, "header": "Credit" },
+      "debit": { "index": 10, "header": "Debit" },
+      "description": { "index": 12, "header": "Description" }
+    },
+    "headerVariants": [
+      {
+        "id": "en",
+        "columns": {
+          "valueDate": { "index": 1, "header": "Value date" },
+          "transactionDate": { "index": 2, "header": "Transaction date" },
+          "currency": { "index": 6, "header": "Currency code" },
+          "credit": { "index": 8, "header": "Credit" },
+          "debit": { "index": 10, "header": "Debit" },
+          "description": { "index": 12, "header": "Description" }
+        }
+      },
+      {
+        "id": "sr",
+        "columns": {
+          "valueDate": { "index": 1, "header": "Datum valute" },
+          "transactionDate": { "index": 2, "header": "Datum transakcije" },
+          "currency": { "index": 6, "header": "Šifra valute" },
+          "credit": { "index": 8, "header": "Potražuje" },
+          "debit": { "index": 10, "header": "Duguje" },
+          "description": { "index": 12, "header": "Opis" }
+        }
+      }
+    ],
+    "headerAliases": {
+      "valueDate": ["value date", "datum valute"],
+      "transactionDate": ["transaction date", "datum transakcije", "datum knjizenja", "datum prometa"],
+      "currency": ["currency code", "oznaka valute", "sifra valute", "currency", "valuta"],
+      "credit": ["credit", "potrazuje", "potrazivanje", "odobrenje", "uplata"],
+      "debit": ["debit", "duguje", "dugovanje", "zaduzenje", "isplata"],
+      "description": ["description", "opis transakcije", "opis"]
+    },
+    "dateFormat": "DD/MM/YYYY",
+    "decimalSeparator": ".",
+    "accountLabel": "Account",
+    "accountAliases": ["account", "account number", "racun", "broj racuna"],
+    "amountMode": "credit-debit",
+    "currencyMode": "per-row",
+    "descriptionFlags": [
+      { "id": "possible_own_account_transfer", "pattern": "otkup strane valute" }
+    ]
+  }
+}

@@ -54,10 +54,23 @@ function copyHeaders(response: Response): Headers {
   return headers;
 }
 
-function withDemoCookie(response: Response, cookie: string): Response {
+async function withDemoCookie(response: Response, cookie: string): Promise<Response> {
   const headers = copyHeaders(response);
   headers.append('Set-Cookie', cookie);
-  return new Response(response.body, {
+  // Buffer before rewriting. A streamed body plus the original Content-Length
+  // can leave the browser waiting until the connection dies, after the worker
+  // has already committed the import.
+  if (!response.body) {
+    headers.delete('content-length');
+    return new Response(null, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+  const body = await response.arrayBuffer();
+  headers.set('content-length', String(body.byteLength));
+  return new Response(body, {
     status: response.status,
     statusText: response.statusText,
     headers,
@@ -123,5 +136,5 @@ export async function maybeDemoFetch(
   const response = await next(nextRequest, bound, ctx);
   if (responseClearsDemoCookie(response)) return response;
   const secure = new URL(request.url).protocol === 'https:';
-  return withDemoCookie(response, demoSessionCookie(sessionId, secure, DEMO_SESSION_TTL_SECONDS));
+  return await withDemoCookie(response, demoSessionCookie(sessionId, secure, DEMO_SESSION_TTL_SECONDS));
 }

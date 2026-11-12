@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "us-bofa",
+  "label": "Bank of America",
+  "format": "csv",
+  "csv": {
+    "mapping": {
+      "date": "Date",
+      "description": "Description",
+      "amount": "Amount",
+      "balance": "Running Bal."
+    },
+    "options": {
+      "delimiter": ",",
+      "decimalSeparator": ".",
+      "dateFormat": "MM/DD/YYYY",
+      "encoding": "utf-8",
+      "hasHeader": true,
+      "defaultCurrency": "USD",
+      "skipEmptyAmount": true,
+      "checkRunningBalance": true
+    }
+  }
+}

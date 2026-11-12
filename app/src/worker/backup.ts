@@ -11,10 +11,18 @@
 
 import { ValidationError } from './api-error';
 import { parseHttpUrl } from '../shared/http-url';
-import { FISCAL_RECEIPT_ID_MAX_LENGTH } from '../shared/fiscal-receipts';
+import { FISCAL_RECEIPT_ID_MAX_LENGTH, canonicalizePfr } from '../shared/fiscal-receipts';
+import {
+  PURCHASE_ORDERS_EPOCH_KEY,
+  isIsoDateOnly,
+  isLedgerEpoch,
+  isProviderSlug,
+} from '../shared/purchase-orders';
+import { validateStatementTemplate } from '../shared/statement-import/template-schema';
+import { isBuiltinTemplateId } from '../shared/statement-import/templates';
 
 export const BACKUP_FORMAT = 'money-flow-v2-backup';
-export const BACKUP_VERSION = 1;
+export const BACKUP_VERSION = 2;
 
 export const USER_TABLES = [
   'settings',
@@ -30,7 +38,32 @@ export const USER_TABLES = [
   'recurring_period_fulfillments',
   'imported_receipt_items',
   'operation_fulfillment_links',
+  'import_batches',
+  'category_rules',
+  'statement_templates',
+  'purchase_orders',
+  'purchase_order_components',
+  'receipt_membership',
+  'receipt_group_requests',
 ] as const;
+
+/** Older backup documents predate statement import and purchase orders. Missing tables import as empty. */
+const OPTIONAL_EMPTY_TABLES = new Set<UserTableName>([
+  'import_batches',
+  'category_rules',
+  'purchase_orders',
+  'purchase_order_components',
+  'receipt_membership',
+  'receipt_group_requests',
+]);
+
+/** Omitted from a full export when empty, so an older Worker can still restore that file. */
+export const BACKUP_TABLES_OMITTED_WHEN_EMPTY: readonly UserTableName[] = [
+  'purchase_orders',
+  'purchase_order_components',
+  'receipt_membership',
+  'receipt_group_requests',
+];
 
 export type UserTableName = (typeof USER_TABLES)[number];
 
@@ -62,10 +95,17 @@ export function isPreservedSettingKey(key: string): boolean {
 }
 
 const DELETE_ORDER: UserTableName[] = [
+  'receipt_group_requests',
+  'receipt_membership',
+  'purchase_order_components',
+  'purchase_orders',
   'operation_fulfillment_links',
   'imported_receipt_items',
   'recurring_period_fulfillments',
   'operations',
+  'import_batches',
+  'category_rules',
+  'statement_templates',
   'transfers',
   'planned_items',
   'recurring_items',
@@ -87,7 +127,14 @@ const INSERT_ORDER: UserTableName[] = [
   'planned_items',
   'recurring_items',
   'transfers',
+  'import_batches',
+  'category_rules',
+  'statement_templates',
   'operations',
+  'purchase_orders',
+  'purchase_order_components',
+  'receipt_membership',
+  'receipt_group_requests',
   'recurring_period_fulfillments',
   'imported_receipt_items',
   'operation_fulfillment_links',
@@ -117,6 +164,19 @@ const TABLE_COLUMNS: Record<UserTableName, readonly string[]> = {
     'id', 'date', 'account_id', 'kind', 'store', 'item', 'category',
     'subcategory', 'amount_minor', 'receipt_id', 'source', 'planned_item_id',
     'recurring_item_id', 'transfer_id', 'comment', 'receipt_url', 'fiscal_receipt_id',
+    'import_batch_id', 'bank_transaction_id', 'import_fingerprint',
+    'receipt_identity_token',
+  ],
+  import_batches: [
+    'id', 'idempotency_key', 'category_mode', 'status', 'file_count', 'row_count',
+    'created_at', 'undone_at', 'files_json',
+  ],
+  category_rules: [
+    'id', 'pattern', 'match_field', 'category', 'subcategory', 'priority', 'created_at',
+  ],
+  statement_templates: [
+    'id', 'template_id', 'label', 'format', 'document', 'created_at', 'updated_at',
+    'created_via', 'created_by_client_id', 'used_batch_id',
   ],
   recurring_period_fulfillments: [
     'recurring_item_id', 'period_due_date', 'outcome', 'evidence_quantity', 'fulfilled_at',
@@ -128,6 +188,19 @@ const TABLE_COLUMNS: Record<UserTableName, readonly string[]> = {
   operation_fulfillment_links: [
     'operation_id', 'planned_item_id', 'recurring_item_id', 'period_due_date',
     'fulfillment_type', 'linked_at',
+  ],
+  purchase_orders: [
+    'id', 'provider', 'provider_order_id', 'order_date', 'order_total_minor',
+    'order_total_currency', 'order_total_source', 'order_total_reference', 'note',
+    'created_via', 'created_at', 'updated_at', 'kind', 'display_name',
+  ],
+  receipt_membership: ['id', 'order_id', 'receipt_key', 'ledger_epoch', 'created_at'],
+  receipt_group_requests: [
+    'idempotency_key', 'operation', 'request_hash', 'status_code', 'response_json', 'created_at',
+  ],
+  purchase_order_components: [
+    'id', 'order_id', 'component_type', 'target_kind', 'pfr_canonical', 'ledger_epoch',
+    'expected_amount_minor', 'expected_currency', 'label', 'created_at',
   ],
 };
 
@@ -285,6 +358,9 @@ function normalizeRow(
     case 'settings': {
       row.key = requireNonEmpty(table, index, 'key', row.key);
       if (typeof row.value !== 'string') rowInvalid(table, index, 'value');
+      if (row.key === PURCHASE_ORDERS_EPOCH_KEY && !isLedgerEpoch(row.value)) {
+        rowInvalid(table, index, 'value');
+      }
       return row;
     }
     case 'accounts': {
@@ -502,6 +578,110 @@ function normalizeRow(
         rowInvalid(table, index, 'fiscal_receipt_id');
       }
       row.fiscal_receipt_id = fiscalReceiptId;
+      row.import_batch_id = optionalId(table, index, 'import_batch_id', row.import_batch_id);
+      const bankTxn = asOptionalString(row.bank_transaction_id);
+      if (bankTxn === undefined) rowInvalid(table, index, 'bank_transaction_id');
+      row.bank_transaction_id = bankTxn;
+      const fingerprint = asOptionalString(row.import_fingerprint);
+      if (fingerprint === undefined) rowInvalid(table, index, 'import_fingerprint');
+      row.import_fingerprint = fingerprint;
+      if (row.receipt_identity_token === null || row.receipt_identity_token === undefined) {
+        row.receipt_identity_token = null;
+      } else if (!isLedgerEpoch(row.receipt_identity_token)) {
+        rowInvalid(table, index, 'receipt_identity_token');
+      }
+      return row;
+    }
+    case 'import_batches': {
+      row.id = requireId(table, index, 'id', row.id);
+      row.idempotency_key = requireNonEmpty(table, index, 'idempotency_key', row.idempotency_key);
+      if (row.category_mode !== 'manual' && row.category_mode !== 'rules') {
+        rowInvalid(table, index, 'category_mode');
+      }
+      if (row.status !== 'committed' && row.status !== 'undone') rowInvalid(table, index, 'status');
+      const fileCount = asSafeInt(row.file_count);
+      if (fileCount === null || fileCount < 0) rowInvalid(table, index, 'file_count');
+      row.file_count = fileCount;
+      const rowCount = asSafeInt(row.row_count);
+      if (rowCount === null || rowCount < 0) rowInvalid(table, index, 'row_count');
+      row.row_count = rowCount;
+      row.created_at = requireIsoMoment(table, index, 'created_at', row.created_at);
+      if (row.undone_at === null || row.undone_at === undefined) row.undone_at = null;
+      else row.undone_at = requireIsoMoment(table, index, 'undone_at', row.undone_at);
+      const undone = row.status === 'undone';
+      if (undone !== (row.undone_at !== null)) rowInvalid(table, index, 'undone_at');
+      const filesJson = asOptionalString(row.files_json);
+      if (filesJson === undefined) rowInvalid(table, index, 'files_json');
+      if (filesJson !== null && filesJson.length > 8000) rowInvalid(table, index, 'files_json');
+      row.files_json = filesJson;
+      return row;
+    }
+    case 'category_rules': {
+      row.id = requireId(table, index, 'id', row.id);
+      row.pattern = requireNonEmpty(table, index, 'pattern', row.pattern);
+      if (row.match_field !== 'merchant' && row.match_field !== 'description' && row.match_field !== 'any') {
+        rowInvalid(table, index, 'match_field');
+      }
+      row.category = requireNonEmpty(table, index, 'category', row.category);
+      const subcategory = asOptionalString(row.subcategory);
+      if (subcategory === undefined) rowInvalid(table, index, 'subcategory');
+      row.subcategory = subcategory;
+      const priority = asSafeInt(row.priority);
+      if (priority === null || priority < 0 || priority > 1_000_000) rowInvalid(table, index, 'priority');
+      row.priority = priority;
+      row.created_at = requireIsoMoment(table, index, 'created_at', row.created_at);
+      return row;
+    }
+    case 'statement_templates': {
+      row.id = requireId(table, index, 'id', row.id);
+      const templateId = requireNonEmpty(table, index, 'template_id', row.template_id);
+      if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(templateId) || isBuiltinTemplateId(templateId)) {
+        rowInvalid(table, index, 'template_id');
+      }
+      row.template_id = templateId;
+      const label = requireNonEmpty(table, index, 'label', row.label);
+      if (label.length > 120) rowInvalid(table, index, 'label');
+      row.label = label;
+      if (row.format !== 'csv' && row.format !== 'xls' && row.format !== 'ofx' && row.format !== 'pdf') {
+        rowInvalid(table, index, 'format');
+      }
+      const documentText = requireNonEmpty(table, index, 'document', row.document);
+      if (documentText.length > 32768) rowInvalid(table, index, 'document');
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(documentText);
+      } catch {
+        rowInvalid(table, index, 'document');
+      }
+      const validated = validateStatementTemplate(parsed);
+      if (!validated.ok) rowInvalid(table, index, 'document');
+      if (
+        validated.value.id !== templateId
+        || validated.value.label !== label
+        || validated.value.format !== row.format
+      ) {
+        rowInvalid(table, index, 'document');
+      }
+      row.document = JSON.stringify(validated.value);
+      row.created_at = requireIsoMoment(table, index, 'created_at', row.created_at);
+      row.updated_at = requireIsoMoment(table, index, 'updated_at', row.updated_at);
+      const createdVia = asOptionalString(row.created_via);
+      if (createdVia === undefined) rowInvalid(table, index, 'created_via');
+      if (createdVia !== null && createdVia !== 'api' && createdVia !== 'mcp' && createdVia !== 'backup') {
+        rowInvalid(table, index, 'created_via');
+      }
+      row.created_via = createdVia;
+      const createdBy = asOptionalString(row.created_by_client_id);
+      if (createdBy === undefined || (createdBy !== null && createdBy.length > 200)) {
+        rowInvalid(table, index, 'created_by_client_id');
+      }
+      row.created_by_client_id = createdBy;
+      if (row.used_batch_id === null || row.used_batch_id === undefined) row.used_batch_id = null;
+      else {
+        const usedBatch = asSafeInt(row.used_batch_id);
+        if (usedBatch === null || usedBatch < 1) rowInvalid(table, index, 'used_batch_id');
+        row.used_batch_id = usedBatch;
+      }
       return row;
     }
     case 'recurring_period_fulfillments': {
@@ -551,6 +731,145 @@ function normalizeRow(
       }
       return row;
     }
+    case 'purchase_orders': {
+      row.id = requireId(table, index, 'id', row.id);
+      const provider = requireNonEmpty(table, index, 'provider', row.provider);
+      if (!isProviderSlug(provider)) rowInvalid(table, index, 'provider');
+      row.provider = provider;
+      const orderId = requireNonEmpty(table, index, 'provider_order_id', row.provider_order_id);
+      if (orderId !== orderId.trim() || orderId.length > 128) rowInvalid(table, index, 'provider_order_id');
+      row.provider_order_id = orderId;
+      if (row.order_date === null || row.order_date === undefined) row.order_date = null;
+      else {
+        if (typeof row.order_date !== 'string' || !isIsoDateOnly(row.order_date)) {
+          rowInvalid(table, index, 'order_date');
+        }
+      }
+      const minorMissing = row.order_total_minor === null || row.order_total_minor === undefined;
+      const currencyMissing = row.order_total_currency === null || row.order_total_currency === undefined;
+      const sourceMissing = row.order_total_source === null || row.order_total_source === undefined;
+      if (minorMissing && currencyMissing && sourceMissing) {
+        row.order_total_minor = null;
+        row.order_total_currency = null;
+        row.order_total_source = null;
+      } else {
+        const minor = asSafeInt(row.order_total_minor);
+        if (minor === null || minor < 0) rowInvalid(table, index, 'order_total_minor');
+        row.order_total_minor = minor;
+        row.order_total_currency = requireCurrency(table, index, 'order_total_currency', row.order_total_currency);
+        if (row.order_total_source !== 'provider_document' && row.order_total_source !== 'fiscal_document') {
+          rowInvalid(table, index, 'order_total_source');
+        }
+      }
+      const reference = asOptionalString(row.order_total_reference);
+      if (reference === undefined || (reference !== null && (reference.length > 200 || reference.includes('://')))) {
+        rowInvalid(table, index, 'order_total_reference');
+      }
+      if ((row.order_total_minor === null) !== (reference === null) && reference !== null && row.order_total_minor === null) {
+        rowInvalid(table, index, 'order_total_reference');
+      }
+      row.order_total_reference = reference;
+      const note = asOptionalString(row.note);
+      if (note === undefined || (note !== null && note.length > 500)) rowInvalid(table, index, 'note');
+      row.note = note;
+      if (row.created_via !== 'api' && row.created_via !== 'mcp' && row.created_via !== 'backup') {
+        rowInvalid(table, index, 'created_via');
+      }
+      row.created_at = requireIsoMoment(table, index, 'created_at', row.created_at);
+      row.updated_at = requireIsoMoment(table, index, 'updated_at', row.updated_at);
+      if (row.kind === null || row.kind === undefined) row.kind = 'provider';
+      if (row.kind !== 'provider' && row.kind !== 'manual') rowInvalid(table, index, 'kind');
+      const displayName = asOptionalString(row.display_name);
+      if (displayName === undefined || (displayName !== null && (displayName.length > 120 || displayName !== displayName.trim()))) {
+        rowInvalid(table, index, 'display_name');
+      }
+      row.display_name = displayName;
+      if (row.kind === 'manual' && row.provider !== 'manual') rowInvalid(table, index, 'provider');
+      return row;
+    }
+    case 'purchase_order_components': {
+      row.id = requireId(table, index, 'id', row.id);
+      row.order_id = requireId(table, index, 'order_id', row.order_id);
+      const types = new Set(['goods', 'service_fee', 'delivery_fee', 'tip', 'discount', 'refund', 'other']);
+      if (typeof row.component_type !== 'string' || !types.has(row.component_type)) {
+        rowInvalid(table, index, 'component_type');
+      }
+      if (row.target_kind !== 'pfr' && row.target_kind !== 'expected') {
+        rowInvalid(table, index, 'target_kind');
+      }
+      if (!isLedgerEpoch(row.ledger_epoch)) rowInvalid(table, index, 'ledger_epoch');
+      const label = asOptionalString(row.label);
+      if (label === undefined || (label !== null && label.length > 120)) rowInvalid(table, index, 'label');
+      row.label = label;
+      row.created_at = requireIsoMoment(table, index, 'created_at', row.created_at);
+      if (row.target_kind === 'pfr') {
+        const parsed = canonicalizePfr(row.pfr_canonical);
+        if (!parsed.ok || parsed.value === null || parsed.value !== row.pfr_canonical) {
+          rowInvalid(table, index, 'pfr_canonical');
+        }
+        row.pfr_canonical = parsed.value;
+        if (row.expected_amount_minor !== null && row.expected_amount_minor !== undefined) {
+          rowInvalid(table, index, 'expected_amount_minor');
+        }
+        row.expected_amount_minor = null;
+        row.expected_currency = null;
+      } else {
+        if (row.pfr_canonical !== null && row.pfr_canonical !== undefined) {
+          rowInvalid(table, index, 'pfr_canonical');
+        }
+        row.pfr_canonical = null;
+        const amount = asSafeInt(row.expected_amount_minor);
+        if (amount === null || amount === 0) rowInvalid(table, index, 'expected_amount_minor');
+        row.expected_amount_minor = amount;
+        row.expected_currency = requireCurrency(table, index, 'expected_currency', row.expected_currency);
+      }
+      return row;
+    }
+    case 'receipt_membership': {
+      row.id = requireId(table, index, 'id', row.id);
+      row.order_id = requireId(table, index, 'order_id', row.order_id);
+      if (typeof row.receipt_key !== 'string' || row.receipt_key.length < 4 || row.receipt_key.length > 170) {
+        rowInvalid(table, index, 'receipt_key');
+      }
+      const pfr = row.receipt_key.startsWith('pfr:') ? canonicalizePfr(row.receipt_key.slice(4)) : null;
+      const op = row.receipt_key.startsWith('op:') ? row.receipt_key.slice(3) : null;
+      if (pfr) {
+        if (!pfr.ok || pfr.value === null || `pfr:${pfr.value}` !== row.receipt_key) {
+          rowInvalid(table, index, 'receipt_key');
+        }
+      } else if (!op || !isLedgerEpoch(op)) {
+        rowInvalid(table, index, 'receipt_key');
+      }
+      if (!isLedgerEpoch(row.ledger_epoch)) rowInvalid(table, index, 'ledger_epoch');
+      row.created_at = requireIsoMoment(table, index, 'created_at', row.created_at);
+      return row;
+    }
+    case 'receipt_group_requests': {
+      const idempotencyKey = requireNonEmpty(table, index, 'idempotency_key', row.idempotency_key);
+      if (idempotencyKey.length < 8 || idempotencyKey.length > 200) {
+        rowInvalid(table, index, 'idempotency_key');
+      }
+      row.idempotency_key = idempotencyKey;
+      if (
+        row.operation !== 'create'
+        && row.operation !== 'unlink'
+        && row.operation !== 'delete'
+        && row.operation !== 'rename'
+      ) {
+        rowInvalid(table, index, 'operation');
+      }
+      if (typeof row.request_hash !== 'string' || !/^[0-9a-f]{64}$/.test(row.request_hash)) {
+        rowInvalid(table, index, 'request_hash');
+      }
+      const status = asSafeInt(row.status_code);
+      if (status !== 200 && status !== 201) rowInvalid(table, index, 'status_code');
+      row.status_code = status;
+      if (typeof row.response_json !== 'string' || row.response_json.length < 2) {
+        rowInvalid(table, index, 'response_json');
+      }
+      row.created_at = requireIsoMoment(table, index, 'created_at', row.created_at);
+      return row;
+    }
     default: {
       const _never: never = table;
       throw new ValidationError('BACKUP_TABLE_INVALID', { table: String(_never) });
@@ -570,6 +889,44 @@ function assertReferences(tables: BackupTables): void {
   );
   const transferIds = uniqueOrFail('transfers', 'id', tables.transfers.map((r) => r.id as number));
   const operationIds = uniqueOrFail('operations', 'id', tables.operations.map((r) => r.id as number));
+  const batchIds = uniqueOrFail('import_batches', 'id', tables.import_batches.map((r) => r.id as number));
+  uniqueOrFail(
+    'import_batches',
+    'idempotency_key',
+    tables.import_batches.map((r) => r.idempotency_key as string),
+  );
+  uniqueOrFail(
+    'category_rules',
+    'id',
+    tables.category_rules.map((r) => r.id as number),
+  );
+  uniqueOrFail(
+    'statement_templates',
+    'id',
+    tables.statement_templates.map((r) => r.id as number),
+  );
+  uniqueOrFail(
+    'statement_templates',
+    'template_id',
+    tables.statement_templates.map((r) => r.template_id as string),
+  );
+  for (const row of tables.statement_templates) {
+    if (row.used_batch_id !== null && !batchIds.has(row.used_batch_id as number)) {
+      refInvalid('statement_templates', 'used_batch_id', row.used_batch_id as number);
+    }
+  }
+  uniqueOrFail(
+    'operations',
+    'import_fingerprint',
+    tables.operations.flatMap((r) => (r.import_fingerprint ? [r.import_fingerprint as string] : [])),
+  );
+  uniqueOrFail(
+    'operations',
+    'bank_transaction_id',
+    tables.operations.flatMap((r) => (
+      r.bank_transaction_id ? [`${r.account_id}:${r.bank_transaction_id}`] : []
+    )),
+  );
   uniqueOrFail('settings', 'key', tables.settings.map((r) => r.key as string));
   uniqueOrFail('fx_rates', 'code', tables.fx_rates.map((r) => r.code as string));
   uniqueOrFail('account_aliases', 'alias_norm', tables.account_aliases.map((r) => r.alias_norm as string));
@@ -634,6 +991,9 @@ function assertReferences(tables: BackupTables): void {
     if (row.transfer_id !== null && !transferIds.has(row.transfer_id as number)) {
       refInvalid('operations', 'transfer_id', row.transfer_id as number);
     }
+    if (row.import_batch_id !== null && !batchIds.has(row.import_batch_id as number)) {
+      refInvalid('operations', 'import_batch_id', row.import_batch_id as number);
+    }
   }
   const fulfillmentKeys = new Set(
     tables.recurring_period_fulfillments.map((r) => `${r.recurring_item_id}:${r.period_due_date}:${r.outcome}`),
@@ -668,6 +1028,49 @@ function assertReferences(tables: BackupTables): void {
       }
     }
   }
+  const orderIds = uniqueOrFail(
+    'purchase_orders',
+    'id',
+    tables.purchase_orders.map((row) => row.id as number),
+  );
+  uniqueOrFail(
+    'purchase_orders',
+    'provider_order_id',
+    tables.purchase_orders.map((row) => `${row.provider}\0${row.provider_order_id}`),
+  );
+  uniqueOrFail(
+    'purchase_order_components',
+    'id',
+    tables.purchase_order_components.map((row) => row.id as number),
+  );
+  uniqueOrFail(
+    'purchase_order_components',
+    'pfr_canonical',
+    tables.purchase_order_components.flatMap((row) => (
+      row.pfr_canonical ? [row.pfr_canonical as string] : []
+    )),
+  );
+  for (const row of tables.purchase_order_components) {
+    if (!orderIds.has(row.order_id as number)) {
+      refInvalid('purchase_order_components', 'order_id', row.order_id as number);
+    }
+  }
+  uniqueOrFail('receipt_membership', 'id', tables.receipt_membership.map((row) => row.id as number));
+  uniqueOrFail('receipt_membership', 'receipt_key', tables.receipt_membership.map((row) => row.receipt_key as string));
+  for (const row of tables.receipt_membership) {
+    if (!orderIds.has(row.order_id as number)) {
+      refInvalid('receipt_membership', 'order_id', row.order_id as number);
+    }
+  }
+  uniqueOrFail(
+    'receipt_group_requests',
+    'idempotency_key',
+    tables.receipt_group_requests.map((row) => row.idempotency_key as string),
+  );
+  const tokens = tables.operations
+    .map((row) => row.receipt_identity_token)
+    .filter((token): token is string => typeof token === 'string');
+  uniqueOrFail('operations', 'receipt_identity_token', tokens);
 }
 
 export function parseBackupDocument(body: unknown): BackupDocument {
@@ -676,7 +1079,9 @@ export function parseBackupDocument(body: unknown): BackupDocument {
 
   const source = isPlainObject(body.backup) ? body.backup : body;
   if (source.format !== BACKUP_FORMAT) throw new ValidationError('BACKUP_FORMAT_INVALID');
-  if (source.version !== BACKUP_VERSION) throw new ValidationError('BACKUP_VERSION_UNSUPPORTED');
+  if (source.version !== 1 && source.version !== BACKUP_VERSION) {
+    throw new ValidationError('BACKUP_VERSION_UNSUPPORTED');
+  }
   if (typeof source.exported_at === 'string') {
     if (!ISO_MOMENT.test(source.exported_at) && !ISO_DATE.test(source.exported_at)) {
       throw new ValidationError('BACKUP_FORMAT_INVALID');
@@ -697,6 +1102,14 @@ export function parseBackupDocument(body: unknown): BackupDocument {
   for (const name of USER_TABLES) {
     const rows = source.tables[name];
     if (!Array.isArray(rows)) {
+      if (name === 'statement_templates' && source.version === 1) {
+        tables[name] = [];
+        continue;
+      }
+      if (OPTIONAL_EMPTY_TABLES.has(name)) {
+        tables[name] = [];
+        continue;
+      }
       throw new ValidationError('BACKUP_TABLE_INVALID', { table: name });
     }
     tables[name] = rows.map((row, index) => normalizeRow(name, index, row));
@@ -751,6 +1164,63 @@ export async function exportUserState(db: D1Database): Promise<BackupDocument> {
   };
 }
 
+export interface BackupOmittedGroupings {
+  purchase_orders: number;
+  purchase_order_components: number;
+}
+
+/** JSON file shape. Empty order tables are omitted so v2.35 can restore the file. */
+export function presentBackupExport(
+  document: BackupDocument,
+  options: { compatV235: boolean },
+): Record<string, unknown> {
+  const orderCount = document.tables.purchase_orders.length;
+  const componentCount = document.tables.purchase_order_components.length;
+  const tables: Record<string, Record<string, unknown>[]> = { ...document.tables };
+  const omitOrders = options.compatV235 || (orderCount === 0 && componentCount === 0);
+  if (omitOrders) {
+    delete tables.purchase_orders;
+    delete tables.purchase_order_components;
+    tables.settings = document.tables.settings.filter((row) => row.key !== PURCHASE_ORDERS_EPOCH_KEY);
+  }
+  if (options.compatV235 || document.tables.receipt_membership.length === 0) {
+    delete tables.receipt_membership;
+  }
+  if (options.compatV235 || document.tables.receipt_group_requests.length === 0) {
+    delete tables.receipt_group_requests;
+  }
+  const body: Record<string, unknown> = {
+    format: document.format,
+    version: document.version,
+    exported_at: document.exported_at,
+    tables,
+  };
+  if (options.compatV235) {
+    const omitted: BackupOmittedGroupings = {
+      purchase_orders: orderCount,
+      purchase_order_components: componentCount,
+    };
+    body.omitted = omitted;
+    body.warning = 'Order groupings and links are not included in this v2.35-compatible export. The full backup still has them.';
+  }
+  return body;
+}
+
+export async function countOrderGroupings(db: D1Database): Promise<BackupOmittedGroupings> {
+  const [orders, components] = await Promise.all([
+    db.prepare('SELECT COUNT(*) AS n FROM purchase_orders').first<{ n: number }>(),
+    db.prepare('SELECT COUNT(*) AS n FROM purchase_order_components').first<{ n: number }>(),
+  ]);
+  return {
+    purchase_orders: orders?.n ?? 0,
+    purchase_order_components: components?.n ?? 0,
+  };
+}
+
+export function backupOmitsOrderGroupings(tables: BackupTables): boolean {
+  return tables.purchase_orders.length === 0 && tables.purchase_order_components.length === 0;
+}
+
 export function backupFilename(exportedAt: string, now = new Date()): string {
   const day = ISO_DATE.test(exportedAt.slice(0, 10))
     ? exportedAt.slice(0, 10)
@@ -791,9 +1261,12 @@ export function parseResetConfirmation(body: unknown): void {
 }
 
 export async function resetUserState(db: D1Database): Promise<ResetUserStateResult> {
-  const statements: D1PreparedStatement[] = DELETE_ORDER
-    .filter((name) => name !== 'settings')
-    .map((name) => db.prepare(`DELETE FROM ${name}`));
+  const statements: D1PreparedStatement[] = [
+    db.prepare('DELETE FROM statement_import_uploads'),
+    ...DELETE_ORDER
+      .filter((name) => name !== 'settings')
+      .map((name) => db.prepare(`DELETE FROM ${name}`)),
+  ];
   statements.push(
     db.prepare(
       `DELETE FROM settings

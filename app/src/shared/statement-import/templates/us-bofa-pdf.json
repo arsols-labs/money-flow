@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "us-bofa-pdf",
+  "label": "Bank of America (PDF)",
+  "format": "pdf",
+  "pdf": {
+    "textLayer": true,
+    "pageSize": "Letter"
+  }
+}

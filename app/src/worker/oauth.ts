@@ -174,7 +174,7 @@ export function getOAuthProviderOptions(
       resource: resourceUri,
       authorization_servers: [issuerUri],
       scopes_supported: OAUTH_SCOPES_SUPPORTED,
-      resource_name: 'Money Flow v2 MCP server',
+      resource_name: 'Money Flow MCP server',
     },
   };
 }

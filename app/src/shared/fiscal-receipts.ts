@@ -1,6 +1,26 @@
 /** Serbian TaxCore / PURS PFR numbers and similar fiscal document ids. */
 export const FISCAL_RECEIPT_ID_MAX_LENGTH = 128;
 
+const FISCAL_WHITESPACE = /\s/gu;
+
+export type CanonicalPfrResult =
+  | { ok: true; value: string | null }
+  | { ok: false; reason: 'too_long' };
+
+/**
+ * Canonical fiscal-document id for order links.
+ * NFKC, map Unicode whitespace to U+0020, trim, collapse spaces, uppercase.
+ * Empty becomes null. Longer than 128 characters is an error.
+ */
+export function canonicalizePfr(input: unknown): CanonicalPfrResult {
+  if (typeof input !== 'string') return { ok: true, value: null };
+  const folded = input.normalize('NFKC').replace(FISCAL_WHITESPACE, ' ').trim().replace(/ {2,}/g, ' ');
+  const value = folded.toUpperCase();
+  if (value.length === 0) return { ok: true, value: null };
+  if (value.length > FISCAL_RECEIPT_ID_MAX_LENGTH) return { ok: false, reason: 'too_long' };
+  return { ok: true, value };
+}
+
 export type FiscalReceiptGrouping = 'fiscal_id' | 'single_op';
 
 export interface FiscalReceiptLine {
@@ -180,6 +200,7 @@ export function fiscalReceiptMatchesQuery(
   const hay = [
     group.fiscal_receipt_id,
     group.store,
+    group.date,
     group.account_name,
     group.receipt_url,
     ...group.lines.map((line) => [line.item, line.category, line.subcategory, line.comment].filter(Boolean).join(' ')),

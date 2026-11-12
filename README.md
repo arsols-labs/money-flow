@@ -15,12 +15,14 @@ Money Flow is the structured backend and MCP surface. It does **not** embed an i
 Stop typing expenses by hand. In the AI chat you already use:
 
 - Scan a receipt → extract, validate, book through MCP
+- Import a bank statement (CSV, Excel, OFX, or a text-layer PDF) in the app, or through MCP from any agent
+- Group several receipts into one order
 - “When do I run out?” → forward cash runway from live structured data
 - “What’s on the accounts?” → multicurrency / multi-asset summary
 - Update FX / add a transfer → same ledger as the UI
 - Schedule an agent to watch runway and notify you on Slack, Telegram, WhatsApp, …
 
-Two starter skills ship today (**FX updater**, **receipt processor**). Add any skill you invent — Money Flow stays the structured backend; agents bring the workflow. MCP works without special skills; skills extend complex and repeated workflows.
+Three starter skills ship today (**FX updater**, **receipt processor**, **bank statement import**). Add any skill you invent — Money Flow stays the structured backend; agents bring the workflow. MCP works without special skills; skills extend complex and repeated workflows.
 
 ## Quick start (self-host on your Cloudflare account)
 
@@ -39,7 +41,7 @@ Then:
 1. Open the printed app URL.
 2. Enroll a Passkey — paste `SETUP_TOKEN` into the password field on `/setup/passkey` (or the login screen). Do **not** put the token in a `?token=` URL.
 3. Connect MCP from your AI chat / agent host to the printed `/mcp` URL (HTTP 401 without a token is expected).
-4. Import the FX and receipt skills (or write your own).
+4. Import the FX, receipt, and bank-statement skills (or write your own).
 
 ### Useful setup flags
 

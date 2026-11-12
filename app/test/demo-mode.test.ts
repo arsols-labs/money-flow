@@ -12,7 +12,7 @@ import { resetRateLimitMemoryForTests } from '../src/worker/rate-limit';
 import { splitSqlStatements } from '../src/worker/sql-split';
 import type { Env } from '../src/worker/types';
 
-const ORIGIN = 'https://money-flow.arsols.com';
+const ORIGIN = 'https://demo.example';
 const sharedCalls: string[] = [];
 
 function bindings(): Env {
@@ -210,6 +210,33 @@ describe('DEMO_MODE session isolation', { timeout: 30_000 }, () => {
     expect(row.results[0]?.value).toBe('ok');
     const leaked = await real.DB.prepare("SELECT key FROM settings WHERE key = 'probe_a'").first();
     expect(leaked).toBeNull();
+  });
+
+  it('rolls back the whole demo batch when a later statement fails', async () => {
+    const real = env as unknown as Env;
+    const namespace = real.DEMO_SESSION;
+    const stub = namespace!.get(namespace!.idFromName(crypto.randomUUID())) as unknown as {
+      ensureReady(): Promise<void>;
+      ledgerBatch(statements: { sql: string; params: unknown[] }[]): Promise<unknown>;
+      ledgerQuery(sql: string, params: unknown[]): Promise<{ results: { n: number }[] }>;
+    };
+    await stub.ensureReady();
+    const insert = `INSERT INTO import_batches (
+      idempotency_key, category_mode, status, file_count, row_count, created_at
+    ) VALUES ('txn-probe', 'manual', 'committed', 1, 1, '2026-03-04T00:00:00Z')`;
+    const failed = stub.ledgerBatch([
+      { sql: insert, params: [] },
+      { sql: insert, params: [] },
+    ]).then(
+      () => new Error('the batch should have failed'),
+      (error: unknown) => error,
+    );
+    expect(await failed).toBeInstanceOf(Error);
+    const left = await stub.ledgerQuery(
+      "SELECT COUNT(*) AS n FROM import_batches WHERE idempotency_key = 'txn-probe'",
+      [],
+    );
+    expect(Number(left.results[0]?.n ?? 0)).toBe(0);
   });
 
   it('logout retires the demo cookie instead of reusing that ledger', async () => {

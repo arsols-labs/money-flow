@@ -1,7 +1,7 @@
 // "Analytics" — spending from D1 operations.
 // The search and filters at the top apply to every block on the page at once.
 // Aggregation is computed on the server by a separate route (POST /api/v2/analytics).
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -10,7 +10,10 @@ import { Search, SlidersHorizontal, X, AlertTriangle, ChevronDown, RotateCcw } f
 import { api } from './api';
 import {
   MetricCard, CardGrid, CollapsibleSection, BarRows, StatPair, IncomeExpenseBars, FxFooter,
+  SectionSkeleton,
 } from './components';
+import PurchaseOrderCard from './PurchaseOrderCard';
+import { nestManualGroupsInReceiptList } from '../shared/receipt-groups';
 import { useRefreshNonce } from './RefreshContext';
 import { formatMinor, formatMajor, fractionDigits } from './money';
 import { splitTrendPoint, trendHasRefunds, TREND_EXPENSE_COLOR, TREND_REFUND_COLOR } from './analyticsTrend';
@@ -571,6 +574,41 @@ function ReceiptCard({ receipt, baseCurrency }) {
   );
 }
 
+export function AnalyticsReceiptList({
+  receipts,
+  receiptGroups,
+  baseCurrency,
+  onRename = null,
+}) {
+  const { t } = useTranslation();
+  if (receiptGroups == null) return <SectionSkeleton />;
+  if (receipts.length === 0) {
+    return <div className="empty-state">{t('analytics.section.receiptsEmpty')}</div>;
+  }
+  const feed = nestManualGroupsInReceiptList(receipts, receiptGroups);
+  return (
+    <div className="receipt-list">
+      {feed.map((entry) => {
+        if (entry.kind === 'group') {
+          const item = entry.value;
+          return (
+            <PurchaseOrderCard
+              key={`manual-${item.group.id}`}
+              manualGroup={item.group}
+              nestedCards={item.nested}
+              onRename={onRename ? (name) => onRename(item.group.id, name) : null}
+              renderNested={(receipt) => (
+                <ReceiptCard key={receipt.id} receipt={receipt} baseCurrency={baseCurrency} />
+              )}
+            />
+          );
+        }
+        return <ReceiptCard key={entry.value.id} receipt={entry.value} baseCurrency={baseCurrency} />;
+      })}
+    </div>
+  );
+}
+
 // ---------- recurring operations and plans ----------
 
 function frequencyLabels(t) {
@@ -1063,6 +1101,8 @@ function RecurringPlansSection({
  *   recurringOps?: any[],
  *   recurringDetails?: any[],
  *   receipts?: any[],
+ *   receiptGroups?: any[] | null,
+ *   onRenameReceiptGroup?: ((groupId: number, name: string | null) => Promise<void>) | null,
  *   config?: any[],
  *   blockFilters?: any,
  *   onUpdateFilter?: (key: string, val: any) => void,
@@ -1085,6 +1125,8 @@ export function AnalyticsDashboard({
   recurringOps = [],
   recurringDetails = [],
   receipts = [],
+  receiptGroups = [],
+  onRenameReceiptGroup = null,
   config = loadAnalyticsConfig(),
   blockFilters = DEFAULT_ANALYTICS_FILTERS,
   onUpdateFilter = () => {},
@@ -1284,15 +1326,12 @@ export function AnalyticsDashboard({
               open={blockFilters.receiptsOpen ?? true}
               onToggle={(nextOpen) => onUpdateFilter('receiptsOpen', nextOpen)}
             >
-              {receipts.length === 0 ? (
-                <div className="empty-state">{t('analytics.section.receiptsEmpty')}</div>
-              ) : (
-                <div className="receipt-list">
-                  {receipts.map((r) => (
-                    <ReceiptCard key={r.id} receipt={r} baseCurrency={baseCurrency} />
-                  ))}
-                </div>
-              )}
+              <AnalyticsReceiptList
+                receipts={receipts}
+                receiptGroups={receiptGroups}
+                baseCurrency={baseCurrency}
+                onRename={onRenameReceiptGroup}
+              />
             </CollapsibleSection>
           </div>
         );
@@ -1357,6 +1396,8 @@ export default function Analytics({ isCustomizing: externalCustomizing = false, 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [fxRates, setFxRates] = useState([]);
+  const [receiptGroups, setReceiptGroups] = useState(null);
+  const renameKeys = useRef(new Map());
 
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -1367,6 +1408,37 @@ export default function Analytics({ isCustomizing: externalCustomizing = false, 
 
   useEffect(() => {
     api.listFxRates().then((res) => setFxRates(res.rates ?? [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.listReceiptGroups()
+      .then((res) => {
+        if (!cancelled) setReceiptGroups(res.groups ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setReceiptGroups((current) => current ?? []);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshNonce]);
+
+  const renameReceiptGroup = useCallback(async (groupId, name) => {
+    const actionKey = `rename:${groupId}:${name ?? ''}`;
+    const idempotencyKey = renameKeys.current.get(actionKey) || crypto.randomUUID();
+    renameKeys.current.set(actionKey, idempotencyKey);
+    try {
+      await api.renameReceiptGroup(groupId, { name, idempotency_key: idempotencyKey });
+      const res = await api.listReceiptGroups();
+      renameKeys.current.delete(actionKey);
+      setReceiptGroups(res.groups ?? []);
+    } catch (err) {
+      if (typeof err?.status === 'number' && err.status >= 400 && err.status < 500) {
+        renameKeys.current.delete(actionKey);
+      }
+      throw err;
+    }
   }, []);
 
   const handleConfigChange = useCallback((nextConfig) => {
@@ -1496,6 +1568,8 @@ export default function Analytics({ isCustomizing: externalCustomizing = false, 
         recurringOps={recurringOps}
         recurringDetails={recurringDetails}
         receipts={receipts}
+        receiptGroups={receiptGroups}
+        onRenameReceiptGroup={renameReceiptGroup}
         config={analyticsConfig}
         blockFilters={analyticsFilters}
         onUpdateFilter={handleUpdateBlockFilter}

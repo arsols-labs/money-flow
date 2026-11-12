@@ -1,4 +1,4 @@
-// API for managing the user's devices and passkeys (issue #507)
+// API for managing the user's devices and passkeys.
 
 import { Hono } from 'hono';
 import type { Env } from './types';
@@ -25,7 +25,7 @@ import { isDemoMode } from './demo-flag';
 const passkeysApi = new Hono<{ Bindings: Env }>();
 
 /**
- * List every passkey for the current user, with metadata and status.
+ * List all passkeys of the current user (with metadata and status).
  */
 passkeysApi.get('/', async (c) => {
   const creds = await getCredentials(c.env);
@@ -47,7 +47,7 @@ passkeysApi.get('/', async (c) => {
 });
 
 /**
- * Generate registration options for a new passkey for an authorized user.
+ * Generate options for registering a new passkey by an authenticated user.
  */
 passkeysApi.post('/register-options', async (c) => {
   if (isDemoMode(c.env)) return fail(c, 'DEMO_PASSKEY_DISABLED', 403);
@@ -65,7 +65,7 @@ passkeysApi.post('/register-options', async (c) => {
 });
 
 /**
- * Verify and store a new passkey from an authorized user.
+ * Verify and store a new passkey from an authenticated user.
  */
 passkeysApi.post('/register-verify', async (c) => {
   if (isDemoMode(c.env)) return fail(c, 'DEMO_PASSKEY_DISABLED', 403);

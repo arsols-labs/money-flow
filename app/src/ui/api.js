@@ -1,5 +1,6 @@
 import i18n from './i18n';
 import { parseApiError } from '../shared/api-errors';
+import { IMPORT_UNDO_PHRASE } from '../shared/statement-import/types';
 
 function localizeApiError(body, status) {
   const parsed = parseApiError(body);
@@ -120,16 +121,84 @@ export const api = {
     request(`/api/v2/settings/${key}`, { method: 'PUT', body: JSON.stringify({ value }) }),
 
   exportBackup: () => request('/api/v2/backup/export'),
-  importBackup: (backup) =>
+  exportBackupCompat: () => request('/api/v2/backup/export?compat=v2.35'),
+  importBackup: (backup, extra = {}) =>
     request('/api/v2/backup/import', {
       method: 'POST',
-      body: JSON.stringify({ ...backup, confirm: true }),
+      body: JSON.stringify({ ...backup, confirm: true, ...extra }),
     }),
+  listPurchaseOrders: () => request('/api/v2/purchase-orders'),
+  createPurchaseOrder: (body) =>
+    request('/api/v2/purchase-orders', { method: 'POST', body: JSON.stringify(body) }),
+  deletePurchaseOrder: (id) =>
+    request(`/api/v2/purchase-orders/${id}`, { method: 'DELETE' }),
+  linkPurchaseOrderDocument: (id, body) =>
+    request(`/api/v2/purchase-orders/${id}/components`, {
+      method: 'POST',
+      body: JSON.stringify({ target_kind: 'pfr', ...body }),
+    }),
+  linkPurchaseOrderExpected: (id, body) =>
+    request(`/api/v2/purchase-orders/${id}/components`, {
+      method: 'POST',
+      body: JSON.stringify({ target_kind: 'expected', ...body }),
+    }),
+  unlinkPurchaseOrderComponent: (id, componentId) =>
+    request(`/api/v2/purchase-orders/${id}/components/${componentId}`, { method: 'DELETE' }),
+  listReceiptGroups: (query = {}) => {
+    const params = new URLSearchParams();
+    if (query.q) params.set('q', query.q);
+    if (query.limit) params.set('limit', String(query.limit));
+    if (query.cursor) params.set('cursor', String(query.cursor));
+    const suffix = params.toString();
+    return request(`/api/v2/receipt-groups${suffix ? `?${suffix}` : ''}`);
+  },
+  getReceiptGroup: (id) => request(`/api/v2/receipt-groups/${id}`),
+  createReceiptGroup: (body) =>
+    request('/api/v2/receipt-groups', { method: 'POST', body: JSON.stringify(body) }),
+  unlinkReceiptGroupReceipt: (id, receiptKey, idempotencyKey) =>
+    request(`/api/v2/receipt-groups/${id}/receipts/${encodeURIComponent(receiptKey)}?idempotency_key=${encodeURIComponent(idempotencyKey)}`, {
+      method: 'DELETE',
+    }),
+  deleteReceiptGroup: (id, idempotencyKey) =>
+    request(`/api/v2/receipt-groups/${id}?idempotency_key=${encodeURIComponent(idempotencyKey)}`, {
+      method: 'DELETE',
+    }),
+  renameReceiptGroup: (id, body) =>
+    request(`/api/v2/receipt-groups/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   resetData: () =>
     request('/api/v2/data/reset', {
       method: 'POST',
       body: JSON.stringify({ confirm: true, phrase: 'RESET' }),
     }),
+
+  statementImportPresets: () => request('/api/v2/statement-imports/presets'),
+  previewStatementImport: (payload) =>
+    request('/api/v2/statement-imports/preview', { method: 'POST', body: JSON.stringify(payload) }),
+  commitStatementImport: (payload) =>
+    request('/api/v2/statement-imports', { method: 'POST', body: JSON.stringify(payload) }),
+  listStatementImports: () => request('/api/v2/statement-imports'),
+  getStatementImport: (id) => request(`/api/v2/statement-imports/${id}`),
+  undoStatementImport: (id) =>
+    request(`/api/v2/statement-imports/${id}/undo`, {
+      method: 'POST',
+      body: JSON.stringify({ confirm: true, phrase: IMPORT_UNDO_PHRASE }),
+    }),
+  listCategoryRules: () => request('/api/v2/category-rules'),
+  createCategoryRule: (payload) =>
+    request('/api/v2/category-rules', { method: 'POST', body: JSON.stringify(payload) }),
+  updateCategoryRule: (id, payload) =>
+    request(`/api/v2/category-rules/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteCategoryRule: (id) => request(`/api/v2/category-rules/${id}`, { method: 'DELETE' }),
+  listStatementTemplates: () => request('/api/v2/statement-templates'),
+  createStatementTemplate: (document) =>
+    request('/api/v2/statement-templates', { method: 'POST', body: JSON.stringify(document) }),
+  updateStatementTemplate: (id, patch) =>
+    request(`/api/v2/statement-templates/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteStatementTemplate: (id) =>
+    request(`/api/v2/statement-templates/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   // MCP Access & Audit
   getMcpAccess: () => request('/api/v2/mcp/access'),

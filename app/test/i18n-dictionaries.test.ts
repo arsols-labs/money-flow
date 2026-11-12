@@ -61,6 +61,18 @@ describe('i18n dictionaries', () => {
     }
   });
 
+  it('keeps statement-import strings in every locale', () => {
+    const englishKeys = flatten(en.data.statementImport);
+    expect(englishKeys.length).toBeGreaterThan(40);
+    for (const [lng, dict] of Object.entries({ en, ...LOCALES })) {
+      const keys = new Set(flatten(dict.data.statementImport));
+      for (const key of englishKeys) {
+        expect(keys.has(key), `${lng} missing data.statementImport.${key}`).toBe(true);
+      }
+    }
+    expect(en.data.statementImport.undoPhrase).toContain('{{phrase}}');
+  });
+
   it('uses distinct financial terms in English for core Pulse labels', () => {
     expect(en.pulse.metrics.netWorth).toBe('Net Worth');
     expect(en.pulse.metrics.cashFlow).toBe('Cash Flow');

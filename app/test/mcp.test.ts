@@ -138,7 +138,7 @@ describe('MCP Server', () => {
   });
 
   describe('tools/list & Scopes', () => {
-    it('returns 8 read tools when only the "read" scope is present', async () => {
+    it('returns 13 read tools when only the "read" scope is present', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -150,7 +150,7 @@ describe('MCP Server', () => {
       const body: any = await res.json();
 
       expect(body.jsonrpc).toBe('2.0');
-      expect(body.result.tools.length).toBe(8);
+      expect(body.result.tools.length).toBe(20);
       expect(body.result.tools.map((t: any) => t.name)).toEqual([
         'accounts_list',
         'fx_rates_list',
@@ -159,7 +159,19 @@ describe('MCP Server', () => {
         'recurring_fulfillments_list',
         'operations_list',
         'forecast_get',
-        'analytics_get'
+        'analytics_get',
+        'account_aliases_list',
+        'account_resolve',
+        'pending_accounts_list',
+        'settings_get',
+        'backup_export',
+        'template_list',
+        'template_get',
+        'statement_import_preview',
+        'purchase_orders_list',
+        'purchase_order_get',
+        'receipt_groups_list',
+        'receipt_group_get',
       ]);
     });
 
@@ -175,7 +187,7 @@ describe('MCP Server', () => {
       const body: any = await res.json();
 
       expect(body.jsonrpc).toBe('2.0');
-      expect(body.result.tools.length).toBe(19);
+      expect(body.result.tools.length).toBe(46);
       expect(body.result.tools.map((t: any) => t.name)).toEqual([
         'operation_add',
         'operation_update',
@@ -195,7 +207,34 @@ describe('MCP Server', () => {
         'recurring_item_cancel_period_fulfillment',
         'fx_rate_set',
         'fx_rate_delete',
-        'data_reset'
+        'data_reset',
+        'account_add',
+        'account_update',
+        'account_delete',
+        'account_alias_add',
+        'account_alias_delete',
+        'pending_account_bind',
+        'transfer_update',
+        'transfer_delete',
+        'setting_set',
+        'backup_import',
+        'template_create',
+        'template_update',
+        'template_delete',
+        'statement_import_upload_create',
+        'statement_import_commit',
+        'statement_import_undo',
+        'purchase_order_upsert',
+        'purchase_order_update',
+        'purchase_order_component_link',
+        'purchase_order_component_update',
+        'purchase_order_component_reconfirm',
+        'purchase_order_component_unlink',
+        'purchase_order_delete',
+        'receipt_group_create',
+        'receipt_group_receipt_unlink',
+        'receipt_group_delete',
+        'receipt_group_rename',
       ]);
       const operationUpdate = body.result.tools.find((t: any) => t.name === 'operation_update');
       const operationDelete = body.result.tools.find((t: any) => t.name === 'operation_delete');
@@ -215,7 +254,7 @@ describe('MCP Server', () => {
       expect(recurringSkip.outputSchema.properties.balance_unchanged).toBeDefined();
     });
 
-    it('returns all 27 tools when both scopes ["read", "write"] are present', async () => {
+    it('returns all 66 tools when both scopes ["read", "write"] are present', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -227,7 +266,7 @@ describe('MCP Server', () => {
       const body: any = await res.json();
 
       expect(body.jsonrpc).toBe('2.0');
-      expect(body.result.tools.length).toBe(27);
+      expect(body.result.tools.length).toBe(66);
     });
 
     it('returns an empty tool list when scopes are empty', async () => {
@@ -1621,7 +1660,7 @@ describe('MCP Server', () => {
 
     it('same-PFR multi-line operation_add succeeds; exact line is 409 ValidationError, not UNCERTAIN', async () => {
       const pfr = 'JDEKKL35-GESE6HO0-136069';
-      const receiptUrl = 'https://suf.purs.gov.rs/v/?vl=aroma-multiline';
+      const receiptUrl = 'https://suf.purs.gov.rs/v/?vl=corner-cafe-multiline';
       const lines = [
         { item: 'Espresso', amount_minor: -25000, key: 'idem-574-line-1' },
         { item: 'Croissant', amount_minor: -18000, key: 'idem-574-line-2' },
@@ -1635,7 +1674,7 @@ describe('MCP Server', () => {
           account_id: eurAccountId,
           kind: 'expense',
           item: line.item,
-          store: 'Aroma',
+          store: 'Corner Cafe',
           amount_minor: line.amount_minor,
           receipt_url: receiptUrl,
           fiscal_receipt_id: pfr,
@@ -1647,7 +1686,7 @@ describe('MCP Server', () => {
           account_id: eurAccountId,
           kind: 'expense',
           item: line.item,
-          store: 'Aroma',
+          store: 'Corner Cafe',
           amount_minor: line.amount_minor,
           receipt_url: receiptUrl,
           fiscal_receipt_id: pfr,
@@ -1671,7 +1710,7 @@ describe('MCP Server', () => {
         account_id: eurAccountId,
         kind: 'expense',
         item: 'Espresso',
-        store: 'Aroma',
+        store: 'Corner Cafe',
         amount_minor: -25000,
         receipt_url: receiptUrl,
         fiscal_receipt_id: pfr,
@@ -1683,7 +1722,7 @@ describe('MCP Server', () => {
         account_id: eurAccountId,
         kind: 'expense',
         item: 'Espresso',
-        store: 'Aroma',
+        store: 'Corner Cafe',
         amount_minor: -25000,
         receipt_url: receiptUrl,
         fiscal_receipt_id: pfr,
@@ -1709,7 +1748,7 @@ describe('MCP Server', () => {
         account_id: eurAccountId,
         kind: 'expense',
         item: 'Tea',
-        store: 'Aroma',
+        store: 'Corner Cafe',
         amount_minor: -6000,
         receipt_url: receiptUrl,
         fiscal_receipt_id: pfr,
@@ -1720,7 +1759,7 @@ describe('MCP Server', () => {
         account_id: eurAccountId,
         kind: 'expense',
         item: 'Tea',
-        store: 'Aroma',
+        store: 'Corner Cafe',
         amount_minor: -6000,
         receipt_url: receiptUrl,
         fiscal_receipt_id: pfr,
@@ -1731,6 +1770,105 @@ describe('MCP Server', () => {
       expect((await env.DB.prepare(
         'SELECT COUNT(*) AS count FROM operations WHERE fiscal_receipt_id = ?',
       ).bind(pfr).first<{ count: number }>())?.count).toBe(4);
+    });
+
+    it('operation_add auto_confirm accepts a distinct delivery fee and still rejects a real duplicate', async () => {
+      const rsd = await env.DB.prepare(
+        `INSERT INTO accounts (name, currency, balance_minor, sort, archived, owner, country, balance_updated_at)
+         VALUES ('RSD synthetic', 'RSD', 500000, 120, 0, 'Alex', 'RS', '2026-10-06T12:00:00Z')
+         RETURNING id`,
+      ).first<{ id: number }>();
+      const accountId = rsd!.id;
+      const seller = {
+        date: '2026-10-06',
+        account_id: accountId,
+        kind: 'expense',
+        store: 'Apoteka Synth',
+        category: 'Pharmacy',
+        comment: 'Delivery order SYNTH77',
+        fiscal_receipt_id: 'SYNTH-PFR-SELLER-001',
+        receipt_url: 'https://receipts.example.test/seller/synth-001',
+        auto_confirm: true,
+      };
+      const goodsA = await callWrite('operation_add', {
+        ...seller, item: 'Goods A', amount_minor: -18900, idempotency_key: 'idem-fee-goods-a',
+      }, 5801);
+      expect(goodsA.result.isError, JSON.stringify(goodsA.result)).toBeUndefined();
+      expect(goodsA.result.structuredContent.written).toBe(true);
+      const goodsAId = goodsA.result.structuredContent.operation.id as number;
+
+      const goodsB = await callWrite('operation_add', {
+        ...seller, item: 'Goods B', amount_minor: -79900, idempotency_key: 'idem-fee-goods-b',
+      }, 5802);
+      expect(goodsB.result.isError, JSON.stringify(goodsB.result)).toBeUndefined();
+
+      const feeArgs = {
+        date: '2026-10-06',
+        account_id: accountId,
+        kind: 'expense',
+        item: 'Delivery fee',
+        store: 'Wolt d.o.o.',
+        category: 'Cafe',
+        subcategory: 'Delivery',
+        amount_minor: -8398,
+        comment: 'Wolt order SYNTH77',
+        fiscal_receipt_id: 'SYNTH-PFR-COURIER-002',
+        receipt_url: 'https://receipts.example.test/courier/synth-002',
+        auto_confirm: true,
+        idempotency_key: 'idem-fee-courier-001',
+      };
+      const fee = await callWrite('operation_add', feeArgs, 5803);
+      expect(fee.result.isError, JSON.stringify(fee.result)).toBeUndefined();
+      expect(fee.result.structuredContent.written).toBe(true);
+      expect(fee.result.structuredContent.resultType).toBe('complete');
+      const feeId = fee.result.structuredContent.operation.id as number;
+      expect(feeId).not.toBe(goodsAId);
+      expect(fee.result.structuredContent.operation.amount_minor).toBe(-8398);
+
+      const replay = await callWrite('operation_add', feeArgs, 5804);
+      expect(replay.result.isError, JSON.stringify(replay.result)).toBeUndefined();
+      expect(replay.result.structuredContent.written).toBe(true);
+      expect(replay.result.structuredContent.operation.id).toBe(feeId);
+      expect((await env.DB.prepare(
+        'SELECT COUNT(*) AS count FROM operations WHERE amount_minor = -8398',
+      ).first<{ count: number }>())?.count).toBe(1);
+
+      const sameLine = await callWrite('operation_add', {
+        ...feeArgs,
+        comment: 'posted again',
+        idempotency_key: 'idem-fee-courier-dup-line',
+      }, 5805);
+      expect(sameLine.result.isError).toBe(true);
+      expect(sameLine.result.structuredContent.error).toContain('DUPLICATE_EXPENSE');
+      expect(sameLine.result.structuredContent.error).toContain(String(feeId));
+
+      const sameFingerprint = await callWrite('operation_add', {
+        date: '2026-10-06',
+        account_id: accountId,
+        kind: 'expense',
+        item: 'Relabeled fee',
+        store: 'Wolt d.o.o.',
+        amount_minor: -8398,
+        fiscal_receipt_id: 'SYNTH-PFR-OTHER-003',
+        receipt_url: 'https://receipts.example.test/courier/synth-003',
+        auto_confirm: true,
+        idempotency_key: 'idem-fee-courier-dup-fingerprint',
+      }, 5806);
+      expect(sameFingerprint.result.isError).toBe(true);
+      expect(sameFingerprint.result.structuredContent.error).toContain('DUPLICATE_EXPENSE');
+
+      const goodsAgain = await callWrite('operation_add', {
+        ...seller,
+        item: 'Goods A',
+        amount_minor: -18900,
+        idempotency_key: 'idem-fee-goods-a-dup',
+      }, 5807);
+      expect(goodsAgain.result.isError).toBe(true);
+      expect(goodsAgain.result.structuredContent.error).toContain('DUPLICATE_EXPENSE');
+      expect(goodsAgain.result.structuredContent.error).toContain(String(goodsAId));
+      expect((await env.DB.prepare(
+        'SELECT COUNT(*) AS count FROM operations WHERE account_id = ?',
+      ).bind(accountId).first<{ count: number }>())?.count).toBe(3);
     });
 
     it('operation_update: unknown/system fields are rejected with an explicit error before MRTR', async () => {
@@ -2334,7 +2472,13 @@ describe('MCP Server', () => {
         'recurring_item_add', 'recurring_item_update', 'recurring_item_delete',
         'recurring_item_close_period', 'recurring_item_fulfill_existing', 'recurring_item_skip_period',
         'recurring_item_cancel_period_fulfillment',
-        'transfer_add', 'fx_rate_set', 'fx_rate_delete', 'data_reset',
+        'transfer_add', 'fx_rate_delete', 'data_reset',
+        'account_add', 'account_update', 'account_delete',
+        'account_alias_add', 'account_alias_delete', 'pending_account_bind',
+        'transfer_update', 'transfer_delete', 'setting_set', 'backup_import',
+        'purchase_order_upsert', 'purchase_order_update', 'purchase_order_component_link',
+        'purchase_order_component_update', 'purchase_order_component_reconfirm',
+        'purchase_order_component_unlink', 'purchase_order_delete',
       ];
       for (const name of writeNames) {
         const tool = body.result.tools.find((t: any) => t.name === name);
@@ -2342,6 +2486,26 @@ describe('MCP Server', () => {
         expect(tool.description).toMatch(/first call without requestState writes nothing/i);
         expect(tool.outputSchema.properties.written).toEqual({ type: 'boolean' });
       }
+      const fxRateSet = body.result.tools.find((t: any) => t.name === 'fx_rate_set');
+      expect(fxRateSet, 'fx_rate_set').toBeDefined();
+      expect(fxRateSet.description).toMatch(/authenticated \(non-anonymous\) client/i);
+      expect(fxRateSet.description).toMatch(/immediately by default/i);
+      expect(fxRateSet.description).toMatch(/auto_confirm: false/i);
+      expect(fxRateSet.description).not.toMatch(/first call without requestState writes nothing/i);
+      expect(fxRateSet.outputSchema.properties.written).toEqual({ type: 'boolean' });
+      for (const name of [
+        'operation_delete', 'planned_item_delete', 'recurring_item_delete', 'fx_rate_delete', 'data_reset',
+        'account_delete', 'account_alias_delete', 'transfer_delete', 'backup_import',
+        'template_delete', 'statement_import_undo',
+        'purchase_order_component_unlink', 'purchase_order_delete',
+        'receipt_group_receipt_unlink', 'receipt_group_delete', 'receipt_group_rename',
+      ]) {
+        const tool = body.result.tools.find((t: any) => t.name === name);
+        expect(tool.description, name).toMatch(/auto_confirm is not accepted/i);
+        expect(tool.description, name).not.toMatch(/auto_confirm is accepted:/i);
+      }
+      const settingSet = body.result.tools.find((t: any) => t.name === 'setting_set');
+      expect(settingSet.description).toMatch(/auto_confirm is refused for that key/i);
     });
 
     it('fx_rate_set full cycle: both steps return structuredContent', async () => {
@@ -2668,7 +2832,7 @@ describe('MCP Server', () => {
         },
         {
           name: 'fx_rate_delete',
-          args: { auto_confirm: false, code: 'RSD', idempotency_key: 'idem-331-fxd' },
+          args: { code: 'RSD', idempotency_key: 'idem-331-fxd' },
           check: async () => {
             const row = await env.DB.prepare('SELECT code FROM fx_rates WHERE code = ?')
               .bind('RSD').first<{ code: string }>();
@@ -2859,7 +3023,7 @@ describe('MCP Server', () => {
         body: JSON.stringify({ jsonrpc: '2.0', id: 3342, method: 'tools/list', params: {} })
       });
       const body: any = await (await mcpApp.fetch(req, typedEnv, { props: { scopes: ['read', 'write'], clientId } } as any)).json();
-      expect(body.result.tools.length).toBe(27);
+      expect(body.result.tools.length).toBe(66);
       for (const tool of body.result.tools) {
         expect(tool.annotations, tool.name).toBeDefined();
         expect(typeof tool.annotations.readOnlyHint, tool.name).toBe('boolean');

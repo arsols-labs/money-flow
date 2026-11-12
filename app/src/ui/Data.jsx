@@ -1,6 +1,6 @@
 // The "Data" screen: accounts with one-tap balance editing and currency rates beside them.
 // The balance is an editable field (not a sum of transactions); see docs/2026-08-09-v2-simple-spec.md.
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Plus, Archive, ArchiveRestore, Trash2, ChevronDown, ChevronRight, AlertTriangle, Check,
@@ -25,6 +25,7 @@ import {
 import { blockTitle } from './i18nLabels';
 import DashboardSettingsModal from './DashboardSettingsModal';
 import BackupSection from './BackupSection';
+import StatementImportSection from './StatementImportSection';
 import ResetSection from './ResetSection';
 import {
   formatMinor, minorToInputString, parseAmountToMinor,
@@ -35,6 +36,7 @@ import RecurringSection from './RecurringSection';
 import OperationsSection from './OperationsSection';
 import FiscalReceiptsSection from './FiscalReceiptsSection';
 import { useRefreshNonce } from './RefreshContext';
+import { publishMeasuredHeight } from './measuredSticky';
 
 // The balance-reconciliation threshold follows the rates example, but is half as long, and that is not a matter of taste.
 // A rate moves by percents between entries and is edited rarely; a balance
@@ -975,6 +977,7 @@ export default function Data({
 
   const refreshNonce = useRefreshNonce();
   const [status, setStatus] = useState('loading'); // loading | ready | error
+  const readyRef = useRef(false);
   const [loadError, setLoadError] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [rates, setRates] = useState([]);
@@ -1000,6 +1003,17 @@ export default function Data({
 
   const search = dataFilters.search || '';
   const setSearch = (val) => handleUpdateFilter('search', val);
+  const filterBarRef = useRef(null);
+  useLayoutEffect(() => {
+    const el = filterBarRef.current;
+    if (!el || typeof document === 'undefined') return undefined;
+    const publish = () => publishMeasuredHeight(el, '--data-filter-bar-h', document.documentElement);
+    publish();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(publish);
+    observer.observe(el);
+    return () => observer.disconnect();
+  });
 
   const toggleBlock = (key) => {
     const next = toggleBlockVisibility(dataConfig, key);
@@ -1052,7 +1066,9 @@ export default function Data({
   }, []);
 
   const loadAll = useCallback(async () => {
-    setStatus('loading');
+    // A later refresh (after import or undo) must not swap the screen for the
+    // skeleton. That unmounts the statement-import dialog and collapses the section.
+    if (!readyRef.current) setStatus('loading');
     setLoadError(null);
     try {
       // The base currency comes from /fx-rates, not from /settings: `missing`
@@ -1073,8 +1089,10 @@ export default function Data({
       // normalizeThresholdMinor in worker/forecast/load.ts).
       const rawThreshold = Number(settingsRes.settings.low_balance_threshold_minor);
       setThresholdMinor(Number.isSafeInteger(rawThreshold) && rawThreshold >= 0 ? rawThreshold : 0);
+      readyRef.current = true;
       setStatus('ready');
     } catch (err) {
+      if (readyRef.current) return;
       setLoadError(err.message || t('common.loadFailed'));
       setStatus('error');
     }
@@ -1255,7 +1273,7 @@ export default function Data({
   const activeFilterCount = (search.trim() ? 1 : 0) + hiddenBlockCount;
 
   const filterBar = (
-    <div className="filter-bar data-filter-bar">
+    <div className="filter-bar data-filter-bar" ref={filterBarRef}>
       <div className="filter-row">
         <div className="search-box">
           <Search size={15} />
@@ -1368,6 +1386,7 @@ export default function Data({
         thresholdMinor={thresholdMinor}
         handleSaveThreshold={handleSaveThreshold}
       />
+      <StatementImportSection accounts={accounts} />
       <BackupSection />
       <ResetSection />
       <div className="data-customize-footer">

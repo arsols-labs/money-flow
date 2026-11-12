@@ -34,6 +34,14 @@ describe('buildLocalWranglerConfig', () => {
     assert.equal(config.kv_namespaces[0].id, ownKv);
     assert.equal(config.kv_namespaces[1].binding, 'OAUTH_KV');
     assert.equal(config.routes, undefined);
+    assert.equal(config.vars.DEMO_MODE, undefined);
+    assert.deepEqual(config.durable_objects.bindings, [
+      { name: 'DEMO_SESSION', class_name: 'DemoSession' },
+    ]);
+    assert.deepEqual(config.migrations, [
+      { tag: 'v1-demo-session', new_sqlite_classes: ['DemoSession'] },
+    ]);
+    assert.equal(config.rules[0].fallthrough, true);
     const serialized = serializeWranglerJsonc(config);
     assert.match(serialized, /Do not commit/);
     for (const id of RESERVED_PRODUCTION_RESOURCE_IDS) {

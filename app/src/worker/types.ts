@@ -10,7 +10,7 @@ export interface Env {
   SETUP_TOKEN: string;
   APP_DOMAIN?: string;
   AUTH_USER_NAME?: string;
-  /** `"1"` selects session-isolated demo ledgers. Unset on self-hosted installs. */
+  /** `"1"` selects session-isolated demo ledgers. Unset on production and self-hosted installs. */
   DEMO_MODE?: string;
   /**
    * SQLite Durable Object namespace for demo sessions.
