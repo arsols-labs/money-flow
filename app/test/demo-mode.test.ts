@@ -313,4 +313,76 @@ describe('DEMO_MODE session isolation', { timeout: 30_000 }, () => {
     expect(login).toContain('Passkey enrollment is disabled');
     expect(login).not.toContain('Register this device');
   });
+
+  it('seeds grouped receipts, auto-skip recurring rules, and cron settings in fresh demo sessions', async () => {
+    const cronRes = await demoFetch('/api/v2/cron-schedule');
+    expect(cronRes.status).toBe(200);
+    const cookie = demoCookie(cronRes);
+    const cron = await cronRes.json<{
+      timezone: string;
+      fx_auto_update_hour: number;
+      recurring_auto_skip_hour: number;
+      fx_auto_update_enabled: boolean;
+      demo_mode: boolean;
+    }>();
+    expect(cron.demo_mode).toBe(true);
+    expect(cron.timezone).toBe('America/New_York');
+    expect(cron.fx_auto_update_enabled).toBe(true);
+    expect(cron.fx_auto_update_hour).toBe(7);
+    expect(cron.recurring_auto_skip_hour).toBe(6);
+
+    const runtimeRes = await demoFetch('/api/v2/config/runtime', {}, cookie);
+    expect(runtimeRes.status).toBe(200);
+    const runtimeBody = await runtimeRes.json<{
+      configured?: { currencies?: boolean };
+      currencies: unknown[];
+    }>();
+    expect(runtimeBody.configured?.currencies).toBe(true);
+    expect(runtimeBody.currencies.length).toBeGreaterThanOrEqual(4);
+
+    const setsRes = await demoFetch('/api/v2/rules/sets?domain=currency_standards', {}, cookie);
+    expect(setsRes.status).toBe(200);
+    const setsBody = await setsRes.json<{ rule_sets: unknown[] }>();
+    expect(setsBody.rule_sets.length).toBeGreaterThanOrEqual(1);
+
+    const groupsRes = await demoFetch('/api/v2/receipt-groups', {}, cookie);
+    expect(groupsRes.status).toBe(200);
+    const groupsBody = await groupsRes.json<{
+      groups: Array<{
+        place: string | null;
+        name: string | null;
+        receipts: Array<{ fiscal_receipt_id: string | null; resolution: string }>;
+      }>;
+    }>();
+    expect(groupsBody.groups).toHaveLength(2);
+    const titles = groupsBody.groups.map((g) => g.name ?? g.place).sort();
+    expect(titles).toEqual(['Cedar Bistro', 'Harbor Market']);
+    for (const group of groupsBody.groups) {
+      expect(group.receipts).toHaveLength(2);
+      for (const receipt of group.receipts) {
+        expect(receipt.resolution).toBe('resolved');
+      }
+    }
+
+    const recurringRes = await demoFetch('/api/v2/recurring-items', {}, cookie);
+    expect(recurringRes.status).toBe(200);
+    const recurringBody = await recurringRes.json<{
+      recurring_items: Array<{
+        title: string;
+        auto_skip_overdue: boolean;
+        auto_skip_after_days: number;
+        last_fulfillment: { outcome: string } | null;
+      }>;
+    }>();
+    const autoSkipItems = recurringBody.recurring_items.filter((item) => item.auto_skip_overdue);
+    expect(autoSkipItems.map((item) => item.title).sort()).toEqual([
+      'Local gym drop-in',
+      'Weekly produce box',
+    ]);
+    for (const item of autoSkipItems) {
+      expect(item.auto_skip_after_days).toBeGreaterThanOrEqual(2);
+      expect(item.last_fulfillment?.outcome).toBe('skipped');
+    }
+    expect(sharedCalls).toEqual([]);
+  });
 });

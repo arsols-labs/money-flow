@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  tag-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Determine release version from app/package.json
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(node -e '
+            import { readFileSync } from "node:fs";
+            const pkg = JSON.parse(readFileSync("app/package.json", "utf8"));
+            if (typeof pkg.version !== "string" || !/^\d+\.\d+\.\d+$/.test(pkg.version)) {
+              throw new Error(`Invalid app/package.json version: ${pkg.version}`);
+            }
+            console.log(pkg.version);
+          ' --input-type=module)
+          tag="v${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "Tag ${tag} already exists; skipping release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          prev_tag=$(git tag -l "v2.*" --sort=-v:refname | head -n 1 || true)
+          echo "prev_tag=${prev_tag}" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Extract release notes from app/CHANGELOG.md
+        id: notes
+        if: steps.version.outputs.skip == 'false'
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          PREV_TAG: ${{ steps.version.outputs.prev_tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          node -e '
+            import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
+            const version = process.env.VERSION;
+            const tag = process.env.TAG;
+            const prevTag = process.env.PREV_TAG || "";
+            const prevVersion = prevTag.replace(/^v/, "");
+            const repo = process.env.REPO;
+            const lines = readFileSync("app/CHANGELOG.md", "utf8").split(/\r?\n/);
+            const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const startRe = new RegExp(`^##\\s+${esc(version)}(?:\\s|$)`);
+            const stopRe = prevVersion ? new RegExp(`^##\\s+${esc(prevVersion)}(?:\\s|$)`) : /^##\s+\d+\.\d+\.\d+/;
+            const startIdx = lines.findIndex((line) => startRe.test(line));
+            if (startIdx < 0) {
+              appendFileSync(process.env.GITHUB_OUTPUT, "has_notes=false\n");
+              process.exit(0);
+            }
+            const bodyLines = [];
+            let extraSections = 0;
+            for (let i = startIdx + 1; i < lines.length; i += 1) {
+              const line = lines[i];
+              if (stopRe.test(line)) break;
+              if (!prevVersion && /^##\s+\d+\.\d+\.\d+/.test(line)) break;
+              if (/^##\s+\d+\.\d+\.\d+/.test(line)) extraSections += 1;
+              bodyLines.push(line);
+            }
+            const trimmed = bodyLines.join("\n").trim();
+            if (!trimmed) {
+              appendFileSync(process.env.GITHUB_OUTPUT, "has_notes=false\n");
+              process.exit(0);
+            }
+            const out = [`# Money Flow ${tag}`, ""];
+            if (prevTag) {
+              out.push(`Compare: [${prevTag}...${tag}](https://github.com/${repo}/compare/${prevTag}...${tag})`, "");
+            }
+            if (extraSections > 0) {
+              out.push(`## ${version}`, "", trimmed);
+            } else {
+              out.push(trimmed);
+            }
+            if (prevTag) {
+              out.push("", `**Full changelog:** https://github.com/${repo}/compare/${prevTag}...${tag}`);
+            }
+            writeFileSync("/tmp/release-notes.md", out.join("\n") + "\n");
+            appendFileSync(process.env.GITHUB_OUTPUT, "has_notes=true\n");
+          ' --input-type=module
+
+      - name: Create tag and GitHub Release
+        if: steps.version.outputs.skip == 'false'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          HAS_NOTES: ${{ steps.notes.outputs.has_notes }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+          if [ "$HAS_NOTES" = "true" ]; then
+            gh release create "$TAG" --title "$TAG" --notes-file /tmp/release-notes.md --verify-tag
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes --verify-tag
+          fi
