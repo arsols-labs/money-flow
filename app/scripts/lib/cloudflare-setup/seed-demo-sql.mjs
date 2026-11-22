@@ -6,6 +6,16 @@
 
 export const DEMO_SEED_MARKER_KEY = 'setup_demo_seed';
 export const DEMO_SEED_MARKER_VALUE = '1';
+export const DEMO_PURCHASE_ORDERS_EPOCH = '00000000-0000-4000-8000-00000000de01';
+
+export const DEMO_SETTINGS = Object.freeze({
+  base_currency: 'USD',
+  purchase_orders_epoch: DEMO_PURCHASE_ORDERS_EPOCH,
+  cron_timezone: 'America/New_York',
+  fx_auto_update: '1',
+  fx_auto_update_hour: '7',
+  recurring_auto_skip_hour: '6',
+});
 
 const SEED_GUARD = `EXISTS (SELECT 1 FROM settings WHERE key = '${DEMO_SEED_MARKER_KEY}' AND value = '${DEMO_SEED_MARKER_VALUE}')`;
 
@@ -188,12 +198,14 @@ function buildOperations() {
   }
 
   const sameDayReceipts = [
-    [2, 'Corner Pharmacy', 'Cold medicine', 'Health', 'Pharmacy', -1890, 'DEMO-FISCAL-2501'],
-    [2, 'Wolt', 'Pharmacy delivery', 'Health', 'Pharmacy', -490, 'DEMO-FISCAL-2502'],
-    [1, 'Cedar Bistro Food', 'Dinner plates', 'Dining', null, -6400, 'DEMO-FISCAL-2503'],
-    [1, 'Cedar Bistro Bar', 'Drinks', 'Dining', null, -1800, 'DEMO-FISCAL-2504'],
+    [2, 'Corner Pharmacy', 'Cold medicine', 'Health', 'Pharmacy', -1890, 'DEMO-FISCAL-2501', 'Sample same-day receipts so grouping can be tried'],
+    [2, 'Wolt', 'Pharmacy delivery', 'Health', 'Pharmacy', -490, 'DEMO-FISCAL-2502', 'Sample same-day receipts so grouping can be tried'],
+    [1, 'Cedar Bistro Food', 'Dinner plates', 'Dining', null, -6400, 'DEMO-FISCAL-2503', 'Grouped restaurant dinner and drinks receipts'],
+    [1, 'Cedar Bistro Bar', 'Drinks', 'Dining', null, -1800, 'DEMO-FISCAL-2504', 'Grouped restaurant dinner and drinks receipts'],
+    [6, 'Harbor Market', 'Fresh groceries order', 'Food', 'Groceries', -3240, 'DEMO-FISCAL-2505', 'Grouped grocery order and delivery receipts'],
+    [6, 'Wolt', 'Grocery delivery fee', 'Food', 'Groceries', -390, 'DEMO-FISCAL-2506', 'Grouped grocery order and delivery receipts'],
   ];
-  for (const [days, store, item, category, subcategory, amount_minor, fiscal] of sameDayReceipts) {
+  for (const [days, store, item, category, subcategory, amount_minor, fiscal, comment] of sameDayReceipts) {
     operations.push({
       date: daysAgo(days),
       account: 'Everyday Checking',
@@ -204,7 +216,7 @@ function buildOperations() {
       subcategory,
       amount_minor,
       source: 'manual',
-      comment: 'Sample same-day receipts so grouping can be tried',
+      comment,
       receipt_url: `https://example.com/receipts/${String(fiscal).toLowerCase()}`,
       fiscal_receipt_id: fiscal,
     });
@@ -702,6 +714,23 @@ export const DEMO_RECURRING = Object.freeze([
     month_of_year: null,
     next_due_date: daysAhead(4),
     active: 1,
+    auto_skip_overdue: 1,
+    auto_skip_after_days: 2,
+  },
+  {
+    title: 'Local gym drop-in',
+    amount_minor: -1800,
+    currency: 'USD',
+    account: 'Everyday Checking',
+    category: 'Health',
+    frequency: 'weekly',
+    interval_count: 1,
+    day_of_month: null,
+    month_of_year: null,
+    next_due_date: daysAhead(6),
+    active: 1,
+    auto_skip_overdue: 1,
+    auto_skip_after_days: 3,
   },
   {
     title: 'Annual travel insurance',
@@ -715,6 +744,28 @@ export const DEMO_RECURRING = Object.freeze([
     month_of_year: { sql: "CAST(strftime('%m', date('now', '+90 days')) AS INTEGER)" },
     next_due_date: daysAhead(90),
     active: 1,
+    auto_skip_overdue: 0,
+    auto_skip_after_days: 1,
+  },
+]);
+
+export const DEMO_RECURRING_SKIPPED_FULFILLMENTS = Object.freeze([
+  { title: 'Weekly produce box', period_due_date: daysAgo(3) },
+  { title: 'Local gym drop-in', period_due_date: daysAgo(8) },
+]);
+
+export const DEMO_RECEIPT_GROUPS = Object.freeze([
+  {
+    provider_order_id: 'demo-group-cedar-bistro',
+    display_name: 'Cedar Bistro',
+    order_date: daysAgo(1),
+    receipt_keys: ['pfr:DEMO-FISCAL-2503', 'pfr:DEMO-FISCAL-2504'],
+  },
+  {
+    provider_order_id: 'demo-group-harbor-market',
+    display_name: 'Harbor Market',
+    order_date: daysAgo(6),
+    receipt_keys: ['pfr:DEMO-FISCAL-2505', 'pfr:DEMO-FISCAL-2506'],
   },
 ]);
 
@@ -867,7 +918,7 @@ WHERE p.title = ${sqlString(title)}
 function insertRecurring(item) {
   return `INSERT INTO recurring_items (
   title, amount_minor, currency, account_id, category, frequency, interval_count,
-  day_of_month, month_of_year, next_due_date, active
+  day_of_month, month_of_year, next_due_date, active, auto_skip_overdue, auto_skip_after_days
 )
 SELECT
   ${sqlString(item.title)},
@@ -880,13 +931,78 @@ SELECT
   ${sqlValue(item.day_of_month)},
   ${sqlValue(item.month_of_year)},
   ${sqlValue(item.next_due_date)},
-  ${item.active}
+  ${item.active},
+  ${item.auto_skip_overdue ?? 0},
+  ${item.auto_skip_after_days ?? 1}
 ${accountRef(item.account)}
   AND ${SEED_GUARD}
   AND NOT EXISTS (
     SELECT 1 FROM recurring_items
     WHERE title = ${sqlString(item.title)} AND account_id = a.id
   );`;
+}
+
+function insertSkippedRecurringFulfillment({ title, period_due_date }) {
+  return `INSERT INTO recurring_period_fulfillments (
+  recurring_item_id, period_due_date, outcome, evidence_quantity, fulfilled_at
+)
+SELECT
+  r.id,
+  ${sqlValue(period_due_date)},
+  'skipped',
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM recurring_items r
+JOIN accounts a ON a.id = r.account_id
+WHERE r.title = ${sqlString(title)}
+  AND a.owner = 'Household'
+  AND ${SEED_GUARD}
+  AND NOT EXISTS (
+    SELECT 1 FROM recurring_period_fulfillments
+    WHERE recurring_item_id = r.id AND period_due_date = ${sqlValue(period_due_date)}
+  );`;
+}
+
+function insertManualReceiptGroup(group) {
+  const statements = [
+    `INSERT INTO purchase_orders (
+  provider, provider_order_id, order_date, note, created_via, created_at, updated_at, kind, display_name
+)
+SELECT
+  'manual',
+  ${sqlString(group.provider_order_id)},
+  ${sqlValue(group.order_date)},
+  NULL,
+  'api',
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  'manual',
+  ${sqlString(group.display_name)}
+WHERE ${SEED_GUARD}
+  AND NOT EXISTS (
+    SELECT 1 FROM purchase_orders
+    WHERE provider = 'manual' AND provider_order_id = ${sqlString(group.provider_order_id)}
+  );`,
+  ];
+  for (const key of group.receipt_keys) {
+    statements.push(`INSERT INTO receipt_membership (
+  order_id, receipt_key, ledger_epoch, created_at
+)
+SELECT
+  po.id,
+  ${sqlString(key)},
+  s.value,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM purchase_orders po
+JOIN settings s ON s.key = 'purchase_orders_epoch'
+WHERE po.provider = 'manual'
+  AND po.provider_order_id = ${sqlString(group.provider_order_id)}
+  AND ${SEED_GUARD}
+  AND NOT EXISTS (
+    SELECT 1 FROM receipt_membership WHERE receipt_key = ${sqlString(key)}
+  );`);
+  }
+  return statements;
 }
 
 function insertFulfilledRecurring({ title, date, store, item, category, subcategory, amount_minor }) {
@@ -1133,11 +1249,11 @@ const DEMO_RULE_SETS = [
     },
   ];
 
-function insertDemoBaseCurrencySetting() {
+function insertDemoSetting(key, value) {
   return `INSERT INTO settings (key, value)
-SELECT 'base_currency', 'USD'
+SELECT ${sqlString(key)}, ${sqlString(value)}
 WHERE ${SEED_GUARD}
-  AND NOT EXISTS (SELECT 1 FROM settings WHERE key = 'base_currency');`;
+  AND NOT EXISTS (SELECT 1 FROM settings WHERE key = ${sqlString(key)});`;
 }
 
 function insertDemoRuleSet(set) {
@@ -1219,13 +1335,21 @@ export function buildDemoSeedStatements() {
       ruleStatements.push(insertDemoRuleEntry(set, entry));
     }
   }
+  const settingStatements = Object.entries(DEMO_SETTINGS).map(([key, value]) =>
+    insertDemoSetting(key, value),
+  );
+  const receiptGroupStatements = [];
+  for (const group of DEMO_RECEIPT_GROUPS) {
+    receiptGroupStatements.push(...insertManualReceiptGroup(group));
+  }
   const statements = [
     insertMarker(),
-    insertDemoBaseCurrencySetting(),
+    ...settingStatements,
     ...ruleStatements,
     ...DEMO_FX_RATES.map(insertFxRate),
     ...DEMO_ACCOUNTS.map((account, index) => insertAccount(account, { first: index === 0 })),
     ...DEMO_OPERATIONS.map((operation, index) => insertOperation(operation, { first: index === 0 })),
+    ...receiptGroupStatements,
     ...DEMO_PLANNED.map(insertPlanned),
     insertFulfilledPlanned({
       title: 'Hallway lamp',
@@ -1244,6 +1368,7 @@ export function buildDemoSeedStatements() {
       subcategory: null,
       amount_minor: -6500,
     }),
+    ...DEMO_RECURRING_SKIPPED_FULFILLMENTS.map(insertSkippedRecurringFulfillment),
   ];
 
   for (const transfer of DEMO_TRANSFERS) {

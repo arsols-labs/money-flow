@@ -87,8 +87,10 @@ The interactive script (TTY) will:
    before continuing (so name/hostname are not skipped in silence).
 7. Apply D1 migrations, then ask **Seed demo data?** (`y`/`N`, default **no**).
    Yes writes a stranger-safe English product showcase: several countries and
-   currencies, denser operations for Analytics, planned and recurring items,
-   sample transfers, fiscal-receipt fields, and Pulse Warnings examples (an
+   currencies, denser operations for Analytics, planned items, recurring rules
+   (including `auto_skip_overdue` rules and skipped period history), cron schedule
+   settings, sample transfers, fiscal-receipt fields (both pre-grouped and
+   ungrouped same-day receipts), and Pulse Warnings examples (an
    already-negative card, an account approaching zero soon, and one that goes
    negative later). Everyday Card at −$640 with a positive household total is
    expected — the forecast total is the sum of all accounts. No leaves business

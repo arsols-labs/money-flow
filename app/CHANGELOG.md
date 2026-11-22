@@ -2,6 +2,14 @@
 
 All notable changes to the Money Flow app are documented here.
 
+## 2.47.0 - 2026-11-22
+
+### Added
+
+- Enriched the stranger-safe demo showcase (`scripts/lib/cloudflare-setup/seed-demo-sql.mjs` / `scripts/seed-demo.sql`) with two pre-grouped manual receipt groups (`Cedar Bistro` and `Harbor Market`), one ungrouped same-day receipt pair (`Corner Pharmacy` + `Wolt`), variable recurring rules with `auto_skip_overdue` enabled (`Weekly produce box`, `Local gym drop-in`) and pre-seeded `'skipped'` period history, and demo cron schedule settings (`America/New_York`, FX auto-refresh at `07:00`, recurring auto-skip at `06:00`).
+- Added automated GitHub Release tagging on `main` (`.github/workflows/release-tag.yml`) driven by `app/package.json` version and `app/CHANGELOG.md` notes.
+- App package version bumped to `2.47.0`.
+
 ## 2.46.0 - 2026-11-22
 
 ### Added

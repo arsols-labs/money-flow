@@ -19,7 +19,11 @@ import {
   DEMO_FX_RATES,
   DEMO_OPERATIONS,
   DEMO_PLANNED,
+  DEMO_PURCHASE_ORDERS_EPOCH,
+  DEMO_RECEIPT_GROUPS,
   DEMO_RECURRING,
+  DEMO_RECURRING_SKIPPED_FULFILLMENTS,
+  DEMO_SETTINGS,
   DEMO_TRANSFERS,
   buildDemoSeedStatements,
 } from './seed-demo-sql.mjs';
@@ -218,6 +222,45 @@ describe('demo seed against migrated SQLite', () => {
         query(dbPath, "SELECT COUNT(*) FROM planned_items WHERE title = 'Winter boiler service';"),
         '1',
       );
+      assert.equal(
+        query(dbPath, "SELECT COUNT(*) FROM purchase_orders WHERE kind = 'manual';"),
+        String(DEMO_RECEIPT_GROUPS.length),
+      );
+      assert.equal(
+        query(
+          dbPath,
+          `SELECT COUNT(*) FROM receipt_membership WHERE ledger_epoch = '${DEMO_PURCHASE_ORDERS_EPOCH}';`,
+        ),
+        '4',
+      );
+      assert.equal(
+        query(
+          dbPath,
+          "SELECT COUNT(*) FROM operations WHERE fiscal_receipt_id IN ('DEMO-FISCAL-2501', 'DEMO-FISCAL-2502');",
+        ),
+        '2',
+      );
+      assert.equal(
+        query(
+          dbPath,
+          "SELECT COUNT(*) FROM receipt_membership WHERE receipt_key IN ('pfr:DEMO-FISCAL-2501', 'pfr:DEMO-FISCAL-2502');",
+        ),
+        '0',
+      );
+      assert.equal(
+        query(dbPath, 'SELECT COUNT(*) FROM recurring_items WHERE auto_skip_overdue = 1;'),
+        '2',
+      );
+      assert.equal(
+        query(dbPath, "SELECT COUNT(*) FROM recurring_period_fulfillments WHERE outcome = 'skipped';"),
+        String(DEMO_RECURRING_SKIPPED_FULFILLMENTS.length),
+      );
+      for (const [key, expectedValue] of Object.entries(DEMO_SETTINGS)) {
+        assert.equal(
+          query(dbPath, `SELECT value FROM settings WHERE key = '${key}';`),
+          expectedValue,
+        );
+      }
       assert.ok(
         Number(query(dbPath, "SELECT balance_minor FROM accounts WHERE name = 'Everyday Card';")) < 0,
       );
@@ -228,6 +271,14 @@ describe('demo seed against migrated SQLite', () => {
       assert.equal(query(dbPath, 'SELECT COUNT(*) FROM planned_items;'), String(first.planned));
       assert.equal(query(dbPath, 'SELECT COUNT(*) FROM recurring_items;'), String(first.recurring));
       assert.equal(query(dbPath, 'SELECT COUNT(*) FROM transfers;'), String(first.transfers));
+      assert.equal(
+        query(dbPath, "SELECT COUNT(*) FROM purchase_orders WHERE kind = 'manual';"),
+        String(DEMO_RECEIPT_GROUPS.length),
+      );
+      assert.equal(
+        query(dbPath, "SELECT COUNT(*) FROM recurring_period_fulfillments WHERE outcome = 'skipped';"),
+        String(DEMO_RECURRING_SKIPPED_FULFILLMENTS.length),
+      );
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

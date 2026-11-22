@@ -19,6 +19,31 @@ SELECT 'base_currency', 'USD'
 WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
   AND NOT EXISTS (SELECT 1 FROM settings WHERE key = 'base_currency');
 
+INSERT INTO settings (key, value)
+SELECT 'purchase_orders_epoch', '00000000-0000-4000-8000-00000000de01'
+WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (SELECT 1 FROM settings WHERE key = 'purchase_orders_epoch');
+
+INSERT INTO settings (key, value)
+SELECT 'cron_timezone', 'America/New_York'
+WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (SELECT 1 FROM settings WHERE key = 'cron_timezone');
+
+INSERT INTO settings (key, value)
+SELECT 'fx_auto_update', '1'
+WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (SELECT 1 FROM settings WHERE key = 'fx_auto_update');
+
+INSERT INTO settings (key, value)
+SELECT 'fx_auto_update_hour', '7'
+WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (SELECT 1 FROM settings WHERE key = 'fx_auto_update_hour');
+
+INSERT INTO settings (key, value)
+SELECT 'recurring_auto_skip_hour', '6'
+WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (SELECT 1 FROM settings WHERE key = 'recurring_auto_skip_hour');
+
 INSERT INTO rule_sets (
   domain, scope_country, scope_locale, set_key, version, state,
   effective_from, effective_to, priority, allow_shared_fallback,
@@ -1511,7 +1536,7 @@ SELECT
   NULL,
   -6400,
   'manual',
-  'Sample same-day receipts so grouping can be tried',
+  'Grouped restaurant dinner and drinks receipts',
   'https://example.com/receipts/demo-fiscal-2503',
   'DEMO-FISCAL-2503'
 FROM accounts a
@@ -1538,7 +1563,7 @@ SELECT
   NULL,
   -1800,
   'manual',
-  'Sample same-day receipts so grouping can be tried',
+  'Grouped restaurant dinner and drinks receipts',
   'https://example.com/receipts/demo-fiscal-2504',
   'DEMO-FISCAL-2504'
 FROM accounts a
@@ -1549,6 +1574,60 @@ WHERE a.name = 'Everyday Checking' AND a.owner = 'Household'
     WHERE item = 'Drinks'
       AND date = date('now', '-1 days')
       AND store = 'Cedar Bistro Bar'
+  );
+
+INSERT INTO operations (
+  date, account_id, kind, store, item, category, subcategory, amount_minor,
+  source, comment, receipt_url, fiscal_receipt_id
+)
+SELECT
+  date('now', '-6 days'),
+  a.id,
+  'expense',
+  'Harbor Market',
+  'Fresh groceries order',
+  'Food',
+  'Groceries',
+  -3240,
+  'manual',
+  'Grouped grocery order and delivery receipts',
+  'https://example.com/receipts/demo-fiscal-2505',
+  'DEMO-FISCAL-2505'
+FROM accounts a
+WHERE a.name = 'Everyday Checking' AND a.owner = 'Household'
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM operations
+    WHERE item = 'Fresh groceries order'
+      AND date = date('now', '-6 days')
+      AND store = 'Harbor Market'
+  );
+
+INSERT INTO operations (
+  date, account_id, kind, store, item, category, subcategory, amount_minor,
+  source, comment, receipt_url, fiscal_receipt_id
+)
+SELECT
+  date('now', '-6 days'),
+  a.id,
+  'expense',
+  'Wolt',
+  'Grocery delivery fee',
+  'Food',
+  'Groceries',
+  -390,
+  'manual',
+  'Grouped grocery order and delivery receipts',
+  'https://example.com/receipts/demo-fiscal-2506',
+  'DEMO-FISCAL-2506'
+FROM accounts a
+WHERE a.name = 'Everyday Checking' AND a.owner = 'Household'
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM operations
+    WHERE item = 'Grocery delivery fee'
+      AND date = date('now', '-6 days')
+      AND store = 'Wolt'
   );
 
 INSERT INTO operations (
@@ -2577,6 +2656,112 @@ WHERE a.name = 'Maple Savings' AND a.owner = 'Household'
       AND store = 'Maple Credit Union'
   );
 
+INSERT INTO purchase_orders (
+  provider, provider_order_id, order_date, note, created_via, created_at, updated_at, kind, display_name
+)
+SELECT
+  'manual',
+  'demo-group-cedar-bistro',
+  date('now', '-1 days'),
+  NULL,
+  'api',
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  'manual',
+  'Cedar Bistro'
+WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM purchase_orders
+    WHERE provider = 'manual' AND provider_order_id = 'demo-group-cedar-bistro'
+  );
+
+INSERT INTO receipt_membership (
+  order_id, receipt_key, ledger_epoch, created_at
+)
+SELECT
+  po.id,
+  'pfr:DEMO-FISCAL-2503',
+  s.value,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM purchase_orders po
+JOIN settings s ON s.key = 'purchase_orders_epoch'
+WHERE po.provider = 'manual'
+  AND po.provider_order_id = 'demo-group-cedar-bistro'
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM receipt_membership WHERE receipt_key = 'pfr:DEMO-FISCAL-2503'
+  );
+
+INSERT INTO receipt_membership (
+  order_id, receipt_key, ledger_epoch, created_at
+)
+SELECT
+  po.id,
+  'pfr:DEMO-FISCAL-2504',
+  s.value,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM purchase_orders po
+JOIN settings s ON s.key = 'purchase_orders_epoch'
+WHERE po.provider = 'manual'
+  AND po.provider_order_id = 'demo-group-cedar-bistro'
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM receipt_membership WHERE receipt_key = 'pfr:DEMO-FISCAL-2504'
+  );
+
+INSERT INTO purchase_orders (
+  provider, provider_order_id, order_date, note, created_via, created_at, updated_at, kind, display_name
+)
+SELECT
+  'manual',
+  'demo-group-harbor-market',
+  date('now', '-6 days'),
+  NULL,
+  'api',
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  'manual',
+  'Harbor Market'
+WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM purchase_orders
+    WHERE provider = 'manual' AND provider_order_id = 'demo-group-harbor-market'
+  );
+
+INSERT INTO receipt_membership (
+  order_id, receipt_key, ledger_epoch, created_at
+)
+SELECT
+  po.id,
+  'pfr:DEMO-FISCAL-2505',
+  s.value,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM purchase_orders po
+JOIN settings s ON s.key = 'purchase_orders_epoch'
+WHERE po.provider = 'manual'
+  AND po.provider_order_id = 'demo-group-harbor-market'
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM receipt_membership WHERE receipt_key = 'pfr:DEMO-FISCAL-2505'
+  );
+
+INSERT INTO receipt_membership (
+  order_id, receipt_key, ledger_epoch, created_at
+)
+SELECT
+  po.id,
+  'pfr:DEMO-FISCAL-2506',
+  s.value,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM purchase_orders po
+JOIN settings s ON s.key = 'purchase_orders_epoch'
+WHERE po.provider = 'manual'
+  AND po.provider_order_id = 'demo-group-harbor-market'
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM receipt_membership WHERE receipt_key = 'pfr:DEMO-FISCAL-2506'
+  );
+
 INSERT INTO planned_items (
   date, title, amount_minor, currency, account_id, category, done
 )
@@ -2717,7 +2902,7 @@ WHERE p.title = 'Hallway lamp'
 
 INSERT INTO recurring_items (
   title, amount_minor, currency, account_id, category, frequency, interval_count,
-  day_of_month, month_of_year, next_due_date, active
+  day_of_month, month_of_year, next_due_date, active, auto_skip_overdue, auto_skip_after_days
 )
 SELECT
   'Monthly salary',
@@ -2730,6 +2915,8 @@ SELECT
   1,
   NULL,
   date('now', 'start of month', '+1 month'),
+  1,
+  0,
   1
 FROM accounts a
 WHERE a.name = 'Everyday Checking' AND a.owner = 'Household'
@@ -2741,7 +2928,7 @@ WHERE a.name = 'Everyday Checking' AND a.owner = 'Household'
 
 INSERT INTO recurring_items (
   title, amount_minor, currency, account_id, category, frequency, interval_count,
-  day_of_month, month_of_year, next_due_date, active
+  day_of_month, month_of_year, next_due_date, active, auto_skip_overdue, auto_skip_after_days
 )
 SELECT
   'City rent',
@@ -2754,6 +2941,8 @@ SELECT
   1,
   NULL,
   date('now', 'start of month', '+1 month'),
+  1,
+  0,
   1
 FROM accounts a
 WHERE a.name = 'Everyday Checking' AND a.owner = 'Household'
@@ -2765,7 +2954,7 @@ WHERE a.name = 'Everyday Checking' AND a.owner = 'Household'
 
 INSERT INTO recurring_items (
   title, amount_minor, currency, account_id, category, frequency, interval_count,
-  day_of_month, month_of_year, next_due_date, active
+  day_of_month, month_of_year, next_due_date, active, auto_skip_overdue, auto_skip_after_days
 )
 SELECT
   'Streamline Internet',
@@ -2778,6 +2967,8 @@ SELECT
   CAST(strftime('%d', date('now', '+12 days')) AS INTEGER),
   NULL,
   date('now', '+12 days'),
+  1,
+  0,
   1
 FROM accounts a
 WHERE a.name = 'Everyday Checking' AND a.owner = 'Household'
@@ -2789,7 +2980,7 @@ WHERE a.name = 'Everyday Checking' AND a.owner = 'Household'
 
 INSERT INTO recurring_items (
   title, amount_minor, currency, account_id, category, frequency, interval_count,
-  day_of_month, month_of_year, next_due_date, active
+  day_of_month, month_of_year, next_due_date, active, auto_skip_overdue, auto_skip_after_days
 )
 SELECT
   'Weekly produce box',
@@ -2802,7 +2993,9 @@ SELECT
   NULL,
   NULL,
   date('now', '+4 days'),
-  1
+  1,
+  1,
+  2
 FROM accounts a
 WHERE a.name = 'Everyday Checking' AND a.owner = 'Household'
   AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
@@ -2813,7 +3006,33 @@ WHERE a.name = 'Everyday Checking' AND a.owner = 'Household'
 
 INSERT INTO recurring_items (
   title, amount_minor, currency, account_id, category, frequency, interval_count,
-  day_of_month, month_of_year, next_due_date, active
+  day_of_month, month_of_year, next_due_date, active, auto_skip_overdue, auto_skip_after_days
+)
+SELECT
+  'Local gym drop-in',
+  -1800,
+  'USD',
+  a.id,
+  'Health',
+  'weekly',
+  1,
+  NULL,
+  NULL,
+  date('now', '+6 days'),
+  1,
+  1,
+  3
+FROM accounts a
+WHERE a.name = 'Everyday Checking' AND a.owner = 'Household'
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM recurring_items
+    WHERE title = 'Local gym drop-in' AND account_id = a.id
+  );
+
+INSERT INTO recurring_items (
+  title, amount_minor, currency, account_id, category, frequency, interval_count,
+  day_of_month, month_of_year, next_due_date, active, auto_skip_overdue, auto_skip_after_days
 )
 SELECT
   'Annual travel insurance',
@@ -2826,6 +3045,8 @@ SELECT
   CAST(strftime('%d', date('now', '+90 days')) AS INTEGER),
   CAST(strftime('%m', date('now', '+90 days')) AS INTEGER),
   date('now', '+90 days'),
+  1,
+  0,
   1
 FROM accounts a
 WHERE a.name = 'Everyday Checking' AND a.owner = 'Household'
@@ -2858,6 +3079,44 @@ WHERE r.title = 'Streamline Internet'
   AND NOT EXISTS (
     SELECT 1 FROM operations
     WHERE recurring_item_id = r.id AND date = date('now', '-19 days')
+  );
+
+INSERT INTO recurring_period_fulfillments (
+  recurring_item_id, period_due_date, outcome, evidence_quantity, fulfilled_at
+)
+SELECT
+  r.id,
+  date('now', '-3 days'),
+  'skipped',
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM recurring_items r
+JOIN accounts a ON a.id = r.account_id
+WHERE r.title = 'Weekly produce box'
+  AND a.owner = 'Household'
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM recurring_period_fulfillments
+    WHERE recurring_item_id = r.id AND period_due_date = date('now', '-3 days')
+  );
+
+INSERT INTO recurring_period_fulfillments (
+  recurring_item_id, period_due_date, outcome, evidence_quantity, fulfilled_at
+)
+SELECT
+  r.id,
+  date('now', '-8 days'),
+  'skipped',
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM recurring_items r
+JOIN accounts a ON a.id = r.account_id
+WHERE r.title = 'Local gym drop-in'
+  AND a.owner = 'Household'
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM recurring_period_fulfillments
+    WHERE recurring_item_id = r.id AND period_due_date = date('now', '-8 days')
   );
 
 INSERT INTO transfers
