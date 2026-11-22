@@ -31,9 +31,31 @@ const MIGRATION_SQL = [
   migration0029,
 ];
 
+function computeSeedFingerprint(source: string): string {
+  const bytes = new TextEncoder().encode(source);
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  for (const byte of bytes) {
+    hash ^= BigInt(byte);
+    hash = (hash * prime) & mask;
+  }
+  return hash.toString(16).padStart(16, '0');
+}
+
+/** Ensures returning demo cookies open a fresh DO when showcase SQL changes. */
+export const DEMO_SEED_FINGERPRINT = computeSeedFingerprint(seedSql);
+
 // Internal DO KV is not exported, restored or deleted with user SQL settings.
 const SCHEMA_VERSION_KEY = 'demo_schema_version';
-const SCHEMA_VERSION = 29;
+const SCHEMA_VERSION = 30;
+
+const KNOWN_DEMO_CURRENCIES: Readonly<Record<string, { minor_digits: number; symbol: string }>> = {
+  USD: { minor_digits: 2, symbol: '$' },
+  EUR: { minor_digits: 2, symbol: '€' },
+  GBP: { minor_digits: 2, symbol: '£' },
+  CAD: { minor_digits: 2, symbol: 'CA$' },
+};
 
 type SqlValue = ArrayBuffer | string | number | null;
 
@@ -149,6 +171,111 @@ function upgradeStatementImport(sql: SqlStorage): void {
   applyMissingSchema(sql, migration0029);
 }
 
+function backfillMissingDemoCurrencyStandards(sql: SqlStorage): void {
+  const seedRows = sql.exec<{ value: SqlValue }>(
+    "SELECT value FROM settings WHERE key = 'setup_demo_seed' LIMIT 1",
+  ).toArray();
+  if (seedRows.length === 0 || String(seedRows[0]?.value ?? '') !== '1') return;
+
+  const existingSets = sql.exec(
+    "SELECT 1 AS ok FROM rule_sets WHERE domain = 'currency_standards' LIMIT 1",
+  ).toArray();
+  if (existingSets.length > 0) return;
+
+  const accountRows = sql.exec<{ code: SqlValue }>(
+    'SELECT DISTINCT upper(trim(currency)) AS code FROM accounts WHERE currency IS NOT NULL ORDER BY code',
+  ).toArray();
+  const accountCurrencies = accountRows
+    .map((row) => String(row.code ?? ''))
+    .filter((code) => /^[A-Z]{3}$/.test(code));
+  if (accountCurrencies.length === 0) return;
+
+  const fxRateRows = sql.exec<{ code: SqlValue }>(
+    'SELECT DISTINCT upper(trim(code)) AS code FROM fx_rates WHERE code IS NOT NULL ORDER BY code',
+  ).toArray();
+  const fxRateCurrencies = fxRateRows
+    .map((row) => String(row.code ?? ''))
+    .filter((code) => /^[A-Z]{3}$/.test(code));
+  const fxRateSet = new Set(fxRateCurrencies);
+
+  const baseRows = sql.exec<{ value: SqlValue }>(
+    "SELECT value FROM settings WHERE key = 'base_currency' LIMIT 1",
+  ).toArray();
+  const rawBaseValue = typeof baseRows[0]?.value === 'string' ? baseRows[0].value : null;
+  const upperBase = rawBaseValue ? rawBaseValue.trim().toUpperCase() : '';
+  const validBase = /^[A-Z]{3}$/.test(upperBase) ? upperBase : null;
+
+  // Pre-0028 schemas store fx_rates against USD even when display base_currency differs.
+  const fxAnchorCode = !fxRateSet.has('USD')
+    ? 'USD'
+    : validBase && !fxRateSet.has(validBase)
+      ? validBase
+      : validBase ?? (accountCurrencies.includes('USD') ? 'USD' : accountCurrencies[0]!);
+  const baseCurrency = validBase ?? fxAnchorCode;
+  if (rawBaseValue !== baseCurrency) {
+    sql.exec(
+      "INSERT INTO settings (key, value) VALUES ('base_currency', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      baseCurrency,
+    ).toArray();
+  }
+
+  const now = sql.exec<{ now: string }>("SELECT strftime('%Y-%m-%dT%H:%M:%SZ', 'now') AS now").one().now;
+  sql.exec(
+    `INSERT INTO rule_sets (
+      domain, scope_country, scope_locale, set_key, version, state,
+      effective_from, effective_to, priority, allow_shared_fallback,
+      label, description, provenance_source, provenance_actor,
+      revision, activated_at, created_at, updated_at
+    ) VALUES (
+      'currency_standards', 'SHARED', '', 'demo-currencies', 1, 'active',
+      NULL, NULL, 100, 1,
+      'Demo currency standards', NULL, 'import', 'seed-demo',
+      1, ?, ?, ?
+    )`,
+    now,
+    now,
+    now,
+  ).toArray();
+
+  const ruleSetId = sql.exec<{ id: number }>(
+    `SELECT id FROM rule_sets
+     WHERE domain = 'currency_standards'
+       AND scope_country = 'SHARED'
+       AND scope_locale = ''
+       AND set_key = 'demo-currencies'
+       AND version = 1`,
+  ).one().id;
+
+  const codes = Array.from(
+    new Set([fxAnchorCode, baseCurrency, ...Object.keys(KNOWN_DEMO_CURRENCIES), ...accountCurrencies, ...fxRateCurrencies]),
+  );
+  codes.forEach((code, index) => {
+    const known = KNOWN_DEMO_CURRENCIES[code];
+    const payload = JSON.stringify({
+      code,
+      minor_digits: known?.minor_digits ?? 2,
+      symbol: known?.symbol ?? code,
+      is_fx_anchor: code === fxAnchorCode,
+    });
+    sql.exec(
+      `INSERT INTO rule_entries (
+        rule_set_id, entry_key, match_type, match_field, pattern,
+        priority, enabled, payload_json, meta_json, revision, created_at, updated_at
+      ) VALUES (
+        ?, ?, 'exact', 'code', ?,
+        ?, 1, ?, NULL, 1, ?, ?
+      )`,
+      ruleSetId,
+      code,
+      code,
+      (index + 1) * 10,
+      payload,
+      now,
+      now,
+    ).toArray();
+  });
+}
+
 function runStatement(sql: SqlStorage, statement: string, params: SqlValue[]): D1Result {
   const parts = splitSqlStatements(statement);
   if (parts.length !== 1) {
@@ -247,7 +374,11 @@ export class DemoSession extends DurableObject<Env> {
       const seeded = sql.exec(
         "SELECT 1 AS ok FROM settings WHERE key = 'setup_demo_seed' LIMIT 1",
       ).toArray();
-      if (seeded.length === 0) applyScript(sql, seedSql);
+      if (seeded.length === 0) {
+        applyScript(sql, seedSql);
+      } else {
+        backfillMissingDemoCurrencyStandards(sql);
+      }
       storage.kv.put(SCHEMA_VERSION_KEY, SCHEMA_VERSION);
     });
   }

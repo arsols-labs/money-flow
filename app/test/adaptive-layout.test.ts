@@ -8,6 +8,7 @@ import Shell, { ALL_TABS } from '../src/ui/Shell.jsx';
 import Pulse, { PulseDashboard } from '../src/ui/Pulse.jsx';
 import OperationsSection from '../src/ui/OperationsSection.jsx';
 import { RefreshProvider } from '../src/ui/RefreshContext.jsx';
+import { formatMinor } from '../src/ui/money.js';
 
 describe('Shell adaptive navigation', () => {
   it('contains 4 main sections in ALL_TABS', () => {
@@ -104,6 +105,43 @@ describe('Pulse adaptive dashboard', () => {
     expect(html).toContain('class="pulse-main-col"');
     expect(html).toContain('class="pulse-side-col"');
     expect(html).toContain('class="pulse-footer-col"');
+    expect(html).toContain('class="pulse-control-group"');
+    expect(html).toContain('card-cell--mobile-wide');
+  });
+
+  it('wraps segmented controls in pulse-control-group with lowest metric marked mobileWide', () => {
+    const mockForecast = {
+      base_currency: 'USD',
+      net_worth_minor: 2771200,
+      low_balance_threshold_minor: 100000,
+      cash_flow_minor: 60300,
+      cash_flow_days: 30,
+      lowest: { date: '2027-01-30', amount_minor: 2588800 },
+      missing_rates: [],
+      warnings: [
+        { severity: 'critical', scope: 'account', account_id: 1, label: 'Card', min_balance_minor: -64000, currency: 'USD', breach_date: '2026-11-23' },
+      ],
+      accounts: [{ id: 1, name: 'Main', currency: 'USD', balance_minor: 2771200, owner: 'Household', country: 'USA' }],
+      upcoming: [],
+      countries: [],
+      as_of: '2026-11-22',
+    };
+
+    const html = renderToStaticMarkup(
+      React.createElement(PulseDashboard, {
+        forecast: mockForecast,
+        fxRates: [],
+        points: [],
+        groupMode: 'owner',
+        setGroupMode: () => {},
+      }),
+    );
+
+    const mobileWideMatches = html.match(/card-cell--mobile-wide/g) ?? [];
+    expect(mobileWideMatches.length).toBe(2);
+    expect(html).toContain(formatMinor(2588800, 'USD'));
+    expect(html).toContain('class="pulse-control-group warning-filters-row"');
+    expect(html).not.toContain('style="display:flex;align-items:center;gap:6px"');
   });
 });
 
@@ -133,9 +171,14 @@ describe('CSS foundations for breakpoints and container queries', () => {
     // Expanded breakpoint (>= 840px)
     expect(css).toContain('@media (min-width: 840px)');
 
-    // Container queries
+    // Container queries and bounded grid tracks
     expect(css).toContain('container-type: inline-size');
     expect(css).toContain('@container (min-width: 800px)');
+    expect(css).toContain('container: pulse-metrics / inline-size');
+    expect(css).toContain('@container pulse-metrics (max-width: 639.98px)');
+    expect(css).toContain('grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr)');
+    expect(css).toContain('grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)');
+    expect(css).toContain('.pulse-control-group');
 
     // Navigation elements
     expect(css).toContain('.nav-rail');

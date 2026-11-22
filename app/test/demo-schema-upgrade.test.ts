@@ -56,7 +56,7 @@ describe('demo schema upgrades', { timeout: 30_000 }, () => {
     await legacy(stub);
     await repeatAccess(stub);
     await runInDurableObject(stub, (_instance, state) => {
-      expect(state.storage.kv.get(VERSION_KEY)).toBe(29);
+      expect(state.storage.kv.get(VERSION_KEY)).toBe(30);
       const sets = state.storage.sql.exec<{ set_key: string }>('SELECT set_key FROM rule_sets ORDER BY set_key').toArray();
       expect(sets.map((row) => row.set_key)).toEqual(['migrated-category-rules', 'migrated-user-templates']);
       const entries = state.storage.sql.exec<{ entry_key: string }>('SELECT entry_key FROM rule_entries ORDER BY entry_key').toArray();
@@ -129,7 +129,7 @@ describe('demo schema upgrades', { timeout: 30_000 }, () => {
     });
     await repeatAccess(stub);
     await runInDurableObject(stub, (_instance, state) => {
-      expect(state.storage.kv.get(VERSION_KEY)).toBe(29);
+      expect(state.storage.kv.get(VERSION_KEY)).toBe(30);
       expect(state.storage.sql.exec('SELECT * FROM rule_entries').toArray()).toHaveLength(2);
     });
   });
@@ -146,13 +146,127 @@ describe('demo schema upgrades', { timeout: 30_000 }, () => {
     await stub.ledgerQuery('DELETE FROM settings', []);
     await repeatAccess(stub);
     await runInDurableObject(stub, async (_instance, state) => {
-      expect(state.storage.kv.get(VERSION_KEY)).toBe(29);
+      expect(state.storage.kv.get(VERSION_KEY)).toBe(30);
       expect(state.storage.sql.exec('SELECT * FROM settings').toArray()).toEqual([]);
       expect(state.storage.sql.exec('SELECT * FROM rule_entries').toArray()).toEqual([]);
       for (const table of RULE_TABLES) {
         expect(state.storage.sql.exec("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", table).toArray()).toHaveLength(1);
       }
       await expect(state.storage.getAlarm()).resolves.not.toBeNull();
+    });
+  });
+
+  it('heals missing currency_standards on pre-0028 seeded accounts and respects later deletion', async () => {
+    const stub = session();
+    await legacy(stub);
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('base_currency', 'USD')");
+      for (const [name, country, currency] of [
+        ['Checking USD', 'USA', 'USD'],
+        ['Travel EUR', 'Germany', 'EUR'],
+        ['Current GBP', 'United Kingdom', 'GBP'],
+        ['Savings CAD', 'Canada', 'CAD'],
+        ['Local RSD', 'Serbia', 'RSD'],
+      ] as const) {
+        state.storage.sql.exec(
+          `INSERT INTO accounts (name, owner, country, currency, balance_minor, balance_updated_at)
+           VALUES (?, 'Household', ?, ?, 10000, ?)`,
+          name,
+          country,
+          currency,
+          NOW,
+        );
+      }
+    });
+
+    await repeatAccess(stub);
+    await runInDurableObject(stub, (_instance, state) => {
+      expect(state.storage.kv.get(VERSION_KEY)).toBe(30);
+      const sets = state.storage.sql.exec<{ set_key: string; state: string }>(
+        "SELECT set_key, state FROM rule_sets WHERE domain = 'currency_standards'",
+      ).toArray();
+      expect(sets).toEqual([{ set_key: 'demo-currencies', state: 'active' }]);
+      const entries = state.storage.sql.exec<{ entry_key: string; payload_json: string }>(
+        `SELECT re.entry_key, re.payload_json
+         FROM rule_entries re
+         JOIN rule_sets rs ON rs.id = re.rule_set_id
+         WHERE rs.domain = 'currency_standards'
+         ORDER BY re.priority`,
+      ).toArray();
+      expect(entries.map((row) => row.entry_key)).toEqual(['USD', 'EUR', 'GBP', 'CAD', 'RSD']);
+      const parsed = entries.map((row) => JSON.parse(row.payload_json) as {
+        code: string;
+        minor_digits: number;
+        symbol: string;
+        is_fx_anchor: boolean;
+      });
+      expect(parsed.find((item) => item.code === 'USD')).toMatchObject({ symbol: '$', minor_digits: 2, is_fx_anchor: true });
+      expect(parsed.find((item) => item.code === 'RSD')).toMatchObject({ symbol: 'RSD', minor_digits: 2, is_fx_anchor: false });
+    });
+
+    // Deleting currency_standards after upgrading to v30 must stay deleted.
+    await stub.ledgerQuery("DELETE FROM rule_sets WHERE domain = 'currency_standards'", []);
+    await repeatAccess(stub);
+    await runInDurableObject(stub, (_instance, state) => {
+      expect(state.storage.sql.exec("SELECT * FROM rule_sets WHERE domain = 'currency_standards'").toArray()).toEqual([]);
+    });
+  });
+
+  it('heals v29 demo ledgers stuck with setup_demo_seed=1 and empty rule_sets', async () => {
+    const stub = session();
+    await stub.ensureReady();
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec('DELETE FROM rule_entries');
+      state.storage.sql.exec('DELETE FROM rule_sets');
+      state.storage.kv.put(VERSION_KEY, 29);
+    });
+    await evictDurableObject(stub);
+    await stub.ensureReady();
+    await runInDurableObject(stub, (_instance, state) => {
+      expect(state.storage.kv.get(VERSION_KEY)).toBe(30);
+      const sets = state.storage.sql.exec<{ set_key: string }>(
+        "SELECT set_key FROM rule_sets WHERE domain = 'currency_standards'",
+      ).toArray();
+      expect(sets).toEqual([{ set_key: 'demo-currencies' }]);
+    });
+  });
+
+  it('keeps USD as fx anchor when a pre-0028 ledger uses EUR base_currency and USD-based fx_rates', async () => {
+    const stub = session();
+    await legacy(stub);
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('base_currency', ' eur ')");
+      state.storage.sql.exec(
+        "INSERT INTO fx_rates (code, rate_e9, updated_at) VALUES ('EUR', 1080000000, ?), ('GBP', 1270000000, ?), ('CAD', 740000000, ?)",
+        NOW,
+        NOW,
+        NOW,
+      );
+      state.storage.sql.exec(
+        "INSERT INTO accounts (name, owner, country, currency, balance_minor, balance_updated_at) VALUES ('Euro Account', 'Household', 'Germany', 'EUR', 10000, ?)",
+        NOW,
+      );
+    });
+    await repeatAccess(stub);
+    await runInDurableObject(stub, (_instance, state) => {
+      expect(state.storage.kv.get(VERSION_KEY)).toBe(30);
+      const baseSetting = state.storage.sql.exec<{ value: string }>(
+        "SELECT value FROM settings WHERE key = 'base_currency'",
+      ).one();
+      expect(baseSetting.value).toBe('EUR');
+      const rows = state.storage.sql.exec<{ entry_key: string; payload_json: string }>(
+        `SELECT re.entry_key, re.payload_json
+         FROM rule_entries re
+         JOIN rule_sets rs ON rs.id = re.rule_set_id
+         WHERE rs.domain = 'currency_standards'`,
+      ).toArray();
+      const byCode = Object.fromEntries(
+        rows.map((r) => [r.entry_key, JSON.parse(r.payload_json) as { is_fx_anchor: boolean; minor_digits: number }]),
+      );
+      expect(byCode.USD?.is_fx_anchor).toBe(true);
+      expect(byCode.EUR?.is_fx_anchor).toBe(false);
+      expect(byCode.GBP?.is_fx_anchor).toBe(false);
+      expect(byCode.CAD?.is_fx_anchor).toBe(false);
     });
   });
 });
