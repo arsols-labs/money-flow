@@ -9,6 +9,7 @@ import {
 import { createDemoD1, type DemoLedgerStub } from './demo-db';
 import { DEMO_SESSION_TTL_SECONDS, isDemoMode } from './demo-flag';
 import { clientIpFromHeaders, consumeRateLimit, RATE_LIMITS } from './rate-limit';
+import { DEMO_SEED_FINGERPRINT } from './demo-session';
 import type { Env } from './types';
 
 const DEMO_BOUND = Symbol('mf.demoBound');
@@ -91,10 +92,14 @@ async function rejectNewDemoSession(request: Request, env: Env): Promise<Respons
   return jsonError('RATE_LIMITED', 429, headers);
 }
 
+export function demoLedgerObjectName(sessionId: string): string {
+  return `${DEMO_SEED_FINGERPRINT}:${sessionId}`;
+}
+
 function ledgerStub(env: Env, sessionId: string): DemoLedgerStub | null {
   const namespace = env.DEMO_SESSION;
   if (!namespace) return null;
-  return namespace.get(namespace.idFromName(sessionId)) as unknown as DemoLedgerStub;
+  return namespace.get(namespace.idFromName(demoLedgerObjectName(sessionId))) as unknown as DemoLedgerStub;
 }
 
 /**

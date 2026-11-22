@@ -2,6 +2,14 @@
 
 All notable changes to the Money Flow app are documented here.
 
+## 2.47.1 - 2026-11-22
+
+### Fixed
+
+- Returning demo sessions now automatically rotate to a seed-fingerprinted Durable Object showcase whenever `seed-demo.sql` updates, and upgraded pre-`0028` / `v29` demo sessions self-heal missing `currency_standards` rules while preserving `USD` FX-anchor semantics and user edits (`DemoSession` schema version `30`).
+- Bounded Pulse dashboard and KPI grid tracks (`minmax(0, ...)`) and added container-aware `pulse-metrics` wrapping plus shrinkable segmented control wrappers so `Spent` and `Lowest ahead` never overlap the `Payments` column across desktop viewports (`840–1280 px`).
+- App package version bumped to `2.47.1`.
+
 ## 2.47.0 - 2026-11-22
 
 ### Added

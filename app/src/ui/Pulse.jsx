@@ -283,7 +283,7 @@ function ForecastSection({
       <div className="pulse-list-toolbar">
         <div className="pulse-list-control">
           <span className="pulse-list-control-label">{t('pulse.forecast.groupLabel')}</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div className="pulse-control-group">
             <PulseSegmentedControl
               options={groupOptions}
               value={resolvedGroup}
@@ -416,7 +416,7 @@ function WarningsPanel({ warnings, accounts, baseCurrency, fullWidth = false, fi
           <span className="section-subtitle" aria-live="polite">{countLabel}</span>
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div className="pulse-control-group warning-filters-row">
         <PulseSegmentedControl
           options={selection.availableFilters}
           value={selection.activeFilter}
@@ -568,7 +568,7 @@ export function UpcomingSection({
       onToggle={onToggle}
       defaultOpen={true}
       actions={(
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div className="pulse-control-group">
           <PulseSegmentedControl
             options={[{ key: 'week', label: t('period.week') }, { key: 'month', label: t('period.month') }]}
             value={actualRange}
@@ -592,7 +592,7 @@ export function UpcomingSection({
       <div className="pulse-list-toolbar">
         <div className="pulse-list-control">
           <span className="pulse-list-control-label">{t('filter.type')}</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div className="pulse-control-group">
             <PulseSegmentedControl
               options={[
                 { key: 'all', label: t('filter.all') },
@@ -728,7 +728,7 @@ function SpentCard({ baseCurrency, big = false, mobileWide = false, period = 'to
       // The period switch lives on the same line as the label — so the card header
       // looks the same in every section (see MetricCard.control).
       control={(
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div className="pulse-control-group">
           <PulseSegmentedControl
             options={SPENT_PERIODS.map((p) => ({ ...p, label: t(`period.${p.key}`) }))}
             value={actualPeriod}
@@ -761,7 +761,7 @@ function SpentCard({ baseCurrency, big = false, mobileWide = false, period = 'to
 function GroupToggle({ mode, onChange }) {
   const { t } = useTranslation();
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+    <div className="pulse-control-group">
       <PulseSegmentedControl
         options={[{ key: 'owner', label: t('groupBy.owner') }, { key: 'country', label: t('groupBy.country') }]}
         value={mode}

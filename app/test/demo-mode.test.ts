@@ -10,6 +10,8 @@ import { createSessionCookie, verifySessionCookie } from '../src/worker/auth';
 import { DEMO_DISCLAIMER } from '../src/worker/demo-flag';
 import { resetRateLimitMemoryForTests } from '../src/worker/rate-limit';
 import { splitSqlStatements } from '../src/worker/sql-split';
+import { demoLedgerObjectName } from '../src/worker/demo-request';
+import { DEMO_SEED_FINGERPRINT } from '../src/worker/demo-session';
 import type { Env } from '../src/worker/types';
 
 const ORIGIN = 'https://demo.example';
@@ -384,5 +386,56 @@ describe('DEMO_MODE session isolation', { timeout: 30_000 }, () => {
       expect(item.last_fulfillment?.outcome).toBe('skipped');
     }
     expect(sharedCalls).toEqual([]);
+  });
+
+  it('routes returning demo cookies to a fresh seed-fingerprinted DO and persists edits', async () => {
+    const legacySid = crypto.randomUUID();
+    expect(demoLedgerObjectName(legacySid)).toBe(`${DEMO_SEED_FINGERPRINT}:${legacySid}`);
+    const legacyCookie = `mf_demo_sid=${legacySid}`;
+
+    // Populate the unprefixed pre-fingerprint DO id to verify it is isolated from returning traffic.
+    const real = env as unknown as Env;
+    const legacyStub = real.DEMO_SESSION!.get(real.DEMO_SESSION!.idFromName(legacySid)) as unknown as {
+      ensureReady(): Promise<void>;
+      ledgerQuery(sql: string, params: unknown[]): Promise<{ results: Array<Record<string, unknown>> }>;
+    };
+    await legacyStub.ensureReady();
+    await legacyStub.ledgerQuery(
+      "INSERT INTO accounts (name, owner, country, currency, balance_minor, balance_updated_at) VALUES ('Legacy Only', 'Household', 'USA', 'USD', 500, '2026-11-12T17:00:00Z')",
+      [],
+    );
+
+    const forecastRes = await demoFetch('/api/v2/forecast', {}, legacyCookie);
+    expect(forecastRes.status).toBe(200);
+    const runtimeRes = await demoFetch('/api/v2/config/runtime', {}, legacyCookie);
+    expect(runtimeRes.status).toBe(200);
+    const runtimeBody = await runtimeRes.json<{ configured?: { currencies?: boolean }; currencies: unknown[] }>();
+    expect(runtimeBody.configured?.currencies).toBe(true);
+    expect(runtimeBody.currencies.length).toBeGreaterThanOrEqual(4);
+
+    const groupsRes = await demoFetch('/api/v2/receipt-groups', {}, legacyCookie);
+    expect(groupsRes.status).toBe(200);
+    const groupsBody = await groupsRes.json<{ groups: Array<{ place: string | null; name: string | null }> }>();
+    expect(groupsBody.groups.map((g) => g.name ?? g.place).sort()).toEqual(['Cedar Bistro', 'Harbor Market']);
+
+    const created = await demoFetch('/api/v2/accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Money-Flow': '1' },
+      body: JSON.stringify({
+        name: 'Returning Visitor Account',
+        currency: 'USD',
+        owner: 'Household',
+        country: 'USA',
+      }),
+    }, legacyCookie);
+    expect(created.status).toBe(201);
+
+    const listed = await demoFetch('/api/v2/accounts', {}, legacyCookie);
+    const listBody = await listed.json<{ accounts: Array<{ name: string }> }>();
+    const names = listBody.accounts.map((a) => a.name);
+    expect(names).toContain('Returning Visitor Account');
+    expect(names).not.toContain('Legacy Only');
+    const legacyCheck = await legacyStub.ledgerQuery("SELECT name FROM accounts WHERE name = 'Returning Visitor Account'", []);
+    expect(legacyCheck.results).toEqual([]);
   });
 });
