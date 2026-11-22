@@ -7,17 +7,29 @@ import {
   type ExpenseDuplicateCandidate,
 } from '../src/shared/booking-guards';
 import { canonicalFiscalIdentity } from '../src/shared/fiscal-identity';
+import { makeTestResolvedRuleEntry, TEST_FISCAL_FORMATS, TEST_ORDER_HINTS } from './seed-test-rules';
+
+const ORDER_HINT_RULES = TEST_ORDER_HINTS.map((h, i) =>
+  makeTestResolvedRuleEntry('order_hints', h.key, 'regex_safe', h.pattern, h.payload, (i + 1) * 10),
+);
+
+const BOOKING_RULES = {
+  orderHints: ORDER_HINT_RULES,
+  fiscalFormats: [...TEST_FISCAL_FORMATS],
+};
 
 describe('booking guards', () => {
-  it('treats production analytical ids 16 and 17 as skip-only', () => {
-    expect(isAnalyticalSkipOnlyRecurringId(16)).toBe(true);
-    expect(isAnalyticalSkipOnlyRecurringId(17)).toBe(true);
-    expect(isAnalyticalSkipOnlyRecurringId(1)).toBe(false);
-    expect(isAnalyticalSkipOnlyRecurringId(18)).toBe(false);
+  it('only treats configured recurring ids as skip-only', () => {
+    const skipOnlyIds = new Set([16, 17]);
+    expect(isAnalyticalSkipOnlyRecurringId(16)).toBe(false);
+    expect(isAnalyticalSkipOnlyRecurringId(16, skipOnlyIds)).toBe(true);
+    expect(isAnalyticalSkipOnlyRecurringId(17, skipOnlyIds)).toBe(true);
+    expect(isAnalyticalSkipOnlyRecurringId(1, skipOnlyIds)).toBe(false);
+    expect(isAnalyticalSkipOnlyRecurringId(18, skipOnlyIds)).toBe(false);
   });
 
   it('extracts Wolt/order tokens and matches a recent duplicate', () => {
-    expect(extractExpenseOrderTokens(['Wolt order ABC12345', 'note'])).toEqual(['abc12345']);
+    expect(extractExpenseOrderTokens(['Wolt order ABC12345', 'note'], ORDER_HINT_RULES)).toEqual(['abc12345']);
     const existing = {
       id: 9,
       date: '2026-09-20',
@@ -36,7 +48,7 @@ describe('booking guards', () => {
       item: 'Dinner',
       comment: 'wolt ABC12345',
       fiscal_receipt_id: null,
-    }, existing)).toBe(true);
+    }, existing, BOOKING_RULES)).toBe(true);
     expect(expenseLooksLikeDuplicate({
       date: '2026-09-20',
       account_id: 1,
@@ -45,7 +57,7 @@ describe('booking guards', () => {
       item: 'Cash',
       comment: null,
       fiscal_receipt_id: null,
-    }, existing)).toBe(true);
+    }, existing, BOOKING_RULES)).toBe(true);
     expect(expenseLooksLikeDuplicate({
       date: '2026-09-20',
       account_id: 1,
@@ -54,7 +66,7 @@ describe('booking guards', () => {
       item: 'Bread',
       comment: null,
       fiscal_receipt_id: null,
-    }, existing)).toBe(false);
+    }, existing, BOOKING_RULES)).toBe(false);
   });
 
   it('treats shared fiscal_receipt_id as line-level identity, not a whole-receipt duplicate', () => {
@@ -76,7 +88,7 @@ describe('booking guards', () => {
       item: 'Croissant',
       comment: null,
       fiscal_receipt_id: 'JDEKKL35-GESE6HO0-136069',
-    }, existing)).toBe(false);
+    }, existing, BOOKING_RULES)).toBe(false);
     expect(expenseLooksLikeDuplicate({
       date: '2026-09-20',
       account_id: 1,
@@ -85,7 +97,7 @@ describe('booking guards', () => {
       item: 'Latte',
       comment: null,
       fiscal_receipt_id: 'JDEKKL35-GESE6HO0-136069',
-    }, existing)).toBe(false);
+    }, existing, BOOKING_RULES)).toBe(false);
     expect(expenseLooksLikeDuplicate({
       date: '2026-09-20',
       account_id: 1,
@@ -94,17 +106,17 @@ describe('booking guards', () => {
       item: 'espresso',
       comment: 'same line again',
       fiscal_receipt_id: 'JDEKKL35-GESE6HO0-136069',
-    }, existing)).toBe(true);
+    }, existing, BOOKING_RULES)).toBe(true);
   });
 
   it('accepts a courier fee that shares an order id with a different seller receipt', () => {
     // Synthetic ids only. A 6+ character token is what ORDER_HINT extracts;
     // a shorter code does not, which is why earlier fees were not collided.
-    expect(extractExpenseOrderTokens(['Wolt order AB12'])).toEqual([]);
+    expect(extractExpenseOrderTokens(['Wolt order AB12'], ORDER_HINT_RULES)).toEqual([]);
     expect(extractExpenseOrderTokens([
       'Delivery order SYNTH77',
       'Wolt order SYNTH77',
-    ])).toEqual(['synth77']);
+    ], ORDER_HINT_RULES)).toEqual(['synth77']);
 
     const seller = (amount: number, item: string, id: number) => ({
       id,
@@ -130,9 +142,9 @@ describe('booking guards', () => {
       receipt_url: 'https://receipts.example.test/courier/synth-002',
     };
 
-    expect(expenseLooksLikeDuplicate(fee, goodsA)).toBe(false);
-    expect(expenseLooksLikeDuplicate(fee, goodsB)).toBe(false);
-    expect(createExpenseDuplicateIndex([goodsA, goodsB]).find(fee)).toBeUndefined();
+    expect(expenseLooksLikeDuplicate(fee, goodsA, BOOKING_RULES)).toBe(false);
+    expect(expenseLooksLikeDuplicate(fee, goodsB, BOOKING_RULES)).toBe(false);
+    expect(createExpenseDuplicateIndex([goodsA, goodsB], BOOKING_RULES).find(fee)).toBeUndefined();
 
     const sameOrderWithoutDistinctReceipt: ExpenseDuplicateCandidate = {
       ...fee,
@@ -143,18 +155,18 @@ describe('booking guards', () => {
       ...goodsA,
       fiscal_receipt_id: null,
       receipt_url: null,
-    })).toBe(true);
+    }, BOOKING_RULES)).toBe(true);
 
     const earlierStyleFee: ExpenseDuplicateCandidate = {
       ...fee,
       amount_minor: -15453,
       comment: 'Wolt order AB12',
     };
-    expect(expenseLooksLikeDuplicate(earlierStyleFee, goodsA)).toBe(false);
+    expect(expenseLooksLikeDuplicate(earlierStyleFee, goodsA, BOOKING_RULES)).toBe(false);
     expect(expenseLooksLikeDuplicate({
       ...fee,
       comment: null,
-    }, goodsA)).toBe(false);
+    }, goodsA, BOOKING_RULES)).toBe(false);
   });
 
   it('still rejects a real duplicate after a distinct delivery fee is allowed', () => {
@@ -178,7 +190,7 @@ describe('booking guards', () => {
       comment: 'posted again',
       fiscal_receipt_id: 'SYNTH-PFR-COURIER-002',
       receipt_url: 'https://receipts.example.test/courier/synth-002',
-    }, existing)).toBe(true);
+    }, existing, BOOKING_RULES)).toBe(true);
     expect(expenseLooksLikeDuplicate({
       date: '2026-10-06',
       account_id: 7,
@@ -188,8 +200,8 @@ describe('booking guards', () => {
       comment: null,
       fiscal_receipt_id: 'SYNTH-PFR-OTHER-003',
       receipt_url: 'https://receipts.example.test/courier/synth-003',
-    }, existing)).toBe(true);
-    const index = createExpenseDuplicateIndex([existing]);
+    }, existing, BOOKING_RULES)).toBe(true);
+    const index = createExpenseDuplicateIndex([existing], BOOKING_RULES);
     expect(index.find({
       date: '2026-10-06',
       account_id: 7,
@@ -238,11 +250,12 @@ describe('booking guards', () => {
     });
 
     for (const receiptUrl of variantSellerUrls) {
-      expect(canonicalFiscalIdentity({ receipt_url: receiptUrl }), receiptUrl).toEqual({
+      expect(canonicalFiscalIdentity({ receipt_url: receiptUrl }, [...TEST_FISCAL_FORMATS]), receiptUrl).toEqual({
         kind: 'pfr',
         value: sellerPfr,
+        format_id: 'rs-purs',
       });
-      expect(expenseLooksLikeDuplicate(fee(receiptUrl), goods), receiptUrl).toBe(true);
+      expect(expenseLooksLikeDuplicate(fee(receiptUrl), goods, BOOKING_RULES), receiptUrl).toBe(true);
     }
 
     expect(expenseLooksLikeDuplicate({
@@ -258,12 +271,12 @@ describe('booking guards', () => {
       ...goods,
       fiscal_receipt_id: sellerPfr.toLowerCase(),
       receipt_url: 'https://evil.example/other-receipt',
-    })).toBe(true);
+    }, BOOKING_RULES)).toBe(true);
 
     expect(expenseLooksLikeDuplicate(fee('https://tracking.example/click?id=1'), {
       ...goods,
       receipt_url: 'https://not-a-fiscal-host.example/receipt/abc',
-    })).toBe(true);
+    }, BOOKING_RULES)).toBe(true);
 
     expect(expenseLooksLikeDuplicate(fee(
       `https://suf.purs.gov.rs/v/?vl=${encodeURIComponent(sellerPfr)}`,
@@ -271,7 +284,7 @@ describe('booking guards', () => {
       ...goods,
       fiscal_receipt_id: sellerPfr,
       receipt_url: null,
-    })).toBe(true);
+    }, BOOKING_RULES)).toBe(true);
 
     expect(expenseLooksLikeDuplicate(fee(
       'https://tracking.example/unparsed',
@@ -280,7 +293,7 @@ describe('booking guards', () => {
       ...goods,
       fiscal_receipt_id: sellerPfr,
       receipt_url: null,
-    })).toBe(true);
+    }, BOOKING_RULES)).toBe(true);
 
     const distinctFee = fee(
       `https://suf.purs.gov.rs/v/?vl=${encodeURIComponent(courierPfr)}`,
@@ -290,7 +303,7 @@ describe('booking guards', () => {
       ...goods,
       fiscal_receipt_id: sellerPfr,
       receipt_url: plainSellerUrl,
-    })).toBe(false);
+    }, BOOKING_RULES)).toBe(false);
     expect(expenseLooksLikeDuplicate({
       ...distinctFee,
       comment: 'Delivery order SYNTH77',
@@ -303,7 +316,7 @@ describe('booking guards', () => {
       ...goods,
       fiscal_receipt_id: sellerPfr,
       receipt_url: plainSellerUrl,
-    })).toBe(false);
+    }, BOOKING_RULES)).toBe(false);
   });
 
   it('does not let an opaque verification URL exempt a shared order id', () => {
@@ -336,20 +349,21 @@ describe('booking guards', () => {
 
     expect(expenseLooksLikeDuplicate(fee(
       `http://www.suf.purs.gov.rs/v/?fbclid=z&vl=${courierOpaque}&utm_source=qr`,
-    ), goods)).toBe(true);
+    ), goods, BOOKING_RULES)).toBe(true);
     expect(expenseLooksLikeDuplicate(fee(
       `https://suf.purs.gov.rs/v/?vl=${encodeURIComponent(sellerPfr)}`,
-    ), goods)).toBe(true);
+    ), goods, BOOKING_RULES)).toBe(true);
     expect(expenseLooksLikeDuplicate(fee(
       `HTTP://WWW.PURS.GOV.RS/v/?vl=${sellerOpaque}&utm_medium=copy`,
-    ), goods)).toBe(true);
+    ), goods, BOOKING_RULES)).toBe(true);
     expect(expenseLooksLikeDuplicate({
       ...fee(opaqueUrl),
       comment: null,
-    }, goods)).toBe(true);
-    expect(canonicalFiscalIdentity({ receipt_url: opaqueUrl })).toEqual({
+    }, goods, BOOKING_RULES)).toBe(true);
+    expect(canonicalFiscalIdentity({ receipt_url: opaqueUrl }, [...TEST_FISCAL_FORMATS])).toEqual({
       kind: 'url',
       value: `https://suf.purs.gov.rs/v?vl=${encodeURIComponent(sellerOpaque)}`,
+      format_id: 'rs-purs',
     });
 
     expect(expenseLooksLikeDuplicate(fee(
@@ -359,7 +373,7 @@ describe('booking guards', () => {
       ...goods,
       fiscal_receipt_id: sellerPfr,
       receipt_url: `https://suf.purs.gov.rs/v/?vl=${encodeURIComponent(sellerPfr)}`,
-    })).toBe(false);
+    }, BOOKING_RULES)).toBe(false);
     expect(expenseLooksLikeDuplicate({
       date: '2026-10-06',
       account_id: 7,
@@ -374,11 +388,11 @@ describe('booking guards', () => {
       fiscal_receipt_id: sellerPfr,
       amount_minor: -18900,
       item: 'Goods A',
-    })).toBe(false);
+    }, BOOKING_RULES)).toBe(false);
   });
 
   it('does not treat a PFR id as a Wolt/order token', () => {
-    expect(extractExpenseOrderTokens(['JDEKKL35-GESE6HO0-136069'])).toEqual([]);
+    expect(extractExpenseOrderTokens(['JDEKKL35-GESE6HO0-136069'], ORDER_HINT_RULES)).toEqual([]);
     const existing = {
       id: 12,
       date: '2026-09-20',
@@ -397,6 +411,6 @@ describe('booking guards', () => {
       item: 'Snack',
       comment: null,
       fiscal_receipt_id: 'M7S63ZDG-M7S63ZDG-17091',
-    }, existing)).toBe(false);
+    }, existing, BOOKING_RULES)).toBe(false);
   });
 });

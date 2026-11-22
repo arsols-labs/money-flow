@@ -10,9 +10,8 @@ import { loadAccounts, loadFlowsAndPayments, loadForecastSettings, loadRates } f
 import { buildForecast } from './forecast/build';
 import { nextOccurrence, type RecurringRule } from './forecast/recurrence';
 import {
-  ISO_4217_CURRENCY_CODES,
-  normalizeCurrencyCode,
-  normalizeIso4217CurrencyCode,
+  normalizeConfiguredCurrencyCode,
+  normalizeCurrencyCodeSyntax,
 } from '../shared/currency';
 import { buildAnalytics, normalizeAnalyticsFilters, type OperationWithAccount, type RecurringRuleRow } from './analytics';
 import { SAFE_MINOR_MAX, SAFE_MINOR_MIN, minorBigIntToNumber } from '../shared/money';
@@ -33,6 +32,7 @@ import mcpApi from './api-mcp';
 import passkeysApi from './api-passkeys';
 import backupApi from './api-backup';
 import dataApi from './api-data';
+import rulesApi from './api-rules';
 import { ValidationError, fail, failCaught } from './api-error';
 import { browserMutationRejection } from './csrf';
 import { ANALYTICS_MAX_JSON_BYTES, BodyTooLargeError, readLimitedJson } from './limited-body';
@@ -43,6 +43,43 @@ import statementTemplatesApi from './api-statement-templates';
 import purchaseOrdersApi from './api-purchase-orders';
 import receiptGroupsApi from './api-receipt-groups';
 import { PURCHASE_ORDERS_EPOCH_KEY } from '../shared/purchase-orders';
+import { CURRENCY_TABLES } from './currency-tables';
+import { isDemoMode } from './demo-flag';
+import { readDemoSessionId } from './demo-cookie';
+import {
+  buildFxAutoUpdateState,
+  enforceFxRefreshCooldown,
+  formatRateE9,
+  FX_AUTO_UPDATE_SETTING_KEY,
+  parseBooleanSettingFlag,
+  refreshFxRatesFromProvider,
+  requireFxCatalogAndTargets,
+} from './fx-auto-update';
+import {
+  readCronScheduleState,
+  updateCronSchedule,
+  validateCronSchedulePatch,
+} from './cron-schedule';
+import {
+  CRON_TIMEZONE_SETTING_KEY,
+  FX_AUTO_UPDATE_HOUR_SETTING_KEY,
+  RECURRING_AUTO_SKIP_HOUR_SETTING_KEY,
+  isReservedCronSettingKey,
+  normalizeCronHour,
+  normalizeCronTimezone,
+} from '../shared/cron-schedule';
+import {
+  AUTO_SKIP_AFTER_DAYS_DEFAULT,
+  AUTO_SKIP_AFTER_DAYS_MAX,
+  AUTO_SKIP_AFTER_DAYS_MIN,
+} from './recurring-auto-skip';
+import {
+  loadAnalyticalSkipOnlyRecurringIds,
+  loadCurrencyCatalog,
+  loadMerchantAliases,
+} from './rules-store';
+
+export { CURRENCY_TABLES };
 
 const apiV2 = new Hono<{ Bindings: Env }>();
 
@@ -125,10 +162,24 @@ function normalizeName(input: unknown): string {
 }
 
 function normalizeCurrency(input: unknown): string {
-  if (typeof input !== 'string') throw new ValidationError('INVALID_CURRENCY');
-  const upper = input.trim().toUpperCase();
-  if (!/^[A-Z]{3}$/.test(upper)) {
-    throw new ValidationError('INVALID_CURRENCY');
+  const upper = normalizeCurrencyCodeSyntax(input);
+  if (!upper) throw new ValidationError('INVALID_CURRENCY');
+  return upper;
+}
+
+async function requireConfiguredCurrency(db: D1Database, input: unknown): Promise<string> {
+  const upper = normalizeCurrency(input);
+  const catalog = await loadCurrencyCatalog(db);
+  if (catalog.entries.size === 0 || !catalog.entries.has(upper)) {
+    throw new ValidationError(
+      'MISSING_CONFIGURATION',
+      {
+        domain: 'currency_standards',
+        currency: upper,
+        detail: `Currency ${upper} is not configured in D1 currency_standards`,
+      },
+      422,
+    );
   }
   return upper;
 }
@@ -379,7 +430,7 @@ apiV2.post('/accounts', async (c) => {
   try {
     const body = await readBody(c);
     const name = normalizeName(body.name);
-    const currency = normalizeCurrency(body.currency);
+    const currency = await requireConfiguredCurrency(c.env.DB, body.currency);
     const bank = normalizeOptionalText(body.bank, 'bank');
     const type = normalizeOptionalText(body.type, 'type');
     const accountNumber = normalizeOptionalText(body.account_number, 'account_number');
@@ -478,7 +529,7 @@ apiV2.patch('/accounts/:id', async (c) => {
           value = normalizeName(body.name);
           break;
         case 'currency':
-          value = normalizeCurrency(body.currency);
+          value = await requireConfiguredCurrency(c.env.DB, body.currency);
           break;
         case 'bank':
         case 'type':
@@ -710,14 +761,6 @@ function parseRateE9(input: unknown): bigint {
   return rateE9;
 }
 
-/** Formatting rate_e9 back into a human string, also integer-only. */
-function formatRateE9(rateE9: number): string {
-  const digits = BigInt(rateE9).toString().padStart(10, '0');
-  const intPart = digits.slice(0, -9);
-  const fracPart = digits.slice(-9).replace(/0+$/, '');
-  return fracPart ? `${intPart}.${fracPart}` : intPart;
-}
-
 function toRateJson(row: FxRateRow) {
   return {
     code: row.code,
@@ -742,83 +785,76 @@ function normalizeCurrencyCodeParam(raw: string): string | null {
 // from the account with a `JOIN`. Such an operation still holds a currency "in use", but through
 // `accounts`, which it already references. The schema-reconciliation test guards this:
 // if the column comes back, the list has to grow.
-export const CURRENCY_TABLES = ['accounts', 'planned_items', 'recurring_items', 'imported_receipt_items'] as const;
-
-// Base-currency normalization lives in two forms — in JS and in SQL — because the
-// `DELETE` below must perform the check in one statement, not by comparing with a
-// value read ahead of time. The SQL list is built from the same ISO snapshot,
-// so raw junk such as `ZZZ` does not receive base-currency privileges.
-const ISO_4217_CODES_SQL = ISO_4217_CURRENCY_CODES.map((code) => `'${code}'`).join(', ');
-const BASE_CURRENCY_SQL = `(
-  SELECT upper(trim(value))
-  FROM settings
-  WHERE key = 'base_currency' AND upper(trim(value)) IN (${ISO_4217_CODES_SQL})
-)`;
-
-/**
- * The base currency from settings, or `null` when the value is unusable. It has no
- * rate of its own and must not have one — it is the unit of conversion, so the rate to
- * itself is one by definition. Three consequences follow: it never lands in `missing`;
- * giving it a rate is forbidden — `PUT` answers 400;
- * and an accidental fx_rates row for it may be deleted even while the currency is in use
- * (otherwise an input mistake could not be repaired). Entry is closed and exit is left
- * open on purpose: rows created before the ban, or by a direct database edit, would otherwise
- * have no way to be removed.
- *
- * That is why an unusable value yields `null` rather than substituting 'USD'.
- * The decision covers both normalization forms at once — they must agree (see
- * `BASE_CURRENCY_SQL` above), so a default would have had to exist in SQL as well.
- * A default would have looked more harmless, but it would apply all three consequences to
- * ONE SPECIFIC currency: with junk in settings the dollar would silently stop
- * appearing in `missing`, become deletable while live dollar accounts exist, and
- * lose the right to a rate — while the base at that moment may well not be the dollar.
- * A broken setting would, at once and unnoticed, drop two protections and
- * add an extra ban. `null` fails the other way: nobody receives either
- * a relaxation or a ban, and an extra currency in `missing` is
- * a visible, harmless inaccuracy.
- *
- * PUT /settings/base_currency accepts only a current ISO 4217 code, so
- * an unusable value is reachable only by editing the database directly. The defensive read
- * is still required: a manual mistake must not silently appoint another base.
- */
-async function readBaseCurrency(db: D1Database): Promise<string | null> {
-  const row = await db.prepare(`SELECT ${BASE_CURRENCY_SQL} AS code`).first<{ code: string | null }>();
-  // Normalization is shared with forecast/load.ts (shared/currency.ts): if the
-  // two forms diverged, `GET /fx-rates` and `GET /forecast` would treat different currencies as the base
-  // for the same value in settings.
-  return normalizeIso4217CurrencyCode(row?.code);
+async function readBaseCurrency(
+  db: D1Database,
+  currencyCatalog?: Awaited<ReturnType<typeof loadCurrencyCatalog>>,
+): Promise<string | null> {
+  const catalog = currencyCatalog ?? await loadCurrencyCatalog(db);
+  const row = await db.prepare(`SELECT value FROM settings WHERE key = 'base_currency'`).first<{ value: string | null }>();
+  return normalizeConfiguredCurrencyCode(row?.value, catalog);
 }
 
-/**
- * Currencies referenced at least once in the database. Archived accounts count
- * the same as active ones on purpose: in v2, archive is a row flag, not a write-off
- * of money. The money is still on the account, one PATCH can unarchive it, and
- * any total it lands in still needs a rate. The original scenario is built
- * exactly on "archived rows do not hold the reference data".
- */
 async function currenciesInUse(db: D1Database): Promise<Set<string>> {
-  // UNION, not UNION ALL: duplicates are unwanted, and deduplication is cheaper
-  // in SQLite than shipping one row per account and per expense into the Worker.
   const sql = CURRENCY_TABLES.map((table) => `SELECT currency FROM ${table}`).join(' UNION ');
   const { results } = await db.prepare(sql).all<{ currency: string }>();
   return new Set(results.map((row) => row.currency));
 }
 
-apiV2.get('/fx-rates', async (c) => {
-  // The three queries are independent of each other, so they run in parallel. Run sequentially,
-  // they would triple the load time of the "Data" screen for no reason at all.
-  const [{ results }, baseCurrency, inUse] = await Promise.all([
-    c.env.DB.prepare('SELECT code, rate_e9, updated_at FROM fx_rates ORDER BY code').all<FxRateRow>(),
-    readBaseCurrency(c.env.DB),
-    currenciesInUse(c.env.DB),
+function fxDemoScopeKey(env: Env, cookieHeader: string | undefined): string | null {
+  return isDemoMode(env) ? (readDemoSessionId(cookieHeader) ?? 'anon') : null;
+}
+
+async function readFxRatesPayload(env: Env, cookieHeader: string | undefined) {
+  const currencyCatalog = await loadCurrencyCatalog(env.DB);
+  const demoScopeKey = fxDemoScopeKey(env, cookieHeader);
+  const [{ results }, baseCurrency, inUse, autoUpdate] = await Promise.all([
+    env.DB.prepare('SELECT code, rate_e9, updated_at FROM fx_rates ORDER BY code').all<FxRateRow>(),
+    readBaseCurrency(env.DB, currencyCatalog),
+    currenciesInUse(env.DB),
+    buildFxAutoUpdateState(env.DB, env.KV, demoScopeKey),
   ]);
   const known = new Set(results.map((row) => row.code));
-  // Currencies in use for which conversion is impossible. The anchor currency (USD) needs no rate
-  // by definition. If any other currency (including the base) is missing
-  // from the rates table, conversion through USD breaks. The screen shows that
-  // as a warning so the owner enters a rate to USD.
-  const missing = [...inUse].filter((code) => code !== 'USD' && !known.has(code)).sort();
-  return c.json({ base_currency: baseCurrency, rates: results.map(toRateJson), missing });
+  const fxAnchor = currencyCatalog.fxAnchorCode;
+  const missing = fxAnchor === null
+    ? [...inUse].sort()
+    : [...inUse].filter((code) => code !== fxAnchor && !known.has(code)).sort();
+  return {
+    base_currency: baseCurrency,
+    fx_anchor_currency: fxAnchor,
+    rates: results.map(toRateJson),
+    missing,
+    auto_update: autoUpdate,
+  };
+}
+
+apiV2.get('/fx-rates', async (c) => {
+  return c.json(await readFxRatesPayload(c.env, c.req.header('Cookie')));
+});
+
+apiV2.post('/fx-rates/refresh', async (c) => {
+  const demoScopeKey = fxDemoScopeKey(c.env, c.req.header('Cookie'));
+  try {
+    const preloaded = await requireFxCatalogAndTargets(c.env.DB);
+    const cooldown = await enforceFxRefreshCooldown(c.env.KV, demoScopeKey);
+    if (!cooldown.allowed) {
+      c.header('Retry-After', String(cooldown.retryAfterSeconds));
+      return fail(c, 'RATE_LIMITED', 429, { retry_after_seconds: cooldown.retryAfterSeconds });
+    }
+    const refreshResult = await refreshFxRatesFromProvider(c.env.DB, {
+      kv: c.env.KV,
+      demoScopeKey,
+      trigger: 'manual',
+      preloaded,
+    });
+    const listPayload = await readFxRatesPayload(c.env, c.req.header('Cookie'));
+    return c.json({
+      ...refreshResult,
+      ...listPayload,
+    });
+  } catch (e) {
+    if (e instanceof ValidationError) return failCaught(c, e);
+    throw e;
+  }
 });
 
 apiV2.put('/fx-rates/:code', async (c) => {
@@ -827,11 +863,21 @@ apiV2.put('/fx-rates/:code', async (c) => {
     return fail(c, 'CURRENCY_CODE_INVALID', 400);
   }
 
-  // Entry is closed, exit is not: USD is the absolute anchor (usd_per_unit).
-  // A row for USD is pointless; 1 USD = 1 USD always.
-  // DELETE of such a row that is already in the database is allowed — it is the only way to remove it.
-  const baseCurrency = await readBaseCurrency(c.env.DB);
-  if (code === 'USD') {
+  const currencyCatalog = await loadCurrencyCatalog(c.env.DB);
+  if (currencyCatalog.entries.size === 0 || !currencyCatalog.fxAnchorCode) {
+    return fail(c, 'MISSING_CONFIGURATION', 422, {
+      domain: 'currency_standards',
+      detail: 'Currency standards and an FX anchor must be configured in D1 before setting FX rates',
+    });
+  }
+  if (!currencyCatalog.entries.has(code)) {
+    return fail(c, 'MISSING_CONFIGURATION', 422, {
+      domain: 'currency_standards',
+      currency: code,
+      detail: `Currency ${code} is not configured in D1 currency_standards`,
+    });
+  }
+  if (code === currencyCatalog.fxAnchorCode) {
     return fail(c, 'BASE_CURRENCY_RATE_FORBIDDEN', 400);
   }
 
@@ -845,10 +891,6 @@ apiV2.put('/fx-rates/:code', async (c) => {
   }
 
   const updatedAt = nowIso();
-  // As a string, not bigint/number: D1 does not accept bigint in bind(), and SQLite
-  // INTEGER affinity itself turns a digit string into an integer with no loss —
-  // which also avoids JS Number losing precision on a large rate_e9.
-  // Rates are independent of the base (usd_per_unit), so changing the base does not touch them.
   const row = await c.env.DB.prepare(
     `INSERT INTO fx_rates (code, rate_e9, updated_at)
      VALUES (?, ?, ?)
@@ -864,15 +906,8 @@ apiV2.put('/fx-rates/:code', async (c) => {
   return c.json({ rate: toRateJson(row) });
 });
 
-// "A rate may be deleted": either this is the anchor currency (USD), or nothing
-// references the code. The condition sits inside the DELETE itself, not in a separate SELECT
-// beforehand, and that is not a matter of style: check and delete in one statement
-// are atomic, so a row inserted between them is impossible.
-// A "SELECT, then DELETE" pair would leave that window, and there is no transaction
-// per request. References inside the subqueries point at `fx_rates.code`, so we
-// do not repeat the same binds.
 const RATE_DELETABLE_SQL = `(
-  code = 'USD'
+  code = ?2
   OR (${CURRENCY_TABLES.map((table) => `NOT EXISTS (SELECT 1 FROM ${table} WHERE currency = fx_rates.code)`).join('\n      AND ')})
 )`;
 
@@ -880,16 +915,13 @@ apiV2.delete('/fx-rates/:code', async (c) => {
   const code = normalizeCurrencyCodeParam(c.req.param('code'));
   if (code === null) return fail(c, 'NOT_FOUND', 404);
 
-  const deleted = await c.env.DB.prepare(`DELETE FROM fx_rates WHERE code = ? AND ${RATE_DELETABLE_SQL}`)
-    .bind(code)
+  const currencyCatalog = await loadCurrencyCatalog(c.env.DB);
+  const fxAnchor = currencyCatalog.fxAnchorCode ?? '';
+  const deleted = await c.env.DB.prepare(`DELETE FROM fx_rates WHERE code = ?1 AND ${RATE_DELETABLE_SQL}`)
+    .bind(code, fxAnchor)
     .run();
   if (deleted.meta.changes > 0) return c.body(null, 204);
 
-  // Zero deleted rows means one of two things: the row was absent (404), or it
-  // is present but the currency is in use (409). A separate SELECT tells them apart — it runs
-  // only on the failure path and does not make a normal delete more expensive. It is also
-  // the right answer to two concurrent DELETEs: the one that loses gets 404
-  // "already gone", not 409 "in use".
   const existing = await c.env.DB.prepare('SELECT code FROM fx_rates WHERE code = ?').bind(code).first();
   return existing ? fail(c, 'RATE_IN_USE', 409, { code }) : fail(c, 'NOT_FOUND', 404);
 });
@@ -1101,7 +1133,7 @@ apiV2.post('/planned-items', async (c) => {
     // The default currency is the account currency, but it stays independent afterward: an explicitly
     // passed currency is accepted as is and does not have to match the account currency
     // (see the section docblock).
-    const currency = body.currency === undefined ? account.currency : normalizeCurrency(body.currency);
+    const currency = body.currency === undefined ? account.currency : await requireConfiguredCurrency(c.env.DB, body.currency);
     const category = normalizeOptionalText(body.category, 'category');
     const done = body.done === undefined ? 0 : normalizeBoolean(body.done, 'done');
 
@@ -1321,7 +1353,7 @@ apiV2.patch('/planned-items/:id', async (c) => {
           value = normalizeAmountMinor(body.amount_minor, 'amount_minor');
           break;
         case 'currency':
-          value = normalizeCurrency(body.currency);
+          value = await requireConfiguredCurrency(c.env.DB, body.currency);
           break;
         case 'account_id':
           value = normalizeAccountId(body.account_id);
@@ -1596,6 +1628,18 @@ function normalizeIntervalCount(input: unknown): number {
   return input;
 }
 
+function normalizeAutoSkipAfterDays(input: unknown): number {
+  if (
+    typeof input !== 'number'
+    || !Number.isInteger(input)
+    || input < AUTO_SKIP_AFTER_DAYS_MIN
+    || input > AUTO_SKIP_AFTER_DAYS_MAX
+  ) {
+    throw new ValidationError('INVALID_AUTO_SKIP_AFTER_DAYS');
+  }
+  return input;
+}
+
 // day_of_month/month_of_year share one shape: a number inside the schema CHECK bounds,
 // or null. undefined is treated as null — on POST both mean "the field
 // did not arrive", and this path is unreachable inside the PATCH loop (only fields
@@ -1734,6 +1778,8 @@ interface RecurringItemRow {
   next_due_date: string;
   end_date: string | null;
   active: number;
+  auto_skip_overdue: number;
+  auto_skip_after_days: number;
 }
 
 interface RecurringFulfillmentJson {
@@ -1760,6 +1806,8 @@ function toRecurringItemJson(row: RecurringItemRow, lastFulfillment?: RecurringF
     next_due_date: row.next_due_date,
     end_date: row.end_date,
     active: row.active === 1,
+    auto_skip_overdue: row.auto_skip_overdue === 1,
+    auto_skip_after_days: row.auto_skip_after_days,
     last_fulfillment: lastFulfillment ?? null,
   };
 }
@@ -1836,10 +1884,16 @@ apiV2.post('/recurring-items', async (c) => {
     if (!account) throw new ValidationError('ACCOUNT_NOT_FOUND');
     const frequency = normalizeFrequency(body.frequency);
     const nextDueDate = normalizeDateString(body.next_due_date, 'next_due_date');
-    const currency = body.currency === undefined ? account.currency : normalizeCurrency(body.currency);
+    const currency = body.currency === undefined ? account.currency : await requireConfiguredCurrency(c.env.DB, body.currency);
     const category = normalizeOptionalText(body.category, 'category');
     const intervalCount = body.interval_count === undefined ? 1 : normalizeIntervalCount(body.interval_count);
     const active = body.active === undefined ? 1 : normalizeBoolean(body.active, 'active');
+    const autoSkipOverdue = body.auto_skip_overdue === undefined
+      ? 0
+      : normalizeBoolean(body.auto_skip_overdue, 'auto_skip_overdue');
+    const autoSkipAfterDays = body.auto_skip_after_days === undefined
+      ? AUTO_SKIP_AFTER_DAYS_DEFAULT
+      : normalizeAutoSkipAfterDays(body.auto_skip_after_days);
     const endDate = normalizeNullableDateString(body.end_date, 'end_date');
     if (endDate !== null && endDate < nextDueDate) {
       throw new ValidationError('RECURRING_END_BEFORE_NEXT');
@@ -1848,8 +1902,8 @@ apiV2.post('/recurring-items', async (c) => {
 
     const row = await c.env.DB.prepare(
       `INSERT INTO recurring_items
-         (title, amount_minor, currency, account_id, category, frequency, interval_count, day_of_month, month_of_year, next_due_date, end_date, active, revision)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, lower(hex(randomblob(16))))
+         (title, amount_minor, currency, account_id, category, frequency, interval_count, day_of_month, month_of_year, next_due_date, end_date, active, auto_skip_overdue, auto_skip_after_days, revision)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, lower(hex(randomblob(16))))
        RETURNING *`,
     )
       .bind(
@@ -1865,6 +1919,8 @@ apiV2.post('/recurring-items', async (c) => {
         nextDueDate,
         endDate,
         active,
+        autoSkipOverdue,
+        autoSkipAfterDays,
       )
       .first<RecurringItemRow>();
     return c.json({ recurring_item: toRecurringItemJson(row!) }, 201);
@@ -1887,6 +1943,8 @@ const RECURRING_PATCH_FIELDS = [
   'next_due_date',
   'end_date',
   'active',
+  'auto_skip_overdue',
+  'auto_skip_after_days',
 ] as const;
 
 apiV2.patch('/recurring-items/:id', async (c) => {
@@ -1909,7 +1967,7 @@ apiV2.patch('/recurring-items/:id', async (c) => {
           value = normalizeAmountMinor(body.amount_minor, 'amount_minor');
           break;
         case 'currency':
-          value = normalizeCurrency(body.currency);
+          value = await requireConfiguredCurrency(c.env.DB, body.currency);
           break;
         case 'account_id':
           value = normalizeAccountId(body.account_id);
@@ -1937,6 +1995,12 @@ apiV2.patch('/recurring-items/:id', async (c) => {
           break;
         case 'active':
           value = normalizeBoolean(body.active, 'active');
+          break;
+        case 'auto_skip_overdue':
+          value = normalizeBoolean(body.auto_skip_overdue, 'auto_skip_overdue');
+          break;
+        case 'auto_skip_after_days':
+          value = normalizeAutoSkipAfterDays(body.auto_skip_after_days);
           break;
       }
       updates.set(field, value);
@@ -2069,13 +2133,14 @@ apiV2.delete('/recurring-items/:id', async (c) => {
 
 const RECURRING_SNAPSHOT_WHERE = `id = ? AND revision IS ? AND title = ? AND amount_minor = ? AND currency = ?
   AND account_id = ? AND category IS ? AND frequency = ? AND interval_count = ?
-  AND day_of_month IS ? AND month_of_year IS ? AND next_due_date = ? AND end_date IS ? AND active = ?`;
+  AND day_of_month IS ? AND month_of_year IS ? AND next_due_date = ? AND end_date IS ? AND active = ?
+  AND auto_skip_overdue = ? AND auto_skip_after_days = ?`;
 
 function recurringSnapshotBinds(row: RecurringItemRow): unknown[] {
   return [
     row.id, row.revision, row.title, row.amount_minor, row.currency, row.account_id, row.category,
     row.frequency, row.interval_count, row.day_of_month, row.month_of_year,
-    row.next_due_date, row.end_date, row.active,
+    row.next_due_date, row.end_date, row.active, row.auto_skip_overdue, row.auto_skip_after_days,
   ];
 }
 
@@ -2100,7 +2165,9 @@ function recurringSnapshotMatches(
     && value.month_of_year === row.month_of_year
     && value.next_due_date === row.next_due_date
     && value.end_date === row.end_date
-    && value.active === row.active;
+    && value.active === row.active
+    && value.auto_skip_overdue === row.auto_skip_overdue
+    && value.auto_skip_after_days === row.auto_skip_after_days;
 }
 
 // Closing a recurring-payment period: it creates a fact operation
@@ -2117,7 +2184,8 @@ apiV2.post('/recurring-items/:id/close-period', async (c) => {
     .bind(id)
     .first<RecurringItemRow>();
   if (!current) return fail(c, 'NOT_FOUND', 404);
-  if (isAnalyticalSkipOnlyRecurringId(id)) {
+  const analyticalSkipIds = await loadAnalyticalSkipOnlyRecurringIds(c.env.DB);
+  if (isAnalyticalSkipOnlyRecurringId(id, analyticalSkipIds)) {
     return fail(c, 'ANALYTICAL_RECURRING_SKIP_ONLY', 409, { recurringItemId: id });
   }
   if (current.active !== 1) return fail(c, 'RECURRING_ITEM_INACTIVE_CLOSE', 409);
@@ -2312,7 +2380,8 @@ apiV2.post('/recurring-items/:id/fulfill-existing', async (c) => {
   const current = await c.env.DB.prepare('SELECT * FROM recurring_items WHERE id = ?')
     .bind(id).first<RecurringItemRow>();
   if (!current) return fail(c, 'NOT_FOUND', 404);
-  if (isAnalyticalSkipOnlyRecurringId(id)) {
+  const analyticalSkipIds = await loadAnalyticalSkipOnlyRecurringIds(c.env.DB);
+  if (isAnalyticalSkipOnlyRecurringId(id, analyticalSkipIds)) {
     return fail(c, 'ANALYTICAL_RECURRING_SKIP_ONLY', 409, { recurringItemId: id });
   }
 
@@ -3625,11 +3694,19 @@ apiV2.get('/forecast', async (c) => {
   const asOf = new Date().toISOString().slice(0, 10);
   const limitDate = addDays(asOf, horizonDays);
 
+  const currencyCatalog = await loadCurrencyCatalog(c.env.DB);
   const [accounts, ratesE9, settings] = await Promise.all([
     loadAccounts(c.env.DB),
     loadRates(c.env.DB),
-    loadForecastSettings(c.env.DB),
+    loadForecastSettings(c.env.DB, currencyCatalog),
   ]);
+  const baseCurrency = settings.baseCurrency;
+  if (currencyCatalog.entries.size === 0 || !currencyCatalog.fxAnchorCode || !baseCurrency) {
+    return fail(c, 'MISSING_CONFIGURATION', 422, {
+      domain: 'currency_standards',
+      detail: 'Currency standards, FX anchor, and base_currency must be configured in D1 before running forecast',
+    });
+  }
   const eligibleIds = new Set(accounts.map((a) => a.id));
   const upcomingLimit = addDays(asOf, UPCOMING_DAYS - 1);
   const { flows, payments } = await loadFlowsAndPayments(c.env.DB, eligibleIds, asOf, limitDate, upcomingLimit);
@@ -3638,7 +3715,9 @@ apiV2.get('/forecast', async (c) => {
     accounts,
     flows,
     ratesE9,
-    baseCurrency: settings.baseCurrency,
+    baseCurrency,
+    fxAnchorCurrency: currencyCatalog.fxAnchorCode,
+    currencyCatalog,
     asOfDate: asOf,
     horizonDays,
     lowBalanceThresholdMinor: BigInt(settings.lowBalanceThresholdMinor),
@@ -3649,12 +3728,15 @@ apiV2.get('/forecast', async (c) => {
   // "no rate", must match the aggregates down to the last minor unit.
   // A separate instance (one that does not collect missing_rates) is required because the list of
   // missing currencies was already computed by the core and is not collected again.
-  const toBase = makeConverter(ratesE9, settings.baseCurrency);
+  const toBase = makeConverter(ratesE9, baseCurrency, undefined, {
+    fxAnchorCurrency: currencyCatalog.fxAnchorCode,
+    currencyCatalog,
+  });
   const accountById = new Map(accounts.map((a) => [a.id, a]));
   try {
   const upcoming = payments
     .map((f) => {
-      const base = toBase(BigInt(f.amount_minor), f.currency, settings.baseCurrency);
+      const base = toBase(BigInt(f.amount_minor), f.currency, baseCurrency);
       return {
         date: f.date,
         title: f.title,
@@ -3724,7 +3806,7 @@ async function readAllSettings(db: D1Database): Promise<Record<string, string>> 
   const { results } = await db.prepare('SELECT key, value FROM settings').all<{ key: string; value: string }>();
   const settings: Record<string, string> = {};
   for (const row of results) {
-    if (row.key === PURCHASE_ORDERS_EPOCH_KEY) continue;
+    if (row.key === PURCHASE_ORDERS_EPOCH_KEY || isReservedCronSettingKey(row.key)) continue;
     settings[row.key] = row.value;
   }
   return settings;
@@ -3734,7 +3816,14 @@ apiV2.get('/settings', async (c) => {
   return c.json({ settings: await readAllSettings(c.env.DB) });
 });
 
-const SETTINGS_WRITABLE_KEYS = new Set(['low_balance_threshold_minor', 'base_currency']);
+const SETTINGS_WRITABLE_KEYS = new Set([
+  'low_balance_threshold_minor',
+  'base_currency',
+  FX_AUTO_UPDATE_SETTING_KEY,
+  CRON_TIMEZONE_SETTING_KEY,
+  FX_AUTO_UPDATE_HOUR_SETTING_KEY,
+  RECURRING_AUTO_SKIP_HOUR_SETTING_KEY,
+]);
 
 /** low_balance_threshold_minor — an integer >= 0; 0 is valid ("warn only when the balance reaches zero"). */
 function normalizeThresholdSetting(input: unknown): string {
@@ -3754,26 +3843,71 @@ function normalizeThresholdSetting(input: unknown): string {
   throw new ValidationError('SETTING_VALUE_INVALID');
 }
 
-/** base_currency — a three-letter ISO 4217 code (folded to uppercase). */
+function normalizeBooleanFlagSetting(input: unknown): string {
+  const parsed = parseBooleanSettingFlag(input);
+  if (parsed === null) {
+    throw new ValidationError('SETTING_BOOLEAN_INVALID');
+  }
+  return parsed;
+}
+
 function normalizeCurrencySetting(input: unknown): string {
-  const code = normalizeIso4217CurrencyCode(input);
+  const code = normalizeCurrencyCodeSyntax(input);
   if (code === null) throw new ValidationError('SETTING_CURRENCY_INVALID');
   return code;
 }
 
-function normalizeSettingValue(key: string, input: unknown): string {
-  if (key === 'base_currency') return normalizeCurrencySetting(input);
+function normalizeCronTimezoneSetting(input: unknown): string {
+  const timezone = normalizeCronTimezone(input);
+  if (timezone === null) {
+    throw new ValidationError('SETTING_TIMEZONE_INVALID');
+  }
+  return timezone;
+}
+
+function normalizeCronHourSetting(input: unknown): string {
+  const hour = normalizeCronHour(input);
+  if (hour === null) {
+    throw new ValidationError('SETTING_HOUR_INVALID');
+  }
+  return String(hour);
+}
+
+async function normalizeSettingValue(db: D1Database, key: string, input: unknown): Promise<string> {
+  if (key === 'base_currency') {
+    const code = normalizeCurrencySetting(input);
+    const catalog = await loadCurrencyCatalog(db);
+    if (catalog.entries.size === 0 || !catalog.entries.has(code)) {
+      throw new ValidationError('MISSING_CONFIGURATION', {
+        domain: 'currency_standards',
+        currency: code,
+        detail: `Currency ${code} must be configured in D1 currency_standards before setting base_currency`,
+      }, 422);
+    }
+    return code;
+  }
+  if (key === FX_AUTO_UPDATE_SETTING_KEY) {
+    return normalizeBooleanFlagSetting(input);
+  }
+  if (key === CRON_TIMEZONE_SETTING_KEY) {
+    return normalizeCronTimezoneSetting(input);
+  }
+  if (key === FX_AUTO_UPDATE_HOUR_SETTING_KEY || key === RECURRING_AUTO_SKIP_HOUR_SETTING_KEY) {
+    return normalizeCronHourSetting(input);
+  }
   return normalizeThresholdSetting(input);
 }
 
 apiV2.put('/settings/:key', async (c) => {
   const key = c.req.param('key');
-  if (key === PURCHASE_ORDERS_EPOCH_KEY) return fail(c, 'SETTING_KEY_RESERVED', 403);
+  if (key === PURCHASE_ORDERS_EPOCH_KEY || isReservedCronSettingKey(key)) {
+    return fail(c, 'SETTING_KEY_RESERVED', 403);
+  }
   if (!SETTINGS_WRITABLE_KEYS.has(key)) return fail(c, 'NOT_FOUND', 404);
 
   try {
     const body = await readBody(c);
-    const value = normalizeSettingValue(key, body.value);
+    const value = await normalizeSettingValue(c.env.DB, key, body.value);
     // Rates are stored as `usd_per_unit` (fx_rates.rate_e9; see migration
     // 0001). They do NOT depend on the chosen base currency, so changing the base
     // never touches fx_rates. Deleting rates when the base changed was
@@ -3791,6 +3925,23 @@ apiV2.put('/settings/:key', async (c) => {
   }
 
   return c.json({ settings: await readAllSettings(c.env.DB) });
+});
+
+apiV2.get('/cron-schedule', async (c) => {
+  return c.json(await readCronScheduleState(c.env.DB, isDemoMode(c.env)));
+});
+
+apiV2.put('/cron-schedule', async (c) => {
+  try {
+    const body = await readBody(c);
+    const patch = validateCronSchedulePatch(body);
+    await updateCronSchedule(c.env.DB, patch);
+  } catch (e) {
+    if (e instanceof ValidationError) return failCaught(c, e);
+    throw e;
+  }
+
+  return c.json(await readCronScheduleState(c.env.DB, isDemoMode(c.env)));
 });
 
 // ---------- analytics ----------
@@ -3824,13 +3975,21 @@ apiV2.post('/analytics', async (c) => {
     throw e;
   }
 
-  const [ratesE9, settings, recurringRows] = await Promise.all([
+  const currencyCatalog = await loadCurrencyCatalog(c.env.DB);
+  const [ratesE9, settings, recurringRows, merchantRules] = await Promise.all([
     loadRates(c.env.DB),
-    loadForecastSettings(c.env.DB),
+    loadForecastSettings(c.env.DB, currencyCatalog),
     c.env.DB.prepare(
       'SELECT id, title, amount_minor, currency, account_id, category, frequency, interval_count, active FROM recurring_items WHERE active = 1',
     ).all<RecurringRuleRow>(),
+    loadMerchantAliases(c.env.DB),
   ]);
+  if (currencyCatalog.entries.size === 0 || !currencyCatalog.fxAnchorCode || !settings.baseCurrency) {
+    return fail(c, 'MISSING_CONFIGURATION', 422, {
+      domain: 'currency_standards',
+      detail: 'Currency standards, FX anchor, and base_currency must be configured in D1 before running analytics',
+    });
+  }
 
   let query = `
     SELECT 
@@ -3873,7 +4032,10 @@ apiV2.post('/analytics', async (c) => {
   const { results } = await bound.all<OperationWithAccount>();
 
   const missingRates = new Set<string>();
-  const converter = makeConverter(ratesE9, settings.baseCurrency, (code) => missingRates.add(code));
+  const converter = makeConverter(ratesE9, settings.baseCurrency, (code) => missingRates.add(code), {
+    fxAnchorCurrency: currencyCatalog.fxAnchorCode,
+    currencyCatalog,
+  });
 
   try {
     const analytics = buildAnalytics({
@@ -3891,6 +4053,8 @@ apiV2.post('/analytics', async (c) => {
         currencies,
       },
       recurringRules: recurringRows.results,
+      merchantRules,
+      sortLocale: c.req.query('locale') || null,
     });
 
     return c.json({
@@ -3904,6 +4068,7 @@ apiV2.post('/analytics', async (c) => {
 });
 
 // ---------- Backup export/import ----------
+apiV2.route('/', rulesApi);
 apiV2.route('/', statementImportApi);
 apiV2.route('/', statementTemplatesApi);
 apiV2.route('/backup', backupApi);

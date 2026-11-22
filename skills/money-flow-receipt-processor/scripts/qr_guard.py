@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pure validation helpers for Serbian fiscal QR destinations."""
+"""Pure validation helpers for fiscal QR destinations (allowlist supplied by D1)."""
 
 from __future__ import annotations
 
@@ -7,10 +7,8 @@ import argparse
 import ipaddress
 import json
 from dataclasses import asdict, dataclass
+from typing import Iterable
 from urllib.parse import urlsplit
-
-
-FISCAL_HOST = "suf.purs.gov.rs"
 
 
 class FiscalSecurityError(ValueError):
@@ -24,7 +22,25 @@ class ValidatedFiscalUrl:
     target: str
 
 
-def validate_fiscal_url(url: str) -> ValidatedFiscalUrl:
+def _normalize_allowed_hosts(allowed_hosts: Iterable[str] | None) -> tuple[str, ...]:
+    if not allowed_hosts:
+        return ()
+    out: list[str] = []
+    for raw in allowed_hosts:
+        host = str(raw).strip().lower()
+        if host and host not in out:
+            out.append(host)
+    return tuple(out)
+
+
+def validate_fiscal_url(
+    url: str,
+    *,
+    allowed_hosts: Iterable[str] | None = None,
+) -> ValidatedFiscalUrl:
+    hosts = _normalize_allowed_hosts(allowed_hosts)
+    if not hosts:
+        raise FiscalSecurityError("fiscal host allowlist is not configured")
     if not isinstance(url, str) or not url.isascii() or url.strip() != url:
         raise FiscalSecurityError("non-canonical fiscal URL")
     if not url.startswith("https://") or "\\" in url:
@@ -34,14 +50,14 @@ def validate_fiscal_url(url: str) -> ValidatedFiscalUrl:
         raise FiscalSecurityError("unsafe URL scheme or fragment")
     if parsed.username is not None or parsed.password is not None:
         raise FiscalSecurityError("URL userinfo is forbidden")
-    if parsed.netloc not in (FISCAL_HOST, f"{FISCAL_HOST}:443"):
-        raise FiscalSecurityError("unexpected fiscal host or port")
     try:
         port = parsed.port or 443
         host = (parsed.hostname or "").encode("idna").decode("ascii")
     except (UnicodeError, ValueError) as exc:
         raise FiscalSecurityError("invalid fiscal authority") from exc
-    if host != FISCAL_HOST or port != 443:
+    if parsed.netloc not in {f"{h}" for h in hosts} | {f"{h}:443" for h in hosts}:
+        raise FiscalSecurityError("unexpected fiscal host or port")
+    if host not in hosts or port != 443:
         raise FiscalSecurityError("unexpected fiscal authority")
     target = parsed.path or "/"
     if parsed.query:
@@ -75,10 +91,14 @@ def validate_resolved_addresses(addresses: list[str]) -> tuple[str, ...]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("url")
+    parser.add_argument("--allowed-host", action="append", default=[])
     parser.add_argument("--resolved-address", action="append", default=[])
     args = parser.parse_args()
     try:
-        result = {"url": asdict(validate_fiscal_url(args.url)), "safe": True}
+        result = {
+            "url": asdict(validate_fiscal_url(args.url, allowed_hosts=args.allowed_host)),
+            "safe": True,
+        }
         if args.resolved_address:
             result["resolved_addresses"] = validate_resolved_addresses(
                 args.resolved_address

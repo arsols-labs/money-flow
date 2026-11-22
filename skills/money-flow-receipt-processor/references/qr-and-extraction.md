@@ -14,10 +14,11 @@ receipt.
 
 ## Safe fiscal fetch
 
-Accept only canonical ASCII URLs with:
+Accept only canonical ASCII URLs matching the active `fiscal_formats` entry
+from D1 (`config_runtime_get`), with:
 
-- exact scheme `https`;
-- exact host `suf.purs.gov.rs` and port 443;
+- exact scheme configured for the fiscal format (`https`);
+- exact host in the configured allowlist and port 443;
 - no userinfo, fragment, IP literal, alternate spelling, or backslash;
 - DNS answers that are all global addresses (no private, loopback, link-local,
   reserved, multicast, or unspecified address);
@@ -35,15 +36,17 @@ transition:
 python3 scripts/fiscal_enrichment.py enrich fiscal-input.json
 ```
 
-Minimal input (the scan receipt already uses the planner schema):
+Minimal input (supply `allowed_fiscal_hosts` and `default_currency` from D1 `fiscal_formats`):
 
 ```json
 {
-  "qr_url": "https://suf.purs.gov.rs/v/?vl=...",
+  "qr_url": "https://fiscal.example/v/?vl=...",
+  "allowed_fiscal_hosts": ["fiscal.example"],
+  "default_currency": "XXX",
   "scan_receipt": {
     "date": "2026-08-26",
     "merchant": "Example",
-    "currency": "RSD",
+    "currency": "XXX",
     "charge_account": "Card alias",
     "total_minor": 20100,
     "items": [{"name": "Example", "quantity": 1, "total_minor": 20100}]
@@ -77,10 +80,9 @@ complete and internally consistent. Item totals must reconcile with the fiscal
 total within a documented rounding tolerance. Parser drift is a fallback event,
 not permission to book a partial page.
 
-The current official Serbian verification page does not expose a separate
-currency field. The adapter therefore emits `RSD` with
-`currency_source=serbian-fiscal-default`; it still rejects a mismatch with an
-explicit scan currency. No model inference is involved.
+When the fiscal verification page does not expose a separate currency field,
+pass `default_currency` from the matching D1 `fiscal_formats` entry; otherwise
+parsing fails closed rather than guessing a currency. No model inference is involved.
 
 ## Decoder and fallback
 

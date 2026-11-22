@@ -7,6 +7,7 @@ import app from '../src/worker/index';
 import { createSessionCookie } from '../src/worker/auth';
 import type { Env } from '../src/worker/types';
 import { errorOf } from './api-error-helpers';
+import { seedTestCurrencyRules } from './seed-test-rules';
 
 let cookie: string;
 
@@ -23,9 +24,12 @@ beforeEach(async () => {
     env.DB.prepare('DELETE FROM receipts'),
     env.DB.prepare('DELETE FROM fx_rates'),
     env.DB.prepare('DELETE FROM accounts'),
+    env.DB.prepare('DELETE FROM rule_entries'),
+    env.DB.prepare('DELETE FROM rule_sets'),
     // settings are left alone — the defaults come from migration 0001 itself, and the
     // "end-to-end run" test also checks a write on top of them.
   ]);
+  await seedTestCurrencyRules(env.DB);
   await env.DB.prepare(
     "INSERT INTO settings (key, value) VALUES ('base_currency', 'USD') ON CONFLICT(key) DO UPDATE SET value = 'USD'",
   ).run();
@@ -120,8 +124,8 @@ describe('GET /forecast — days validation', () => {
     await env.DB.prepare("UPDATE settings SET value = 'ZZZ' WHERE key = 'base_currency'").run();
 
     const res = await api('GET', '/api/v2/forecast?days=1');
-    expect(res.status).toBe(200);
-    expect(((await res.json()) as { base_currency: string }).base_currency).toBe('USD');
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('MISSING_CONFIGURATION');
   });
 });
 

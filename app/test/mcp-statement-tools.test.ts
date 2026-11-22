@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import app from '../src/worker/index';
 import mcpApp from '../src/worker/mcp-server';
 import type { Env } from '../src/worker/types';
+import { seedAllTestRules } from './seed-test-rules';
 import {
   STATEMENT_IMPORT_INLINE_MAX_BYTES,
   STATEMENT_IMPORT_MAX_FILE_BYTES,
@@ -124,7 +125,10 @@ beforeEach(async () => {
     env.DB.prepare('DELETE FROM statement_templates'),
     env.DB.prepare('DELETE FROM accounts'),
     env.DB.prepare('DELETE FROM oauth_clients'),
+    env.DB.prepare('DELETE FROM rule_entries'),
+    env.DB.prepare('DELETE FROM rule_sets'),
   ]);
+  await seedAllTestRules(env.DB);
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO oauth_clients (id, name, created_at) VALUES (?, 'Statement', datetime('now'))`).bind(clientId),
     env.DB.prepare(`INSERT INTO oauth_clients (id, name, created_at) VALUES (?, 'Other', datetime('now'))`).bind(otherClientId),
@@ -140,14 +144,14 @@ async function insertAccount(currency = 'USD'): Promise<number> {
 }
 
 describe('statement template MCP tools', () => {
-  it('lists built-ins as read-only and refuses to edit or delete them', async () => {
+  it('lists D1-seeded templates and requires MRTR confirmation when editing/deleting non-client templates', async () => {
     const listed = await call('template_list', {});
     const ids = listed.result.structuredContent.templates.map((row: { id: string }) => row.id);
     expect(ids).toEqual(expect.arrayContaining(['us-bofa', 'us-bofa-pdf', 'rs-bps', 'rs-bps-pdf']));
-    expect(listed.result.structuredContent.templates.find((row: { id: string }) => row.id === 'us-bofa').readonly).toBe(true);
+    expect(listed.result.structuredContent.templates.find((row: { id: string }) => row.id === 'us-bofa').readonly).toBe(false);
 
     const got = await call('template_get', { template_id: 'rs-bps' });
-    expect(got.result.structuredContent.readonly).toBe(true);
+    expect(got.result.structuredContent.readonly).toBe(false);
     expect(got.result.structuredContent.document.id).toBe('rs-bps');
 
     for (const name of ['template_update', 'template_delete'] as const) {
@@ -155,22 +159,28 @@ describe('statement template MCP tools', () => {
         template_id: 'us-bofa',
         label: 'Changed',
         auto_confirm: true,
-        idempotency_key: `builtin-${name}`,
+        idempotency_key: `seeded-${name}`,
       });
       expect(denied.result.isError).toBe(true);
-      expect(denied.result.structuredContent.error).toMatch(/TEMPLATE_READONLY|auto_confirm is not accepted/);
+      expect(denied.result.structuredContent.error).toMatch(/auto_confirm is not accepted/);
     }
-    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM statement_templates').first<{ n: number }>()).toMatchObject({ n: 0 });
+    const stillGot = await call('template_get', { template_id: 'us-bofa' });
+    expect(stillGot.result.structuredContent.document.label).toBe('Bank of America');
   });
 
-  it('copies a built-in template, allows same-client auto_confirm until the template is used, and always confirms delete', async () => {
+  it('copies a template, allows same-client auto_confirm until the template is used, and always confirms delete', async () => {
     const pending = await call('template_create', {
       copy_from: 'us-bofa',
       id: 'copy-bofa',
       idempotency_key: 'create-pending',
     });
     expect(pending.result.structuredContent.written).toBe(false);
-    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM statement_templates').first<{ n: number }>()).toMatchObject({ n: 0 });
+    expect(
+      await env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM rule_entries re JOIN rule_sets rs ON rs.id = re.rule_set_id
+         WHERE rs.domain = 'statement_templates' AND re.entry_key = 'copy-bofa'`,
+      ).first<{ n: number }>(),
+    ).toMatchObject({ n: 0 });
 
     const created = await call('template_create', {
       copy_from: 'us-bofa',
@@ -179,6 +189,7 @@ describe('statement template MCP tools', () => {
       auto_confirm: true,
       idempotency_key: 'create-now',
     });
+    expect(created.result.isError, JSON.stringify(created.result)).toBeFalsy();
     expect(created.result.structuredContent.written).toBe(true);
     expect(created.result.structuredContent.template.document.id).toBe('copy-bofa');
     expect(created.result.structuredContent.template.created_via).toBe('mcp');
@@ -200,7 +211,11 @@ describe('statement template MCP tools', () => {
       idempotency_key: 'rename-other',
     }, { client: otherClientId });
     expect(other.result.structuredContent.error).toMatch(/auto_confirm is not accepted for template_update/);
-    const label = await env.DB.prepare('SELECT label FROM statement_templates WHERE template_id = ?').bind('copy-bofa').first<{ label: string }>();
+    const label = await env.DB.prepare(
+      `SELECT json_extract(re.payload_json, '$.label') AS label FROM rule_entries re
+       JOIN rule_sets rs ON rs.id = re.rule_set_id
+       WHERE rs.domain = 'statement_templates' AND re.entry_key = ?`,
+    ).bind('copy-bofa').first<{ label: string }>();
     expect(label?.label).toBe('My BoA renamed');
 
     const accountId = await insertAccount();
@@ -212,7 +227,11 @@ describe('statement template MCP tools', () => {
       idempotency_key: 'import-uses-template',
     });
     expect(imported.result.structuredContent.added).toBe(1);
-    const used = await env.DB.prepare('SELECT used_batch_id FROM statement_templates WHERE template_id = ?').bind('copy-bofa').first<{ used_batch_id: number }>();
+    const used = await env.DB.prepare(
+      `SELECT json_extract(re.meta_json, '$.used_batch_id') AS used_batch_id FROM rule_entries re
+       JOIN rule_sets rs ON rs.id = re.rule_set_id
+       WHERE rs.domain = 'statement_templates' AND re.entry_key = ?`,
+    ).bind('copy-bofa').first<{ used_batch_id: number }>();
     expect(used?.used_batch_id).toBe(imported.result.structuredContent.batch_id);
 
     const afterUse = await call('template_update', {
@@ -238,7 +257,12 @@ describe('statement template MCP tools', () => {
     expect(refusedDelete.result.structuredContent.error).toMatch(/auto_confirm is not accepted for template_delete/);
     const deleted = await confirm('template_delete', { template_id: 'copy-bofa', idempotency_key: 'delete-mrtr' });
     expect(deleted.result.structuredContent.deleted).toBe(true);
-    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM statement_templates').first<{ n: number }>()).toMatchObject({ n: 0 });
+    expect(
+      await env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM rule_entries re JOIN rule_sets rs ON rs.id = re.rule_set_id
+         WHERE rs.domain = 'statement_templates' AND re.entry_key = 'copy-bofa'`,
+      ).first<{ n: number }>(),
+    ).toMatchObject({ n: 0 });
   });
 });
 

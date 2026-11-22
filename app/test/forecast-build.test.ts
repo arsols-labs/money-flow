@@ -10,6 +10,7 @@ import { addDays } from '../src/worker/forecast/dates';
 import { buildForecast, type BuildForecastInput } from '../src/worker/forecast/build';
 import { expandRecurring } from '../src/worker/forecast/recurrence';
 import type { ForecastAccount, ForecastFlow } from '../src/worker/forecast/load';
+import { TEST_CURRENCY_CATALOG } from './seed-test-rules';
 
 function account(overrides: Partial<ForecastAccount> & Pick<ForecastAccount, 'id' | 'currency' | 'balance_minor'>): ForecastAccount {
   return {
@@ -36,6 +37,8 @@ function baseInput(overrides: Partial<BuildForecastInput> = {}): BuildForecastIn
     flows: [],
     ratesE9: new Map(),
     baseCurrency: 'USD',
+    fxAnchorCurrency: 'USD',
+    currencyCatalog: TEST_CURRENCY_CATALOG,
     asOfDate: '2026-01-01',
     horizonDays: 7,
     lowBalanceThresholdMinor: 0n,

@@ -2,6 +2,7 @@ import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import mcpApp, { BACKUP_EXPORT_MAX_BYTES } from '../src/worker/mcp-server';
 import type { Env } from '../src/worker/types';
+import { seedAllTestRules } from './seed-test-rules';
 
 const typedEnv = env as unknown as Env;
 const clientId = 'client-mcp-settings-test';
@@ -49,10 +50,13 @@ beforeEach(async () => {
     env.DB.prepare('DELETE FROM purchase_orders'),
     env.DB.prepare('DELETE FROM accounts'),
     env.DB.prepare('DELETE FROM oauth_clients'),
+    env.DB.prepare('DELETE FROM rule_entries'),
+    env.DB.prepare('DELETE FROM rule_sets'),
     env.DB.prepare(`DELETE FROM settings WHERE key = 'purchase_orders_epoch'`),
     env.DB.prepare(`INSERT INTO settings (key, value) VALUES ('base_currency', 'USD') ON CONFLICT(key) DO UPDATE SET value = excluded.value`),
     env.DB.prepare(`INSERT INTO settings (key, value) VALUES ('low_balance_threshold_minor', '0') ON CONFLICT(key) DO UPDATE SET value = excluded.value`),
   ]);
+  await seedAllTestRules(env.DB);
   await env.DB.prepare(`INSERT INTO oauth_clients (id, name, created_at) VALUES (?, 'Settings Test Client', datetime('now'))`)
     .bind(clientId).run();
 });
@@ -154,9 +158,13 @@ describe('setting_set', () => {
 
   it('returns English errors for unknown keys, extra fields and invalid values', async () => {
     const unknown = await call('setting_set', { key: 'auth_epoch', value: '1', idempotency_key: 'e1' });
-    expect(unknown.result.structuredContent.error).toBe('Error executing tool: key must be one of: base_currency, low_balance_threshold_minor');
+    expect(unknown.result.structuredContent.error).toBe(
+      'Error executing tool: key must be one of: base_currency, low_balance_threshold_minor, fx_auto_update, cron_timezone, fx_auto_update_hour, recurring_auto_skip_hour',
+    );
     const reserved = await call('setting_set', { key: 'purchase_orders_epoch', value: '11111111-1111-4111-8111-111111111111', idempotency_key: 'epoch' });
     expect(reserved.result.structuredContent.error).toBe('Error executing tool: purchase_orders_epoch is reserved and cannot be changed through setting_set');
+    const reservedCron = await call('setting_set', { key: 'cron_last_run_local_date:fx_refresh', value: '2026-11-21', idempotency_key: 'cron-epoch' });
+    expect(reservedCron.result.structuredContent.error).toBe('Error executing tool: cron_last_run_local_date:fx_refresh is reserved and cannot be changed through setting_set');
     const extra = await call('setting_set', { key: 'base_currency', value: 'EUR', force: true, idempotency_key: 'e2' });
     expect(extra.result.structuredContent.error).toMatch(/^Error executing tool: Fields not allowed for setting_set: force/);
     const first = await call('setting_set', { key: 'base_currency', value: 'EURO', idempotency_key: 'e3' });

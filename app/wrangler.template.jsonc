@@ -26,8 +26,8 @@
       "database_id": "<your-d1-database-id>"
     }
   ],
-  // DemoSession has no account binding id. Set vars.DEMO_MODE to "1" only for a
-  // public demo Worker (demo.money-flow.arsols.com). Self-host installs leave it unset.
+  // DemoSession has no account binding id. Leave DEMO_MODE unset for a normal
+  // self-hosted install. Set vars.DEMO_MODE to "1" only on a demo Worker.
   "durable_objects": {
     "bindings": [
       { "name": "DEMO_SESSION", "class_name": "DemoSession" }
@@ -39,6 +39,9 @@
   "rules": [
     { "type": "Text", "globs": ["migrations/*.sql", "scripts/*.sql"], "fallthrough": true }
   ],
+  "triggers": {
+    "crons": ["0 * * * *"]
+  },
   "vars": {
     "APP_DOMAIN": "<your-workers-dev-or-custom-hostname>"
   },

@@ -7,6 +7,8 @@ import migration0024 from '../../migrations/0024_statement_template_mcp.sql';
 import migration0025 from '../../migrations/0025_purchase_orders.sql';
 import migration0026 from '../../migrations/0026_receipt_groups.sql';
 import migration0027 from '../../migrations/0027_receipt_group_rename.sql';
+import migration0028 from '../../migrations/0028_country_versioned_rules.sql';
+import migration0029 from '../../migrations/0029_recurring_auto_skip.sql';
 import seedSql from '../../scripts/seed-demo.sql';
 import { DEMO_SESSION_TTL_SECONDS } from './demo-flag';
 import { splitSqlStatements } from './sql-split';
@@ -25,7 +27,13 @@ const MIGRATION_SQL = [
   migration0025,
   migration0026,
   migration0027,
+  migration0028,
+  migration0029,
 ];
+
+// Internal DO KV is not exported, restored or deleted with user SQL settings.
+const SCHEMA_VERSION_KEY = 'demo_schema_version';
+const SCHEMA_VERSION = 29;
 
 type SqlValue = ArrayBuffer | string | number | null;
 
@@ -125,14 +133,20 @@ function upgradeStatementImport(sql: SqlStorage): void {
   applyMissingSchema(sql, migration0024);
   applyMissingSchema(sql, migration0025);
   applyMissingSchema(sql, migration0026);
-  if (!tableExists(sql, 'receipt_group_requests')) return;
-  const rows = sql.exec(
+  const requests = sql.exec<{ ddl: string }>(
     "SELECT sql AS ddl FROM sqlite_master WHERE type = 'table' AND name = 'receipt_group_requests'",
-  ).toArray() as Array<{ ddl?: string }>;
-  const ddl = String(rows[0]?.ddl ?? '');
-  // 0027 rebuilds the table so `rename` is allowed. Replaying it would drop
-  // the rows, so run it only while the stored CHECK still omits that value.
-  if (!ddl.includes("'rename'")) applyScript(sql, migration0027);
+  ).one();
+  if (!requests.ddl.includes("'rename'")) applyScript(sql, migration0027);
+
+  // Pre-marker sessions may already have user edits/deletions in versioned
+  // configuration. Adopt it without resurrecting data from the legacy tables.
+  // All four CREATEs precede every backfill INSERT in 0028; an incomplete table
+  // set has not reached that INSERT phase and can be completed transactionally.
+  const rulesTables = ['rule_sets', 'rule_entries', 'recurring_policy_bindings', 'rule_config_mutations'];
+  if (!rulesTables.every((name) => tableExists(sql, name))) {
+    applyMissingSchema(sql, migration0028);
+  }
+  applyMissingSchema(sql, migration0029);
 }
 
 function runStatement(sql: SqlStorage, statement: string, params: SqlValue[]): D1Result {
@@ -221,20 +235,21 @@ export class DemoSession extends DurableObject<Env> {
   }
 
   #ensureSchema(): void {
-    const sql = this.ctx.storage.sql;
-    const settings = sql.exec(
-      "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'settings'",
-    ).toArray();
-    if (settings.length === 0) {
-      for (const migrationSql of MIGRATION_SQL) applyScript(sql, migrationSql);
-      applyScript(sql, seedSql);
-      return;
-    }
-    const seeded = sql.exec(
-      "SELECT 1 AS ok FROM settings WHERE key = 'setup_demo_seed' LIMIT 1",
-    ).toArray();
-    if (seeded.length === 0) applyScript(sql, seedSql);
-    upgradeStatementImport(sql);
+    const storage = this.ctx.storage;
+    if (storage.kv.get<number>(SCHEMA_VERSION_KEY) === SCHEMA_VERSION) return;
+    storage.transactionSync(() => {
+      const sql = storage.sql;
+      if (!tableExists(sql, 'settings')) {
+        for (const migrationSql of MIGRATION_SQL) applyScript(sql, migrationSql);
+      } else {
+        upgradeStatementImport(sql);
+      }
+      const seeded = sql.exec(
+        "SELECT 1 AS ok FROM settings WHERE key = 'setup_demo_seed' LIMIT 1",
+      ).toArray();
+      if (seeded.length === 0) applyScript(sql, seedSql);
+      storage.kv.put(SCHEMA_VERSION_KEY, SCHEMA_VERSION);
+    });
   }
 
   async #scheduleEviction(): Promise<void> {

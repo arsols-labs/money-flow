@@ -7,10 +7,13 @@ apply migrations, and deploy the Worker + assets.
 
 Usage:
   npm run setup -- [options]
+  npm run update -- [options]
   ./scripts/setup.sh [options]
   node scripts/setup.mjs [options]
 
 Options:
+  --update                     Update an existing install (npm ci, config, D1 migrations, deploy)
+  --skip-install               Skip npm ci / npm install during --update
   --name <worker>              Worker/service name (default: ${DEFAULT_WORKER_NAME})
   --hostname-mode <mode>       workers-dev | custom
   --hostname <host>            Custom hostname (required when mode=custom)
@@ -27,7 +30,7 @@ Options:
   --skip-secrets               Do not generate or upload Worker secrets
   --skip-build                 Skip npm run build before deploy
   --seed-demo                  After migrate, seed a stranger-safe English product showcase
-  --no-seed-demo               Leave the instance empty after migrate (default)
+  --no-seed-demo               Leave business data empty after migrate; write starter USD if currency_standards is empty (default)
   --rotate-secrets             Replace SESSION_SECRET and SETUP_TOKEN and print the new values once
   --rotate-setup-token         Alias for --rotate-secrets
   -h, --help                   Show this help
@@ -59,6 +62,17 @@ Delete (teardown a setup install):
   npm run setup -- --delete cash-desk --yes
   npm run setup -- --delete cash-desk --yes --dry-run
 
+Update (upgrade an existing self-hosted install):
+  git pull && cd app && npm run update
+  npm run update -- --dry-run
+  npm run setup -- --update
+
+--update reads an existing wrangler.local.jsonc (failing closed if missing),
+syncs npm dependencies (npm ci), refreshes wrangler.local.jsonc while keeping
+your Worker name, domain, D1, and KV bindings, applies new remote D1
+migrations, rebuilds and redeploys, preserves SESSION_SECRET and SETUP_TOKEN,
+and checks MCP / OAuth health without interactive prompts.
+
 --delete without a name lists Workers (account + relevant local install),
 numbered. Type a digit to pick one. Reserved production names are listed
 as protected and cannot be chosen.
@@ -86,6 +100,8 @@ export function parseArgs(argv) {
     help: false,
     dryRun: false,
     nonInteractive: false,
+    update: false,
+    skipInstall: false,
     skipDeploy: false,
     skipMigrate: false,
     skipSecrets: false,
@@ -126,6 +142,12 @@ export function parseArgs(argv) {
       case '--non-interactive':
       case '-y':
         args.nonInteractive = true;
+        break;
+      case '--update':
+        args.update = true;
+        break;
+      case '--skip-install':
+        args.skipInstall = true;
         break;
       case '--skip-deploy':
         args.skipDeploy = true;
@@ -201,6 +223,21 @@ export function parseArgs(argv) {
         }
         break;
     }
+  }
+
+  if (args.update && args.delete) {
+    throw new Error('Cannot combine --update with --delete.');
+  }
+  if (args.update && args.seedDemo === true) {
+    throw new Error('Cannot combine --update with --seed-demo (updates preserve existing data).');
+  }
+  if (
+    args.update &&
+    (args.name || args.hostnameMode || args.hostname || args.d1Name || args.kvName || args.accountSubdomain)
+  ) {
+    throw new Error(
+      'Cannot override --name, --hostname-mode, --hostname, --d1-name, --kv-name, or --account-subdomain with --update (updates reuse wrangler.local.jsonc).',
+    );
   }
 
   return args;

@@ -40,6 +40,7 @@ export function isWriteTool(toolName) {
     t.includes('_delete') ||
     t.includes('_correct') ||
     t.includes('_set') ||
+    t.includes('_refresh') ||
     t.includes('_skip') ||
     t.includes('_close') ||
     t.includes('_fulfill') ||

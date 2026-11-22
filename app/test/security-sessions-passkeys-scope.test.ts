@@ -16,6 +16,7 @@ import { pruneMcpAuditLog } from '../src/worker/api-mcp';
 import { minorBigIntToNumber, scaledMinor } from '../src/shared/money';
 import { exportUserState } from '../src/worker/backup';
 import type { Env } from '../src/worker/types';
+import { seedAllTestRules } from './seed-test-rules';
 
 const TEST_ORIGIN = 'https://auth.example.com';
 
@@ -43,7 +44,10 @@ describe('security hardening', () => {
       env.DB.prepare('DELETE FROM operations'),
       env.DB.prepare('DELETE FROM recurring_items'),
       env.DB.prepare('DELETE FROM accounts'),
+      env.DB.prepare('DELETE FROM rule_entries'),
+      env.DB.prepare('DELETE FROM rule_sets'),
     ]);
+    await seedAllTestRules(env.DB);
   });
 
   describe('1. passkey revoke invalidates derived sessions', () => {

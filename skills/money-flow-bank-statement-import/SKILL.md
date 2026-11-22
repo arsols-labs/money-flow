@@ -20,20 +20,23 @@ number, or transaction text into chat, logs, or this repository.
   the run that invokes this skill.
 - Inspect `tools/list` and use the server's current schemas.
 
-Supported files are CSV, Excel 97 `.xls` / `.xlsx` workbooks the statement
-parser accepts, OFX/QFX, and text-layer PDF for BPS (`rs-bps-pdf`) and Bank of
-America (`us-bofa-pdf`). A file whose bytes start with `%PDF`, or whose name
-ends in `.pdf`, is parsed as PDF on inline content, base64, and upload. A scan
-returns `PDF_NO_TEXT_LAYER`. An unrecognized layout returns `PDF_UNKNOWN_LAYOUT`.
-An encrypted file returns `PDF_ENCRYPTED`. Photos and scans are out of scope.
+Supported files are CSV, Excel 97 `.xls` workbooks the statement parser accepts,
+OFX/QFX, and text-layer PDF matching an active declarative PDF
+layout configured in D1 (`pdf_layouts`). A file whose bytes start with `%PDF`,
+or whose name ends in `.pdf`, is parsed as PDF on inline content, base64, and
+upload. A scan returns `PDF_NO_TEXT_LAYER`. An unrecognized or unconfigured
+layout returns `PDF_UNKNOWN_LAYOUT` (or `MISSING_CONFIGURATION`). An encrypted
+file returns `PDF_ENCRYPTED`. Photos and scans are out of scope.
 
 ## Templates
 
-1. Call `template_list`. Built-in templates (`us-bofa`, `us-bofa-pdf`, `rs-bps`, `rs-bps-pdf`) are
-   read-only.
+1. Call `template_list` or `config_runtime_get`. All statement templates and PDF
+   layouts are country-scoped, versioned D1 configuration; there are no built-in
+   read-only templates.
 2. Call `template_get` when you need the document.
-3. To change a built-in layout, call `template_create` with `copy_from` set
-   to that id and a new `id`. Do not call `template_update` on a built-in id.
+3. To derive a template from an existing D1 template, call `template_create` with
+   `copy_from` set to that id and a new `id`, or use `rule_set_clone` /
+   `rule_entry_upsert` under versioned rules management.
 4. `template_create` accepts `auto_confirm: true` for an authenticated client.
 5. `template_update` accepts `auto_confirm: true` only when this same MCP
    client created the template and no import batch has used it. Otherwise

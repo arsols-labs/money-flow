@@ -4,9 +4,9 @@
  */
 
 import { MCP_WIDGET_RPC_SCRIPT } from './mcp-widget-rpc';
-import { MCP_WIDGET_I18N_SCRIPT } from './mcp-widget-i18n';
+import { buildWidgetI18nScript, type WidgetRenderOptions } from './mcp-widget-i18n';
 
-export function getWriteConfirmHtml(): string {
+export function getWriteConfirmHtml(options: WidgetRenderOptions = {}): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -85,7 +85,7 @@ export function getWriteConfirmHtml(): string {
   <script>
     (function () {
 ${MCP_WIDGET_RPC_SCRIPT}
-${MCP_WIDGET_I18N_SCRIPT}
+${buildWidgetI18nScript(options)}
       let pending = null;
 
       function pendingFromToolResult(result) {

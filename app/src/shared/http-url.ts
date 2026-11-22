@@ -1,4 +1,4 @@
-/** Fiscal/verification URLs (PURS QR and similar) can exceed typical 2 KiB caps. */
+/** Fiscal/verification URLs can exceed typical 2 KiB caps. */
 export const RECEIPT_URL_MAX_LENGTH = 4096;
 
 /**

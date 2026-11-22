@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import { ValidationError, fail, failCaught } from './api-error';
 import { BodyTooLargeError, readLimitedJson } from './limited-body';
-import { BUILTIN_TEMPLATES } from '../shared/statement-import/templates';
 import {
   STATEMENT_TEMPLATE_MAX_BYTES,
   deleteStatementTemplate,
@@ -37,10 +36,7 @@ async function readTemplateBody(request: Request): Promise<unknown> {
 statementTemplatesApi.get('/statement-templates', async (c) => {
   const stored = await listStatementTemplates(c.env.DB);
   return c.json({
-    templates: [
-      ...BUILTIN_TEMPLATES.map((template) => templateJson(template, 'builtin')),
-      ...stored.map((row) => templateJson(row.document, 'user', row)),
-    ],
+    templates: stored.map((row) => templateJson(row.document, 'user', row)),
   });
 });
 
@@ -58,8 +54,6 @@ statementTemplatesApi.post('/statement-templates', async (c) => {
 
 statementTemplatesApi.get('/statement-templates/:id', async (c) => {
   const id = decodeURIComponent(c.req.param('id'));
-  const builtin = BUILTIN_TEMPLATES.find((template) => template.id === id);
-  if (builtin) return c.json(templateJson(builtin, 'builtin'));
   const stored = await getStatementTemplate(c.env.DB, id);
   if (!stored) return fail(c, 'TEMPLATE_NOT_FOUND', 404);
   return c.json(templateJson(stored.document, 'user', stored));

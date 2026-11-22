@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import calendar
 import json
 import re
 import sys
@@ -16,6 +17,51 @@ from typing import Any
 
 NAMESPACE = uuid.UUID("deaf90d2-018e-55aa-b7dc-a91807831627")
 CANONICAL_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _norm(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip()).casefold()
+
+
+def _is_true_flag(value: Any) -> bool:
+    return value is True or (isinstance(value, int) and not isinstance(value, bool) and value == 1)
+
+
+def _next_occurrence(rule: dict[str, Any], from_date: date) -> date | None:
+    freq = rule.get("frequency")
+    interval = rule.get("interval_count", 1)
+    if isinstance(interval, bool) or not isinstance(interval, int) or not 1 <= interval <= 365:
+        return None
+    try:
+        if freq == "daily":
+            return from_date + timedelta(days=interval)
+        if freq == "weekly":
+            return from_date + timedelta(days=7 * interval)
+        if freq == "monthly":
+            dom = rule.get("day_of_month")
+            if isinstance(dom, bool) or not isinstance(dom, int) or not 1 <= dom <= 31:
+                return None
+            total = from_date.year * 12 + (from_date.month - 1) + interval
+            year = total // 12
+            month = (total % 12) + 1
+            return date(year, month, min(dom, calendar.monthrange(year, month)[1]))
+        if freq == "yearly":
+            dom = rule.get("day_of_month")
+            moy = rule.get("month_of_year")
+            if (
+                isinstance(dom, bool)
+                or not isinstance(dom, int)
+                or not 1 <= dom <= 31
+                or isinstance(moy, bool)
+                or not isinstance(moy, int)
+                or not 1 <= moy <= 12
+            ):
+                return None
+            year = from_date.year + interval
+            return date(year, moy, min(dom, calendar.monthrange(year, moy)[1]))
+    except (OverflowError, ValueError):
+        return None
+    return None
 
 
 def _stable_uuid(*parts: Any) -> str:
@@ -114,6 +160,14 @@ def _readback_checkpoint_updates(
         if before_balances != after_balances:
             errors.append(f"readbacks[{index}] account balances changed")
             continue
+        if "expected_active" in action and "observed_active" in readback:
+            observed_active = readback.get("observed_active")
+            if not isinstance(observed_active, bool):
+                errors.append(f"readbacks[{index}].observed_active must be a boolean")
+                continue
+            if observed_active != action["expected_active"]:
+                errors.append(f"readbacks[{index}] active state does not match")
+                continue
         updates.extend(str(value) for value in action["checkpoint_keys"])
     return sorted(set(updates)), errors
 
@@ -173,6 +227,175 @@ def _validate_operation_group(
     return sorted(operation_ids), qualifying_total
 
 
+def _validate_booked_receipts(
+    booked_receipts_raw: list[Any],
+    operations: dict[int, dict[str, Any]],
+    errors: list[str],
+) -> list[dict[str, Any]]:
+    parsed_receipts: list[dict[str, Any]] = []
+    for index, entry in enumerate(booked_receipts_raw):
+        if not isinstance(entry, dict):
+            errors.append(f"booked_receipts[{index}] must be an object")
+            continue
+        source_id = entry.get("source_id")
+        receipt_index = entry.get("receipt_index")
+        occ_raw = entry.get("occurrence_date")
+        op_ids = entry.get("operation_ids")
+        valid = True
+        if not isinstance(source_id, str) or not source_id.strip():
+            errors.append(f"booked_receipts[{index}].source_id is required")
+            valid = False
+        if isinstance(receipt_index, bool) or not isinstance(receipt_index, int) or receipt_index < 0:
+            errors.append(f"booked_receipts[{index}].receipt_index must be non-negative")
+            valid = False
+        occ_date = _iso_date(occ_raw, f"booked_receipts[{index}].occurrence_date", errors)
+        if occ_date is None:
+            valid = False
+        if (
+            not isinstance(op_ids, list)
+            or not op_ids
+            or any(isinstance(value, bool) or not isinstance(value, int) or value <= 0 for value in op_ids)
+            or len(set(op_ids)) != len(op_ids)
+        ):
+            errors.append(f"booked_receipts[{index}].operation_ids is invalid")
+            valid = False
+        else:
+            for op_id in op_ids:
+                if op_id not in operations:
+                    errors.append(
+                        f"booked_receipts[{index}]: operation {op_id} is missing from operations read-back"
+                    )
+                    valid = False
+        if valid and occ_date is not None:
+            parsed_receipts.append({
+                "source_id": str(source_id),
+                "receipt_index": int(receipt_index),
+                "occurrence_date": str(occ_raw),
+                "parsed_occurrence_date": occ_date,
+                "operation_ids": list(op_ids),
+            })
+    return parsed_receipts
+
+
+def _plan_auto_skip_rules(
+    rules: dict[int, dict[str, Any]],
+    policy_ids: set[int],
+    operations: dict[int, dict[str, Any]],
+    history: dict[int, dict[str, dict[str, Any]]],
+    booked_receipts: list[dict[str, Any]],
+    processed: set[str],
+    operation_claims: dict[int, set[int]],
+    actions: list[dict[str, Any]],
+    errors: list[str],
+) -> None:
+    if not booked_receipts:
+        return
+    for rule_id, rule in sorted(rules.items()):
+        if rule_id in policy_ids or rule.get("active") is not True:
+            continue
+        if not _is_true_flag(rule.get("auto_skip_overdue")):
+            continue
+        rule_category = _norm(rule.get("category"))
+        if not rule_category:
+            continue
+        amount_minor = rule.get("amount_minor")
+        account_id = rule.get("account_id")
+        currency = rule.get("currency")
+        if (
+            isinstance(amount_minor, bool)
+            or not isinstance(amount_minor, int)
+            or amount_minor == 0
+        ):
+            errors.append(f"recurring item {rule_id}.amount_minor must be a non-zero integer")
+            continue
+        if amount_minor > 0:
+            continue
+        if isinstance(account_id, bool) or not isinstance(account_id, int) or account_id <= 0:
+            errors.append(f"recurring item {rule_id}.account_id is invalid")
+            continue
+        if not isinstance(currency, str) or not currency:
+            errors.append(f"recurring item {rule_id}.currency is invalid")
+            continue
+        due = _iso_date(rule.get("next_due_date"), f"recurring item {rule_id}.next_due_date", errors)
+        if due is None:
+            continue
+        end_date: date | None = None
+        if rule.get("end_date") is not None:
+            end_date = _iso_date(rule.get("end_date"), f"recurring item {rule_id}.end_date", errors)
+            if end_date is None:
+                continue
+        next_occ = _next_occurrence(rule, due)
+        if next_occ is None or next_occ <= due:
+            errors.append(f"recurring item {rule_id} has invalid auto-skip schedule")
+            continue
+
+        due_text = due.isoformat()
+        matched_entries: list[dict[str, Any]] = []
+        for entry in booked_receipts:
+            occ_date = entry["parsed_occurrence_date"]
+            if not (due <= occ_date < next_occ):
+                continue
+            if end_date is not None and occ_date > end_date:
+                continue
+            entry_matched = False
+            for op_id in entry["operation_ids"]:
+                op = operations.get(op_id)
+                if op is None:
+                    continue
+                if (
+                    op.get("account_id") != account_id
+                    or _norm(op.get("currency")) != _norm(currency)
+                    or _norm(op.get("category")) != rule_category
+                ):
+                    continue
+                op_amount = op.get("amount_minor")
+                if isinstance(op_amount, bool) or not isinstance(op_amount, int) or op_amount == 0:
+                    errors.append(f"operation {op_id}.amount_minor must be a non-zero integer")
+                    continue
+                if op.get("kind") != "expense" or op_amount >= 0:
+                    errors.append(f"operation {op_id} is not an expense")
+                    continue
+                if op.get("date") != entry["occurrence_date"]:
+                    errors.append(f"operation {op_id} uses a different calendar date")
+                    continue
+                fulfillment = op.get("fulfillment")
+                if fulfillment is not None:
+                    same_occurrence = (
+                        isinstance(fulfillment, dict)
+                        and fulfillment.get("recurring_item_id") == rule_id
+                        and fulfillment.get("period_due_date") == due_text
+                    )
+                    if not same_occurrence:
+                        errors.append(f"operation {op_id} already fulfills another expectation")
+                        continue
+                operation_claims[op_id].add(rule_id)
+                entry_matched = True
+            if entry_matched:
+                matched_entries.append(entry)
+
+        if not matched_entries:
+            continue
+        checkpoint_keys = sorted({
+            _evidence_key(entry["source_id"], entry["receipt_index"], rule_id, due_text)
+            for entry in matched_entries
+        })
+        if due_text in history[rule_id] or any(key in processed for key in checkpoint_keys):
+            continue
+        ended = end_date is not None and next_occ > end_date
+        lead = checkpoint_keys[0]
+        actions.append({
+            "tool": "recurring_item_skip_period",
+            "arguments": {"recurring_item_id": rule_id},
+            "occurrence_date": due_text,
+            "expected_next_due_date": due_text if ended else next_occ.isoformat(),
+            "expected_active": not ended,
+            "idempotency_key": _stable_uuid("auto-skip-receipt", lead),
+            "durable_key": lead,
+            "checkpoint_keys": checkpoint_keys,
+            "reason": "booked receipt expense matches optional auto_skip_overdue recurring rule category",
+        })
+
+
 def plan(payload: dict[str, Any]) -> dict[str, Any]:
     errors: list[str] = []
     action_required: list[dict[str, Any]] = []
@@ -182,6 +405,8 @@ def plan(payload: dict[str, Any]) -> dict[str, Any]:
     fulfillments = payload.get("recurring_fulfillments") or []
     policies = payload.get("policies") or []
     evidence_list = payload.get("evidence") or []
+    raw_booked_receipts = payload.get("booked_receipts")
+    booked_receipts_raw = [] if raw_booked_receipts is None else raw_booked_receipts
     processed_raw = payload.get("recurring_evidence_skips") or []
     readbacks = payload.get("readbacks") or []
 
@@ -191,6 +416,7 @@ def plan(payload: dict[str, Any]) -> dict[str, Any]:
         ("recurring_fulfillments", fulfillments),
         ("policies", policies),
         ("evidence", evidence_list),
+        ("booked_receipts", booked_receipts_raw),
         ("recurring_evidence_skips", processed_raw),
         ("readbacks", readbacks),
     ):
@@ -328,14 +554,7 @@ def plan(payload: dict[str, Any]) -> dict[str, Any]:
             if isinstance(raw_id, int) and not isinstance(raw_id, bool) and raw_id > 0:
                 operation_claims[raw_id].add(rule_id)
 
-    for operation_id, claimed_rules in sorted(operation_claims.items()):
-        if len(claimed_rules) > 1:
-            action_required.append({
-                "operation_id": operation_id,
-                "recurring_item_ids": sorted(claimed_rules),
-                "question": "Which single recurring rule may claim this verified operation?",
-            })
-
+    booked_receipts = _validate_booked_receipts(booked_receipts_raw, operations, errors)
     policy_ids: set[int] = set()
     actions: list[dict[str, Any]] = []
     for policy_index, policy in enumerate(policies):
@@ -550,6 +769,26 @@ def plan(payload: dict[str, Any]) -> dict[str, Any]:
                 due = _next_daily(due)
         else:
             errors.append(f"policy {rule_id}.mode must be analytical_daily or discrete_quantity")
+
+    _plan_auto_skip_rules(
+        rules,
+        policy_ids,
+        operations,
+        history,
+        booked_receipts,
+        processed,
+        operation_claims,
+        actions,
+        errors,
+    )
+
+    for operation_id, claimed_rules in sorted(operation_claims.items()):
+        if len(claimed_rules) > 1:
+            action_required.append({
+                "operation_id": operation_id,
+                "recurring_item_ids": sorted(claimed_rules),
+                "question": "Which single recurring rule may claim this verified operation?",
+            })
 
     if action_required:
         actions = []

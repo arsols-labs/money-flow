@@ -4,27 +4,47 @@ import {
   normalizeFiscalReceiptId,
   normalizedVerificationUrlsMatch,
 } from './fiscal-identity';
+import { extractTokensWithPattern } from './rules/matcher';
+import type { FiscalFormatPayload, OrderHintPayload, ResolvedRuleEntry } from './rules/types';
 
-/** Production analytical daily rules that must never post or link a ledger fact. */
-export const ANALYTICAL_SKIP_ONLY_RECURRING_IDS = [16, 17] as const;
-
-export function isAnalyticalSkipOnlyRecurringId(id: number): boolean {
-  return id === 16 || id === 17;
+export interface BookingGuardRules {
+  orderHints?: ReadonlyArray<ResolvedRuleEntry<OrderHintPayload>>;
+  fiscalFormats?: ReadonlyArray<FiscalFormatPayload | ResolvedRuleEntry<FiscalFormatPayload>>;
+  analyticalSkipOnlyRecurringIds?: ReadonlySet<number>;
 }
 
-const ORDER_HINT =
-  /(?:wolt|order|заказ|ord)[-_#:\s]*([a-z0-9][a-z0-9-]{5,})/gi;
+/**
+ * Checks whether a recurring item has an active `analytical_skip_only` D1 policy binding.
+ * When no bindings are supplied (e.g. fresh install), returns `false`.
+ */
+export function isAnalyticalSkipOnlyRecurringId(
+  id: number,
+  skipOnlyRecurringIds?: ReadonlySet<number> | null,
+): boolean {
+  if (!skipOnlyRecurringIds) return false;
+  return skipOnlyRecurringIds.has(id);
+}
 
 export function extractExpenseOrderTokens(
   parts: Array<string | null | undefined>,
+  orderHints: ReadonlyArray<ResolvedRuleEntry<OrderHintPayload>> = [],
 ): string[] {
+  if (orderHints.length === 0) return [];
   const tokens = new Set<string>();
   for (const part of parts) {
     if (!part) continue;
     const text = part.trim();
     if (!text) continue;
-    for (const match of text.matchAll(ORDER_HINT)) {
-      tokens.add(match[1]!.toLowerCase());
+    for (const rule of orderHints) {
+      if (!rule.entry.pattern || !rule.entry.match_type) continue;
+      const extracted = extractTokensWithPattern(rule.entry.match_type, rule.entry.pattern, text, {
+        caseSensitive: rule.payload.case_sensitive,
+        tokenGroup: rule.payload.token_group ?? 1,
+        uppercase: rule.payload.uppercase ?? false,
+      });
+      for (const token of extracted) {
+        tokens.add((rule.payload.uppercase ?? false) ? token : token.toLowerCase());
+      }
     }
   }
   return [...tokens];
@@ -56,31 +76,33 @@ function sameFiscalReceiptId(
 }
 
 /**
- * Shared Wolt/order token. Ignored when both rows have a canonical fiscal
- * identity and those identities differ. Same-PFR lines use line identity only.
- * A differing receipt URL string is not by itself a different document.
+ * Shared order-token check. Ignored when both rows have a canonical fiscal
+ * identity and those identities differ. Same-fiscal-id lines use line identity only.
  */
 function orderTokenDuplicate(
   candidate: ExpenseDuplicateCandidate,
   existing: ExpenseDuplicateCandidate,
+  rules: BookingGuardRules = {},
 ): boolean {
   if (existing.account_id !== candidate.account_id) return false;
   if (sameFiscalReceiptId(candidate, existing)) return false;
-  if (fiscalDocumentsAreDistinct(candidate, existing)) return false;
-  const candidateTokens = extractExpenseOrderTokens([candidate.item, candidate.comment]);
-  const existingTokens = extractExpenseOrderTokens([existing.item, existing.comment]);
+  if (fiscalDocumentsAreDistinct(candidate, existing, rules.fiscalFormats)) return false;
+  const candidateTokens = extractExpenseOrderTokens([candidate.item, candidate.comment], rules.orderHints);
+  if (candidateTokens.length === 0) return false;
+  const existingTokens = extractExpenseOrderTokens([existing.item, existing.comment], rules.orderHints);
   return candidateTokens.some((token) => existingTokens.includes(token));
 }
 
 /**
  * Line-level expense identity. A shared `fiscal_receipt_id` (or receipt URL)
- * is not a duplicate by itself — multi-line fiscal receipts reuse the same PFR.
- * A shared order id is not a duplicate only when both fiscal ids differ.
+ * is not a duplicate by itself — multi-line fiscal receipts reuse the same fiscal id.
+ * A shared order token is not a duplicate only when both fiscal ids differ.
  * Equal normalized verification URLs are one document. A different URL is not.
  */
 export function expenseLooksLikeDuplicate(
   candidate: ExpenseDuplicateCandidate,
   existing: ExpenseDuplicateCandidate & { id: number },
+  rules: BookingGuardRules = {},
 ): boolean {
   if (existing.account_id !== candidate.account_id) return false;
 
@@ -93,8 +115,8 @@ export function expenseLooksLikeDuplicate(
     );
   }
 
-  if (orderTokenDuplicate(candidate, existing)) return true;
-  if (normalizedVerificationUrlsMatch(candidate, existing)) return true;
+  if (orderTokenDuplicate(candidate, existing, rules)) return true;
+  if (normalizedVerificationUrlsMatch(candidate, existing, rules.fiscalFormats)) return true;
   return Boolean(
     candidate.store
     && existing.store
@@ -127,7 +149,10 @@ function identityKey(row: ExpenseDuplicateCandidate): string | null {
 type TokenEntry = { index: number; row: IndexedExpense };
 
 /** Lookup with the same duplicate decision as scanning `expenseLooksLikeDuplicate`. */
-export function createExpenseDuplicateIndex(rows: IndexedExpense[] = []): {
+export function createExpenseDuplicateIndex(
+  rows: IndexedExpense[] = [],
+  rules: BookingGuardRules = {},
+): {
   find(candidate: ExpenseDuplicateCandidate): IndexedExpense | undefined;
   add(row: IndexedExpense): void;
 } {
@@ -136,12 +161,13 @@ export function createExpenseDuplicateIndex(rows: IndexedExpense[] = []): {
   const verificationUrls = new Map<string, IndexedExpense>();
   const identity = new Map<string, IndexedExpense>();
   let nextIndex = 0;
+
   const add = (row: IndexedExpense) => {
     const index = nextIndex;
     nextIndex += 1;
     const fiscalId = fiscalKey(row);
     if (fiscalId && !fiscal.has(fiscalId)) fiscal.set(fiscalId, row);
-    for (const token of extractExpenseOrderTokens([row.item, row.comment])) {
+    for (const token of extractExpenseOrderTokens([row.item, row.comment], rules.orderHints)) {
       const key = `${row.account_id}\u0001${token}`;
       const list = tokens.get(key);
       if (list) list.push({ index, row });
@@ -149,11 +175,12 @@ export function createExpenseDuplicateIndex(rows: IndexedExpense[] = []): {
     }
     const identityId = identityKey(row);
     if (identityId && !identity.has(identityId)) identity.set(identityId, row);
-    const verificationUrl = canonicalFiscalIdentity(row);
+    const verificationUrl = canonicalFiscalIdentity(row, rules.fiscalFormats);
     if (verificationUrl?.kind === 'url' && !verificationUrls.has(`${row.account_id}\u0001${verificationUrl.value}`)) {
       verificationUrls.set(`${row.account_id}\u0001${verificationUrl.value}`, row);
     }
   };
+
   const find = (candidate: ExpenseDuplicateCandidate): IndexedExpense | undefined => {
     const fiscalId = fiscalKey(candidate);
     if (fiscalId) {
@@ -161,19 +188,19 @@ export function createExpenseDuplicateIndex(rows: IndexedExpense[] = []): {
       if (hit) return hit;
     }
     let earliest: TokenEntry | undefined;
-    for (const token of extractExpenseOrderTokens([candidate.item, candidate.comment])) {
+    for (const token of extractExpenseOrderTokens([candidate.item, candidate.comment], rules.orderHints)) {
       const list = tokens.get(`${candidate.account_id}\u0001${token}`);
       if (!list) continue;
       for (const entry of list) {
         if (earliest && entry.index >= earliest.index) break;
-        if (orderTokenDuplicate(candidate, entry.row)) {
+        if (orderTokenDuplicate(candidate, entry.row, rules)) {
           earliest = entry;
           break;
         }
       }
     }
     if (earliest) return earliest.row;
-    const verificationUrl = canonicalFiscalIdentity(candidate);
+    const verificationUrl = canonicalFiscalIdentity(candidate, rules.fiscalFormats);
     if (verificationUrl?.kind === 'url') {
       const hit = verificationUrls.get(`${candidate.account_id}\u0001${verificationUrl.value}`);
       if (hit) return hit;
@@ -181,6 +208,7 @@ export function createExpenseDuplicateIndex(rows: IndexedExpense[] = []): {
     const identityId = identityKey(candidate);
     return identityId ? identity.get(identityId) : undefined;
   };
+
   for (const row of rows) add(row);
   return { find, add };
 }

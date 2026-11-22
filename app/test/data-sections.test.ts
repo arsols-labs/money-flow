@@ -110,8 +110,8 @@ describe('toggleExpanded', () => {
 });
 
 describe('DATA_SECTION_KEYS', () => {
-  it('lists exactly six collapsible blocks — "Forecast" does not collapse', () => {
-    expect(DATA_SECTION_KEYS).toEqual(['operations', 'receipts', 'planned', 'recurring', 'rates', 'accounts']);
+  it('lists all seven collapsible blocks — "Forecast" does not collapse', () => {
+    expect(DATA_SECTION_KEYS).toEqual(['operations', 'receipts', 'planned', 'recurring', 'rates', 'accounts', 'rules']);
   });
 });
 
@@ -123,6 +123,9 @@ describe('sectionFromHash', () => {
     expect(sectionFromHash('#/data/operations')).toBe('operations');
     expect(sectionFromHash('#/data/planned')).toBe('planned');
     expect(sectionFromHash('#/data/recurring')).toBe('recurring');
+    expect(sectionFromHash('#/data/rules')).toBe('rules');
+    expect(sectionFromHash('#/data/settings')).toBe('rules');
+    expect(sectionFromHash('#/settings')).toBe('rules');
   });
 
   it('returns null for invalid or unknown hashes', () => {

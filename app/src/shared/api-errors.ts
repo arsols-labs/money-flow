@@ -40,6 +40,8 @@ export const API_ERROR_CODES = [
   'RATE_TOO_LARGE',
   'RATE_SAVE_FAILED',
   'RATE_IN_USE',
+  'FX_PROVIDER_UNAVAILABLE',
+  'FX_PROVIDER_UNSUPPORTED_ANCHOR',
 
   'PLANNED_ITEM_STALE',
   'PLANNED_ITEM_ALREADY_FULFILLED',
@@ -105,6 +107,7 @@ export const API_ERROR_CODES = [
   'INVALID_KIND',
   'INVALID_FREQUENCY',
   'INVALID_INTERVAL_COUNT',
+  'INVALID_AUTO_SKIP_AFTER_DAYS',
   'INVALID_RANGE',
   'INVALID_SOURCE',
   'INVALID_RECEIPT_URL',
@@ -127,6 +130,9 @@ export const API_ERROR_CODES = [
   'SETTING_VALUE_INVALID',
   'SETTING_VALUE_TOO_LARGE',
   'SETTING_CURRENCY_INVALID',
+  'SETTING_BOOLEAN_INVALID',
+  'SETTING_TIMEZONE_INVALID',
+  'SETTING_HOUR_INVALID',
   'DATE_RANGE_INVALID',
   'REQUEST_BODY_INVALID',
 
@@ -217,6 +223,14 @@ export const API_ERROR_CODES = [
   'RECEIPT_GROUP_PLACE_REQUIRED',
   'BACKUP_EPOCH_INCONSISTENT',
   'ORDER_GROUPINGS_REMOVAL_UNCONFIRMED',
+
+  'MISSING_CONFIGURATION',
+  'RULE_SET_NOT_FOUND',
+  'RULE_ENTRY_NOT_FOUND',
+  'RULE_VALIDATION_FAILED',
+  'RULE_CONFLICT',
+  'REVISION_CONFLICT',
+  'CONFIRMATION_REQUIRED',
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -262,9 +276,9 @@ export const API_ERROR_MESSAGES: Record<ApiErrorCode, string> = {
   ALIAS_NOT_FOUND: 'Alias not found on this account',
   PENDING_ACCOUNT_RESOLVED: 'Unknown account is already processed or does not exist',
 
-  CURRENCY_CODE_INVALID: 'Currency code must be exactly three Latin letters (ISO 4217), for example USD',
+  CURRENCY_CODE_INVALID: 'Currency code must be a configured three-letter currency code',
   BASE_CURRENCY_RATE_FORBIDDEN:
-    'A USD rate is not needed: all rates are stored as usd_per_unit, so 1 USD = 1 USD by definition. Delete the row if it already exists',
+    'The configured FX anchor currency has an implicit rate of 1 against itself and does not need a stored rate row',
   RATE_REQUIRED: 'Send the rate in the rate field',
   RATE_INVALID:
     'Invalid FX rate "{{value}}" — expected a non-negative decimal with at most nine fraction digits, no exponent, and no sign',
@@ -273,6 +287,8 @@ export const API_ERROR_MESSAGES: Record<ApiErrorCode, string> = {
   RATE_SAVE_FAILED: 'Could not save the rate',
   RATE_IN_USE:
     'Currency {{code}} is used by accounts or operations — their amounts cannot be converted without a rate. Change the currency on those rows or delete them first',
+  FX_PROVIDER_UNAVAILABLE: 'Exchange rate provider is currently unavailable — existing rates were kept',
+  FX_PROVIDER_UNSUPPORTED_ANCHOR: 'FX anchor currency {{currency}} is not supported by the automatic rate provider',
 
   PLANNED_ITEM_STALE: 'The planned item changed after confirmation; request a new confirmation',
   PLANNED_ITEM_ALREADY_FULFILLED: 'The planned item is already fulfilled by another financial fact',
@@ -348,6 +364,7 @@ export const API_ERROR_MESSAGES: Record<ApiErrorCode, string> = {
   INVALID_KIND: 'kind is required and must be one of: {{values}}',
   INVALID_FREQUENCY: 'frequency is required and must be one of: {{values}}',
   INVALID_INTERVAL_COUNT: 'interval_count must be an integer from 1 to 365',
+  INVALID_AUTO_SKIP_AFTER_DAYS: 'auto_skip_after_days must be an integer from 1 to 365',
   INVALID_RANGE: '{{field}} must be an integer from {{min}} to {{max}} or omitted',
   INVALID_SOURCE: 'source must be "manual", "receipt", or "agent"',
   INVALID_RECEIPT_URL: 'receipt_url must be an http or https URL of at most 4096 characters',
@@ -371,6 +388,9 @@ export const API_ERROR_MESSAGES: Record<ApiErrorCode, string> = {
   SETTING_VALUE_INVALID: 'value must be an integer >= 0',
   SETTING_VALUE_TOO_LARGE: 'value is too large',
   SETTING_CURRENCY_INVALID: 'value must be a valid ISO 4217 currency code',
+  SETTING_BOOLEAN_INVALID: 'value must be true, false, 1, or 0',
+  SETTING_TIMEZONE_INVALID: 'Value must be a valid IANA timezone (for example UTC, Europe/Belgrade, or America/New_York)',
+  SETTING_HOUR_INVALID: 'Value must be an integer hour from 0 to 23',
   DATE_RANGE_INVALID: 'start_date cannot be later than end_date',
   REQUEST_BODY_INVALID: 'Request body must be a JSON object',
 
@@ -424,7 +444,7 @@ export const API_ERROR_MESSAGES: Record<ApiErrorCode, string> = {
   IMPORT_TOO_LARGE: 'Statement import {{scope}} exceeds the limit of {{limit}}',
   IMPORT_FILE_INVALID: 'Could not parse statement file "{{filename}}": {{detail}}',
   PDF_NO_TEXT_LAYER: '“{{filename}}” has no text layer. A scan or photo cannot be imported.',
-  PDF_UNKNOWN_LAYOUT: '“{{filename}}” is not a BPS or Bank of America statement this importer knows.',
+  PDF_UNKNOWN_LAYOUT: '“{{filename}}” does not match any active PDF layout rule in D1 Settings.',
   PDF_ENCRYPTED: '“{{filename}}” is encrypted. Remove the password and try again.',
   IMPORT_ACCOUNT_REQUIRED: 'Choose an account for every imported row',
   IMPORT_CURRENCY_REQUIRED: 'Choose a target account in the preview, or set the currency in the template.',
@@ -470,6 +490,15 @@ export const API_ERROR_MESSAGES: Record<ApiErrorCode, string> = {
   BACKUP_EPOCH_INCONSISTENT: 'Backup order links do not match the ledger epoch',
   ORDER_GROUPINGS_REMOVAL_UNCONFIRMED:
     'This backup has no order groupings. Confirm removal of {{orders}} existing groupings ({{components}} links).',
+
+  MISSING_CONFIGURATION:
+    'Missing required D1 configuration ({{domain}}): {{detail}}. Configure it in Settings before retrying.',
+  RULE_SET_NOT_FOUND: 'Rule set not found',
+  RULE_ENTRY_NOT_FOUND: 'Rule entry not found',
+  RULE_VALIDATION_FAILED: 'Rule validation failed: {{detail}}',
+  RULE_CONFLICT: 'Cannot activate rule set: {{detail}}',
+  REVISION_CONFLICT: 'Rule revision mismatch; reload the rule set and retry',
+  CONFIRMATION_REQUIRED: 'This write requires explicit human confirmation (confirm: true)',
 };
 
 const CODE_SET = new Set<string>(API_ERROR_CODES);

@@ -4,8 +4,12 @@
 // database, and all I/O lives here.
 import { expandRecurringRule, type RecurringRule } from './recurrence';
 import { addDays } from './dates';
-import { normalizeIso4217CurrencyCode } from '../../shared/currency';
+import {
+  normalizeConfiguredCurrencyCode,
+  type CurrencyCatalog,
+} from '../../shared/currency';
 import { scaledMinor } from '../../shared/money';
+import { loadCurrencyCatalog } from '../rules-store';
 
 export interface ForecastAccount {
   id: number;
@@ -70,21 +74,20 @@ function normalizeThresholdMinor(raw: string | undefined): number | null {
 }
 
 /**
- * Forecast settings. A missing key or an unusable value does not take down
- * the endpoint — the base currency defaults to 'USD', the threshold to 0 (the
- * same default migration 0001 itself sets, but here this is a GUARD in case the
- * settings row is someday deleted or corrupted, not a reliance on the default).
+ * Forecast settings. Missing or unconfigured `base_currency` returns `null` so
+ * callers block multi-currency/forecast valuation instead of inventing a currency.
  */
 export async function loadForecastSettings(
   db: D1Database,
-): Promise<{ baseCurrency: string; lowBalanceThresholdMinor: number }> {
+  catalog?: CurrencyCatalog,
+): Promise<{ baseCurrency: string | null; lowBalanceThresholdMinor: number }> {
+  const effectiveCatalog = catalog ?? (await loadCurrencyCatalog(db));
   const { results } = await db
     .prepare(`SELECT key, value FROM settings WHERE key IN ('base_currency', 'low_balance_threshold_minor')`)
     .all<{ key: string; value: string }>();
   const raw = new Map(results.map((r) => [r.key, r.value]));
   return {
-    // Normalization is shared with `readBaseCurrency` in api.ts — see shared/currency.ts.
-    baseCurrency: normalizeIso4217CurrencyCode(raw.get('base_currency')) ?? 'USD',
+    baseCurrency: normalizeConfiguredCurrencyCode(raw.get('base_currency'), effectiveCatalog),
     lowBalanceThresholdMinor: normalizeThresholdMinor(raw.get('low_balance_threshold_minor')) ?? 0,
   };
 }

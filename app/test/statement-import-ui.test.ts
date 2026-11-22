@@ -1,6 +1,17 @@
+import '../src/ui/i18n.js';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { EMPTY_CURRENCY_CATALOG, setRuntimeCurrencyCatalog } from '../src/shared/currency';
+import { installTestRuntimeCurrencies } from './seed-test-rules';
+
+beforeAll(() => {
+  installTestRuntimeCurrencies();
+});
+
+afterAll(() => {
+  setRuntimeCurrencyCatalog(EMPTY_CURRENCY_CATALOG);
+});
 import { statementFingerprint } from '../src/shared/statement-import/amounts';
 import { formatMinor } from '../src/ui/money.js';
 import { RefreshProvider } from '../src/ui/RefreshContext.jsx';
@@ -405,8 +416,7 @@ describe('statement import screen', () => {
     expect(html).toContain(i18n.t('data.statementImport.templatesTitle'));
     expect(html).toContain(i18n.t('data.statementImport.templatesBuiltin'));
     expect(html).toContain(i18n.t('data.statementImport.templatesMine'));
-    expect(html).toContain(i18n.t('data.statementImport.templateDuplicate'));
-    expect(html).toContain(i18n.t('data.statementImport.templateExport'));
+    expect(html).toContain(i18n.t('data.statementImport.templatesEmpty'));
     expect(html).toContain(i18n.t('data.statementImport.templateImport'));
     expect(html).toContain(i18n.t('data.statementImport.templateSaveMapping'));
     expect(html).toContain('Bank of America');

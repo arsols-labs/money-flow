@@ -1,11 +1,13 @@
-# Draft for future arsols-labs/money-flow .github/workflows/ci.yml
-# No Workers Builds secrets. No CLOUDFLARE_API_TOKEN required.
+# Public CI for arsols-labs/money-flow — runs without Cloudflare secrets.
 name: ci
 
 on:
   pull_request:
   push:
     branches: [main]
+
+permissions:
+  contents: read
 
 defaults:
   run:
@@ -16,9 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: npm
@@ -36,6 +40,10 @@ jobs:
 
       - name: Test (vitest + setup unit)
         run: npm test
+
+      - name: Packaged skill tests
+        working-directory: .
+        run: python3 -m unittest discover -s skills/money-flow-receipt-processor/scripts -p 'test_*.py'
 
       - name: Build
         run: npm run build

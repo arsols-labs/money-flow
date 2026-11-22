@@ -3,6 +3,7 @@
 // vitest.config.ts sets up: the real DB binding from wrangler.jsonc plus
 // the test TEST_MIGRATIONS.
 import type { D1Migration } from 'cloudflare:test';
+import type { DemoSession } from '../src/worker/demo-session';
 
 declare global {
   namespace Cloudflare {
@@ -11,6 +12,7 @@ declare global {
       KV: KVNamespace;
       OAUTH_KV: KVNamespace;
       TEST_MIGRATIONS: D1Migration[];
+      DEMO_SESSION: DurableObjectNamespace<DemoSession>;
       // Needed by createSessionCookie/verifySessionCookie in test/api-v2.test.ts.
       SESSION_SECRET: string;
       // Dummy SETUP_TOKEN for WebAuthn registration tests.

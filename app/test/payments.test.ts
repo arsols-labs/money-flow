@@ -4,6 +4,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { selectPayments, paymentDateLabel, paymentRefreshDue, paymentColors, paymentDateColor } from '../src/ui/payments';
 import { UpcomingSection, UpcomingList } from '../src/ui/Pulse.jsx';
+import { setRuntimeCurrencyCatalog } from '../src/shared/currency';
+import { TEST_CURRENCY_CATALOG } from './seed-test-rules';
+
+setRuntimeCurrencyCatalog(TEST_CURRENCY_CATALOG);
 
 // Open the real accordion for server-rendered payment assertions.
 vi.mock('../src/ui/components', async (importOriginal) => {

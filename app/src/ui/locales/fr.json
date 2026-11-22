@@ -527,11 +527,15 @@
       },
       "rates": {
         "title": "Taux de change",
-        "description": "Taux manuels vers la devise de référence"
+        "description": "Taux de change manuels ou automatiques quotidiens vers la devise de référence"
       },
       "forecast": {
         "title": "Prévision",
         "description": "Seuil de solde bas en devise de référence"
+      },
+      "rules": {
+        "title": "Règles et configuration de référence",
+        "description": "Devises, formats, modèles, alias et règles métier"
       }
     },
     "allSectionsHidden": "Toutes les sections sont masquées dans les réglages.",
@@ -557,7 +561,7 @@
       "fieldAccountNumber": "Numéro de compte",
       "placeholderAccountNumber": "IBAN, 4 derniers chiffres ou portefeuille…",
       "fieldOwner": "Titulaire*",
-      "placeholderOwner": "Alex, Famille, Entreprise…",
+      "placeholderOwner": "Personnel, Famille, Entreprise…",
       "fieldCountry": "Pays*",
       "placeholderCountry": "Global (ou US, DE, RS, GB, ES, FR, CY, GE, AE, TR, KZ, AM, TH…)",
       "fieldStartingBalance": "Solde initial",
@@ -600,14 +604,29 @@
       "staleSuffix": " · taux obsolète",
       "deleteAria": "Supprimer le taux {{code}}",
       "addShort": "Taux",
-      "manualHint": "Les taux se saisissent à la main — pas de mise à jour auto en v2.0.",
+      "autoUpdateToggle": "Mettre à jour les taux automatiquement chaque jour ({{time}} {{timezone}})",
+      "autoUpdateHintPrefix": "La mise à jour quotidienne optionnelle utilise des taux gratuits sans clé API via",
+      "autoUpdateHintSuffix": ". Vous pouvez toujours saisir ou modifier chaque taux manuellement.",
+      "refreshNow": "Actualiser",
+      "refreshing": "Actualisation…",
+      "refreshSuccess": "{{count}} taux de change mis à jour.",
+      "refreshPartial": "{{count}} taux mis à jour ; non pris en charge : {{skipped}}.",
+      "refreshNoTargets": "Aucune devise à actualiser hormis la devise pivot.",
+      "refreshCooldown": "Veuillez patienter {{seconds}} s avant une nouvelle actualisation.",
+      "lastRefresh": "Dernière mise à jour : {{when}} · {{status}}",
+      "refreshStatus": {
+        "ok": "OK",
+        "partial": "Partiel",
+        "error": "Erreur"
+      },
       "noBase": "Devise de référence non définie — rien vers quoi convertir.",
       "missingRate_one": "Devise sans taux : {{codes}}. Les montants dans cette devise ne peuvent pas être convertis en {{base}}.",
       "missingRate_other": "Devises sans taux : {{codes}}. Les montants dans ces devises ne peuvent pas être convertis en {{base}}.",
       "addForCode": "Ajouter le taux {{code}}",
       "empty": "Aucun taux pour l’instant",
       "add": "Ajouter un taux",
-      "deleteConfirm": "Supprimer le taux {{code}} ?"
+      "deleteConfirm": "Supprimer le taux {{code}} ?",
+      "changeSchedule": "Modifier l’horaire"
     },
     "forecast": {
       "thresholdNegative": "Le seuil ne peut pas être négatif",
@@ -1013,7 +1032,15 @@
       "pause": "Pause",
       "resume": "Reprendre",
       "until": " · jusqu’au {{date}}",
-      "deleteConfirm": "Supprimer l’élément récurrent «{{title}}» ? Irréversible."
+      "deleteConfirm": "Supprimer l’élément récurrent «{{title}}» ? Irréversible.",
+      "autoSkipLabel": "Optionnel (décaler automatiquement)",
+      "autoSkipInfoAria": "Fonctionnement du décalage automatique",
+      "autoSkipInfoText": "Pour les dépenses courantes variables (courses, dépenses quotidiennes) qui n’ont pas toujours lieu. Passé le délai configuré après l’échéance, la tâche quotidienne marque la période comme ignorée sans créer d’opération ni modifier le solde. Laissez décoché pour les abonnements nécessitant une confirmation de paiement.",
+      "fieldAutoSkipAfterDays": "Décaler après (jours de retard)",
+      "autoSkipAfterDaysHint": "Entier de 1 à 365 (par défaut 1 jour après l’échéance).",
+      "autoSkipAfterDaysRange": "Le délai doit être un entier compris entre 1 et 365 jours",
+      "autoSkipMeta": "auto-saut +{{days}}j",
+      "autoSkipScheduleHint": "Vérification quotidienne planifiée : {{time}} {{timezone}}."
     },
     "orders": {
       "provider": "Fournisseur",
@@ -1100,6 +1127,21 @@
         "missing": "Ce document est introuvable",
         "ambiguous": "Cette clé correspond à plusieurs documents"
       }
+    },
+    "schedule": {
+      "title": "Planification en arrière-plan",
+      "hint": "Fuseau horaire et heures d’exécution quotidiennes pour l’actualisation des taux de change et le saut automatique des règles récurrentes en retard (au plus une fois par jour calendaire local).",
+      "demoNotice": "Mode démo : l’exécution cron en arrière-plan est désactivée sur la démo, tandis que les réglages restent enregistrés pour votre session démo en cours.",
+      "timezoneLabel": "Fuseau horaire (IANA)",
+      "timezoneHint": "Choisissez ou saisissez un fuseau horaire IANA canonique tel que UTC, Europe/Belgrade ou America/New_York.",
+      "useBrowserTimezone": "Utiliser le fuseau du navigateur",
+      "fxHourLabel": "Heure d’actualisation des taux",
+      "recurringHourLabel": "Heure de saut des récurrences",
+      "lastRunFx": "Dernière exécution cron des taux (date locale) : {{date}}",
+      "lastRunRecurring": "Dernière exécution cron des récurrences (date locale) : {{date}}",
+      "neverRan": "pas encore",
+      "save": "Enregistrer l’horaire",
+      "saved": "Horaire enregistré : {{timezone}} · Taux {{fxTime}} · Récurrences {{recurringTime}}."
     }
   },
   "access": {
@@ -1236,7 +1278,7 @@
     "ALIAS_ALREADY_BOUND": "Cet alias est déjà lié à un compte",
     "ALIAS_NOT_FOUND": "Alias introuvable sur ce compte",
     "PENDING_ACCOUNT_RESOLVED": "Le compte inconnu est déjà traité ou n’existe pas",
-    "CURRENCY_CODE_INVALID": "Le code devise doit être exactement trois lettres latines (ISO 4217), par exemple USD",
+    "CURRENCY_CODE_INVALID": "Le code devise doit être exactement trois lettres latines , par exemple XXX",
     "BASE_CURRENCY_RATE_FORBIDDEN": "Un taux USD n’est pas nécessaire : tous les taux sont stockés en usd_per_unit, donc 1 USD = 1 USD par définition. Supprimer la ligne si elle existe déjà",
     "RATE_REQUIRED": "Envoyer le taux dans le champ rate",
     "RATE_INVALID": "Taux de change invalide \"{{value}}\" — attendu un décimal non négatif d’au plus neuf décimales, sans exposant ni signe",
@@ -1299,11 +1341,12 @@
     "FIELD_NOT_ZERO": "{{field}} ne peut pas être zéro — une opération sans montant n’a pas de sens",
     "INVALID_ISO_DATE": "{{field}} est obligatoire et doit être une chaîne YYYY-MM-DD",
     "INVALID_CALENDAR_DATE": "{{field}} : la date calendaire \"{{value}}\" n’existe pas",
-    "INVALID_CURRENCY": "currency doit être exactement trois lettres latines (ISO 4217), par exemple USD",
+    "INVALID_CURRENCY": "currency doit être exactement trois lettres latines , par exemple XXX",
     "INVALID_SORT": "sort doit être un entier dans ±1 000 000 000",
     "INVALID_KIND": "kind est obligatoire et doit être l’un de : {{values}}",
     "INVALID_FREQUENCY": "frequency est obligatoire et doit être l’un de : {{values}}",
     "INVALID_INTERVAL_COUNT": "interval_count doit être un entier de 1 à 365",
+    "INVALID_AUTO_SKIP_AFTER_DAYS": "auto_skip_after_days doit être un entier de 1 à 365",
     "INVALID_RANGE": "{{field}} doit être un entier de {{min}} à {{max}} ou omis",
     "INVALID_SOURCE": "source doit être \"manual\", \"receipt\" ou \"agent\"",
     "INVALID_RECEIPT_URL": "receipt_url doit être une URL http ou https de 4096 caractères au plus",
@@ -1409,7 +1452,21 @@
     "RECEIPT_NOT_IN_GROUP": "Ce reçu n’est pas dans ce groupe",
     "RECEIPT_GROUP_FIELD_INVALID": "Le champ {{field}} du groupe de reçus est invalide",
     "RECEIPT_GROUP_DATE_MISMATCH": "Les reçus d’un nouveau groupe doivent être de la même date civile",
-    "RECEIPT_GROUP_PLACE_REQUIRED": "Indiquez un nom : le lieu d’achat ne peut pas être déterminé à partir de ces reçus"
+    "RECEIPT_GROUP_PLACE_REQUIRED": "Indiquez un nom : le lieu d’achat ne peut pas être déterminé à partir de ces reçus",
+    "MISSING_CONFIGURATION": "Une règle requise pour cette action n’a pas encore été ajoutée. Ouvrez « Règles et configuration de référence » dans Données pour l’ajouter.",
+    "RULE_SET_NOT_FOUND": "Jeu de règles introuvable",
+    "RULE_ENTRY_NOT_FOUND": "Entrée de règle introuvable",
+    "RULE_VALIDATION_FAILED": "Validation de règle échouée : {{detail}}",
+    "RULE_CONFLICT": "Conflit de règles : {{detail}}",
+    "RULE_REGEX_UNSAFE": "Expression régulière non sûre : {{detail}}",
+    "RULE_REVISION_CONFLICT": "Jeu de règles modifié simultanément ; rechargez",
+    "REVISION_CONFLICT": "Jeu de règles modifié simultanément ; rechargez",
+    "CONFIRMATION_REQUIRED": "Cette écriture nécessite une confirmation humaine explicite (confirm: true)",
+    "FX_PROVIDER_UNAVAILABLE": "Le fournisseur de taux de change est indisponible — les taux actuels sont conservés",
+    "FX_PROVIDER_UNSUPPORTED_ANCHOR": "La devise pivot {{currency}} n’est pas prise en charge par le fournisseur automatique",
+    "SETTING_BOOLEAN_INVALID": "La valeur doit être true, false, 1 ou 0",
+    "SETTING_TIMEZONE_INVALID": "La valeur doit être un fuseau horaire IANA valide (par exemple UTC, Europe/Belgrade ou America/New_York)",
+    "SETTING_HOUR_INVALID": "La valeur doit être une heure entière de 0 à 23"
   },
   "oauth": {
     "consent": {
@@ -1423,6 +1480,80 @@
       "deny": "Refuser",
       "allow": "Autoriser l’accès",
       "submitting": "Confirmation…"
+    }
+  },
+  "missingConfigAction": {
+    "currencyStandards": "La devise de base ou les standards monétaires ne sont pas encore configurés. Configurez-les dans Données → Règles et configuration de référence.",
+    "currencyCode": "La devise {{currency}} n’a pas encore été ajoutée. Ajoutez-la sous Devises dans Règles et configuration de référence.",
+    "pdfLayouts": "Aucune mise en page PDF de relevé n’a encore été ajoutée. Ajoutez une mise en page PDF dans Règles et configuration de référence pour importer des relevés PDF.",
+    "statementTemplates": "Aucun modèle de relevé correspondant n’a encore été ajouté. Ajoutez un modèle dans Règles et configuration de référence ou utilisez le mappage CSV générique.",
+    "fiscalFormats": "Aucun format fiscal de reçu n’a encore été ajouté pour ce lien. Ajoutez-le dans Règles et configuration de référence."
+  },
+  "onboarding": {
+    "bannerTitle": "Configuration des devises requise",
+    "bannerBody": "Ajoutez au moins une devise et une devise pivot de change dans Règles et configuration de référence pour utiliser les soldes et prévisions.",
+    "openSettings": "Ouvrir les paramètres",
+    "actionBlocked": "Cette action nécessite une règle qui n’a pas encore été ajoutée. Ouvrez les Paramètres pour la configurer.",
+    "missingBaseCurrency": "La devise de base ou les standards monétaires ne sont pas encore configurés."
+  },
+  "rulesSettings": {
+    "title": "Règles et configuration de référence",
+    "description": "Gérer les règles D1 versionnées par pays, standards, modèles, mises en page PDF et politiques récurrentes.",
+    "readinessTitle": "État de la configuration",
+    "configured": "Configuré",
+    "missing": "Manquant",
+    "notAddedYet": "Pas encore ajouté",
+    "epochLabel": "Époque des règles {{epoch}}",
+    "domainLabel": "Domaine",
+    "countryLabel": "Pays",
+    "localeLabel": "Locale",
+    "stateLabel": "État",
+    "searchPlaceholder": "Filtrer les règles…",
+    "createSetTitle": "Créer un jeu de règles",
+    "setKeyLabel": "Clé du jeu",
+    "labelField": "Libellé",
+    "effectiveFromLabel": "Valide à partir du",
+    "effectiveToLabel": "Valide jusqu’au",
+    "priorityLabel": "Priorité",
+    "allowSharedLabel": "Autoriser le repli SHARED",
+    "createSetBtn": "Créer un brouillon",
+    "activate": "Activer",
+    "retire": "Retirer",
+    "clone": "Cloner",
+    "addEntry": "Ajouter une entrée",
+    "matchTypeLabel": "Type de correspondance",
+    "matchFieldLabel": "Champ",
+    "patternLabel": "Motif",
+    "payloadJsonLabel": "JSON utile",
+    "saveEntry": "Enregistrer l’entrée",
+    "previewTitle": "Aperçu de test",
+    "sampleLabel": "Entrée de test",
+    "samplePlaceholder": "Saisissez un texte de test…",
+    "runPreview": "Tester",
+    "bundleTitle": "Export / Import du pack de règles",
+    "exportBundle": "Exporter JSON",
+    "importBundle": "Importer JSON",
+    "importReplaceWarning": "Importer le pack",
+    "replaceExistingLabel": "Remplacer les règles existantes",
+    "recurringPoliciesTitle": "Politiques récurrentes",
+    "recurringItemIdLabel": "ID de règle récurrente",
+    "policyTypeLabel": "Type de politique",
+    "addPolicy": "Ajouter une politique",
+    "noSets": "Aucun jeu de règles pour ces filtres",
+    "noEntries": "Aucune entrée dans ce jeu",
+    "noPolicies": "Aucune politique récurrente configurée",
+    "entryKeyLabel": "Clé d’entrée",
+    "domains": {
+      "currency_standards": "Devises",
+      "fiscal_formats": "Formats fiscaux de reçus",
+      "merchant_aliases": "Alias de marchands",
+      "delivery_services": "Services de livraison",
+      "venue_suffixes": "Suffixes de lieux",
+      "order_hints": "Indices de commande",
+      "category_rules": "Règles de catégorie",
+      "statement_templates": "Modèles de relevés",
+      "pdf_layouts": "Mises en page PDF",
+      "recurring_policies": "Politiques récurrentes"
     }
   }
 }

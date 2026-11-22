@@ -1,18 +1,28 @@
-// Deterministic text-layer PDF statements. No OCR, no network, no native modules.
-// unpdf's PDF.js build runs on Cloudflare Workers and returns glyph positions.
+// Deterministic text-layer PDF statements powered purely by D1 `pdf_layouts`.
+// No OCR, no network, no hardcoded bank rules. unpdf returns glyph coordinates.
 import { extractTextItems, type StructuredTextItem } from 'unpdf';
-import { type PdfLayoutId } from './pdf-preset';
+import {
+  fractionDigits,
+  getRuntimeCurrencyCatalog,
+  normalizeCurrencyCodeSyntax,
+  type CurrencyCatalog,
+} from '../currency';
+import { compileBoundedRegex } from '../rules/matcher';
+import type { PdfBalanceRule, PdfColumnRules, PdfLayoutPayload } from '../rules/types';
+import {
+  assertRowBudget,
+  descriptionHasFlag,
+  kindFromSignedAmount,
+  parseMajorToMinor,
+  parseStatementDate,
+} from './amounts';
 import {
   CLOSING_BALANCE_MISMATCH_WARNING,
   type ParsedStatement,
+  type StatementDateFormat,
   type StatementRow,
   StatementParseError,
 } from './types';
-import {
-  assertRowBudget,
-  kindFromSignedAmount,
-  parseMajorToMinor,
-} from './amounts';
 
 export type { PdfLayoutId } from './pdf-preset';
 
@@ -29,9 +39,6 @@ export interface PdfLine {
   text: string;
 }
 
-const US_AMOUNT = /-?(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2}/;
-const EU_AMOUNT = /(?:\d{1,3}(?:\.\d{3})+|\d+)?,\d{2}-?/;
-
 export function foldPdfText(value: string): string {
   return value.normalize('NFD').replace(/\p{M}/gu, '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
@@ -43,7 +50,6 @@ function isEncryptedPdfError(error: unknown): boolean {
   return name === 'PasswordException' || /encrypt|password/i.test(`${name} ${message}`);
 }
 
-/** A column gap, not kerning. Oracle draws each cell as its own run with no space glyph between them. */
 const COLUMN_GAP = 1.25;
 
 function lineText(glyphs: Array<PdfGlyph & { y: number }>): string {
@@ -74,12 +80,14 @@ function groupPage(items: StructuredTextItem[], page: number): PdfLine[] {
     if (group) group.push(glyph);
     else groups.push([glyph]);
   }
-  return groups.map((group) => ({
-    page,
-    y: group.reduce((sum, glyph) => sum + glyph.y, 0) / group.length,
-    glyphs: group.map(({ text, x, width }) => ({ text, x, width })),
-    text: lineText(group),
-  })).filter((line) => line.text.length > 0);
+  return groups
+    .map((group) => ({
+      page,
+      y: group.reduce((sum, glyph) => sum + glyph.y, 0) / group.length,
+      glyphs: group.map(({ text, x, width }) => ({ text, x, width })),
+      text: lineText(group),
+    }))
+    .filter((line) => line.text.length > 0);
 }
 
 export async function readPdfLines(bytes: Uint8Array): Promise<PdfLine[]> {
@@ -99,434 +107,534 @@ export async function readPdfLines(bytes: Uint8Array): Promise<PdfLine[]> {
   return lines;
 }
 
-export function detectPdfLayout(lines: PdfLine[]): PdfLayoutId | null {
-  const text = foldPdfText(lines.map((line) => line.text).join('\n'));
-  if (text.includes('promene u periodu')) return 'bps-fx';
-  if (text.includes('izvod broj') || text.includes('ukupno za izvod')) return 'bps-izvod';
-  if (
-    (text.includes('adv safebalance') || text.includes('ending balance'))
-    && (text.includes('deposits and other additions') || text.includes('withdrawals and other subtractions'))
-  ) {
-    return 'bofa';
+export function detectPdfLayout(
+  lines: readonly PdfLine[],
+  layouts: readonly PdfLayoutPayload[],
+): PdfLayoutPayload | null {
+  const docFolded = foldPdfText(lines.map((line) => line.text).join('\n'));
+  for (const layout of layouts) {
+    const { include_all: incAll = [], include_any: incAny = [], exclude_any: excAny = [] } = layout.detect;
+    const allOk = incAll.every((marker) => docFolded.includes(foldPdfText(marker)));
+    if (!allOk) continue;
+    const anyOk = incAny.length === 0 || incAny.some((marker) => docFolded.includes(foldPdfText(marker)));
+    if (!anyOk) continue;
+    const excluded = excAny.some((marker) => docFolded.includes(foldPdfText(marker)));
+    if (excluded) continue;
+    return layout;
   }
   return null;
 }
 
-function isoDate(year: number, month: number, day: number): string {
-  if (month < 1 || month > 12 || day < 1 || day > 31) {
-    throw new StatementParseError(`invalid date ${day}.${month}.${year}`);
+interface PdfYearWindow {
+  startYear: number;
+  endYear: number | null;
+}
+
+function expandPdfYear(raw: string | undefined): number | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!/^\d{2,4}$/.test(trimmed)) return null;
+  const num = Number(trimmed);
+  if (!Number.isInteger(num)) return null;
+  if (trimmed.length === 2) return num >= 70 ? 1900 + num : 2000 + num;
+  if (num >= 1970 && num <= 2100) return num;
+  return null;
+}
+
+function parsePdfDateFlexible(
+  raw: string,
+  preferred: StatementDateFormat,
+  yearWindow: PdfYearWindow | null,
+  prevMonth?: { value: number | null; activeYear: number | null },
+): string {
+  const trimmed = raw.trim();
+  // Support MM/DD/YY (2-digit year)
+  const shortSlash = /^(\d{2})\/(\d{2})\/(\d{2})$/.exec(trimmed);
+  if (shortSlash) {
+    const yy = Number(shortSlash[3]);
+    const fullYear = yy >= 70 ? 1900 + yy : 2000 + yy;
+    const expanded = preferred === 'DD/MM/YYYY'
+      ? `${shortSlash[1]}/${shortSlash[2]}/${fullYear}`
+      : `${shortSlash[1]}/${shortSlash[2]}/${fullYear}`;
+    return parseStatementDate(expanded, preferred);
   }
-  const date = new Date(Date.UTC(year, month - 1, day));
-  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
-    throw new StatementParseError(`invalid date ${day}.${month}.${year}`);
+  // Support DD.MM. (day + month, optional trailing dot) when year came from document header
+  const dayMonthDot = /^(\d{2})\.(\d{2})\.?$/.exec(trimmed);
+  if (dayMonthDot && yearWindow) {
+    const month = Number(dayMonthDot[2]);
+    let resolvedYear = yearWindow.startYear;
+    if (yearWindow.endYear !== null && yearWindow.endYear > yearWindow.startYear) {
+      resolvedYear = month >= 7 ? yearWindow.startYear : yearWindow.endYear;
+    } else if (prevMonth) {
+      if (prevMonth.activeYear === null) prevMonth.activeYear = yearWindow.startYear;
+      if (prevMonth.value !== null && month < prevMonth.value) {
+        prevMonth.activeYear += 1;
+      }
+      prevMonth.value = month;
+      resolvedYear = prevMonth.activeYear;
+    }
+    return parseStatementDate(`${dayMonthDot[1]}.${dayMonthDot[2]}.${resolvedYear}`, 'DD.MM.YYYY');
   }
-  const monthText = String(month).padStart(2, '0');
-  const dayText = String(day).padStart(2, '0');
-  return `${year}-${monthText}-${dayText}`;
+  return parseStatementDate(trimmed, preferred);
 }
 
-function century(year: number): number {
-  return year >= 70 ? 1900 + year : 2000 + year;
-}
+function findBalanceMinor(
+  lines: readonly PdfLine[],
+  rule: PdfBalanceRule | null | undefined,
+  defaultSep: '.' | ',',
+  currency: string,
+  currencyCatalog: CurrencyCatalog,
+): number | null {
+  if (!rule) return null;
+  const prefixes = (rule.label_prefixes ?? []).map(foldPdfText).filter(Boolean);
+  const compiled = rule.pattern ? compileBoundedRegex(rule.pattern, 'u') : null;
+  const sep = rule.decimal_separator ?? defaultSep;
+  const amountToken = sep === ','
+    ? /(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}-?/g
+    : /-?(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2}/g;
 
-function parseSigned(raw: string, decimal: '.' | ',', currency: string): number {
-  let text = raw.trim();
-  let negative = false;
-  if (text.endsWith('-')) {
-    negative = true;
-    text = text.slice(0, -1);
+  for (const line of lines) {
+    const folded = foldPdfText(line.text);
+    if (prefixes.length > 0 && !prefixes.some((p) => folded.includes(p))) continue;
+
+    let rawAmount: string | null = null;
+    if (compiled) {
+      const m = compiled.exec(line.text);
+      if (m) rawAmount = (m[1] ?? m[0] ?? '').trim() || null;
+    } else {
+      const matches = [...line.text.matchAll(amountToken)];
+      const last = matches[matches.length - 1];
+      if (last?.[0]) rawAmount = last[0];
+    }
+    if (!rawAmount) continue;
+
+    const magnitude = parseMajorToMinor(rawAmount, sep, currency, currencyCatalog);
+    let signed = magnitude;
+    if ((rule.negate_if_contains ?? []).some((m) => folded.includes(foldPdfText(m)))) {
+      signed = -Math.abs(magnitude);
+    } else if ((rule.positive_if_contains ?? []).some((m) => folded.includes(foldPdfText(m)))) {
+      signed = Math.abs(magnitude);
+    }
+    return signed;
   }
-  const minor = parseMajorToMinor(text, decimal, currency);
-  return negative ? -Math.abs(minor) : minor;
+  return null;
 }
 
-function textsMatching(line: PdfLine, pattern: RegExp): string[] {
-  const exact = new RegExp(`^${pattern.source}$`);
-  const fromGlyphs = line.glyphs
-    .map((glyph) => glyph.text.trim())
-    .filter((text) => exact.test(text));
-  if (fromGlyphs.length > 0) return fromGlyphs;
-  return [...line.text.matchAll(new RegExp(pattern.source, 'g'))].map((match) => match[0]);
+function isNoiseLine(folded: string, layout: PdfLayoutPayload): boolean {
+  if (!folded) return true;
+  if ((layout.noise_prefixes ?? []).some((p) => folded.startsWith(foldPdfText(p)))) return true;
+  if ((layout.noise_contains ?? []).some((c) => folded.includes(foldPdfText(c)))) return true;
+  return false;
 }
 
-function glyphCenter(line: PdfLine, amount: string): number | null {
-  const glyph = line.glyphs.find((item) => item.text.trim() === amount);
-  if (!glyph) return null;
-  return glyph.x + Math.max(glyph.width, 0) / 2;
-}
-
-function makeRow(
+function makePdfRow(
   sourceIndex: number,
   date: string,
   amountMinor: number,
   currency: string,
   description: string,
-  extras: { reference?: string | null; balance?: number | null } = {},
+  layout: PdfLayoutPayload,
+  extra?: { balanceMinor?: number | null; bankTransactionId?: string | null },
 ): StatementRow {
-  assertRowBudget(sourceIndex);
-  const text = description.replace(/\s+/g, ' ').trim() || 'Statement line';
+  const cleanDescription = description.replace(/\s+/g, ' ').trim() || 'Statement line';
+  const flags = layout.description_flags ?? [];
+  const possibleOwnAccountTransfer = flags.some((flag) => {
+    if (descriptionHasFlag(cleanDescription, flag.pattern)) return true;
+    const re = compileBoundedRegex(flag.pattern, 'iu');
+    return re ? re.test(cleanDescription) : false;
+  });
   return {
     sourceIndex,
     date,
     valueDate: null,
     amountMinor,
     currency,
-    description: text,
+    description: cleanDescription,
     merchant: null,
     counterparty: null,
-    reference: extras.reference ?? null,
-    bankTransactionId: extras.reference ?? null,
-    balanceMinor: extras.balance ?? null,
+    reference: extra?.bankTransactionId ?? null,
+    bankTransactionId: extra?.bankTransactionId ?? null,
+    balanceMinor: extra?.balanceMinor ?? null,
     kind: kindFromSignedAmount(amountMinor),
     warnings: [],
-    possibleOwnAccountTransfer: false,
+    possibleOwnAccountTransfer,
   };
 }
 
 function noteClosing(statement: ParsedStatement, opening: number | null, closing: number | null): void {
-  if (opening === null || closing === null) return;
-  const sum = statement.rows.reduce((total, row) => total + row.amountMinor, 0);
-  if (opening + sum !== closing) statement.warnings.push(CLOSING_BALANCE_MISMATCH_WARNING);
-}
-
-function skipRsdNoise(text: string): boolean {
-  const name = foldPdfText(text).replace(/^['"]+/, '');
-  return name.startsWith('strana')
-    || name.includes('stampano')
-    || name.includes('asseco see')
-    || name.includes('ks2stampa')
-    || name.includes('br.oper')
-    || name.includes('br. oper')
-    || name.startsWith('poziv za reklamaciju')
-    || name.startsWith('vreme prijema')
-    || name.startsWith('iznos transakcije')
-    || name.startsWith('iznos u obracunskoj')
-    || name.startsWith('prodaja ')
-    || name.startsWith('ukupno')
-    || name.startsWith('prethodno stanje')
-    || name.startsWith('novo stanje')
-    || name.startsWith('nerealizovani')
-    || name.startsWith('kamatne');
-}
-
-function rsdAnchors(lines: PdfLine[]): { credit: number; debit: number; balance: number } | null {
-  for (const line of lines) {
-    let credit: number | null = null;
-    let debit: number | null = null;
-    let balance: number | null = null;
-    for (const glyph of line.glyphs) {
-      const name = foldPdfText(glyph.text);
-      if (!name) continue;
-      const center = glyph.x + Math.max(glyph.width, 0) / 2;
-      if (name.includes('potraz')) credit = center;
-      else if (name.includes('duguje')) debit = center;
-      else if (name === 'stanje' || name.startsWith('stanje')) balance = center;
-    }
-    if (credit !== null && debit !== null) {
-      return { credit, debit, balance: balance ?? debit + 70 };
-    }
+  if (opening !== null && closing !== null) {
+    const net = statement.rows.reduce((sum, row) => sum + row.amountMinor, 0);
+    if (opening + net !== closing) statement.warnings.push(CLOSING_BALANCE_MISMATCH_WARNING);
   }
-  return null;
 }
 
-function labeledMinor(lines: PdfLine[], label: string, currency: string): number | null {
-  for (const line of lines) {
-    if (!foldPdfText(line.text).includes(label)) continue;
-    const amounts = textsMatching(line, US_AMOUNT);
-    const last = amounts[amounts.length - 1];
-    if (!last) continue;
-    return parseMajorToMinor(last, '.', currency);
+function extractAmountAndSign(
+  match: RegExpExecArray,
+  rawLine: string,
+  layout: PdfLayoutPayload,
+  currency: string,
+  currencyCatalog: CurrencyCatalog,
+  sectionSign: 1 | -1 | null,
+): number | null {
+  const debitRaw = layout.debit_group !== undefined ? (match[layout.debit_group] ?? '').trim() : '';
+  const creditRaw = layout.credit_group !== undefined ? (match[layout.credit_group] ?? '').trim() : '';
+  const amountRaw = layout.amount_group !== undefined ? (match[layout.amount_group] ?? '').trim() : '';
+
+  if (debitRaw && !creditRaw) {
+    const parsed = parseMajorToMinor(debitRaw, layout.decimal_separator, currency, currencyCatalog);
+    return -Math.abs(parsed);
   }
-  return null;
-}
-
-function parseBpsIzvod(lines: PdfLine[]): ParsedStatement {
-  const anchors = rsdAnchors(lines);
-  const account = lines.map((line) => /Ra[čc]un:\s*([0-9][0-9-]*)/i.exec(line.text)?.[1]).find(Boolean) ?? null;
-  const rows: StatementRow[] = [];
-  let index = 0;
-  while (index < lines.length) {
-    const line = lines[index]!;
-    if (foldPdfText(line.text).includes('ukupno za izvod')) break;
-    const start = /^(\d+)\.\s*(\d{2})\.(\d{2})\.(\d{4})\b/.exec(line.text);
-    if (!start) {
-      index += 1;
-      continue;
-    }
-    const block = [line];
-    index += 1;
-    while (index < lines.length) {
-      const next = lines[index]!;
-      if (foldPdfText(next.text).includes('ukupno za izvod')) break;
-      if (/^\d+\.\s*\d{2}\.\d{2}\.\d{4}\b/.test(next.text)) break;
-      block.push(next);
-      index += 1;
-    }
-    const amounts = textsMatching(line, US_AMOUNT);
-    if (amounts.length === 0) continue;
-    const located = amounts.map((amount) => ({
-      amount,
-      minor: Math.abs(parseMajorToMinor(amount, '.', 'RSD')),
-      x: glyphCenter(line, amount),
-    }));
-    let balanceEntry = located.length > 1 ? located[located.length - 1]! : null;
-    let moveEntry = located.length === 1 ? located[0]! : located[located.length - 2]!;
-    if (anchors && located.length > 1) {
-      balanceEntry = located.reduce((best, item) => {
-        const bestDistance = best.x === null ? Number.POSITIVE_INFINITY : Math.abs(best.x - anchors.balance);
-        const itemDistance = item.x === null ? Number.POSITIVE_INFINITY : Math.abs(item.x - anchors.balance);
-        return itemDistance < bestDistance ? item : best;
-      });
-      moveEntry = located.find((item) => item !== balanceEntry) ?? moveEntry;
-    }
-    let signed = moveEntry.minor;
-    if (anchors && moveEntry.x !== null) {
-      const creditDistance = Math.abs(moveEntry.x - anchors.credit);
-      const debitDistance = Math.abs(moveEntry.x - anchors.debit);
-      signed = debitDistance < creditDistance ? -moveEntry.minor : moveEntry.minor;
-    }
-    const parts: string[] = [];
-    const lead = line.text
-      .replace(/^\d+\.\s*\d{2}\.\d{2}\.\d{4}/, '')
-      .replace(/Kartica\s*:\s*[0-9*]+/i, '')
-      .replace(new RegExp(US_AMOUNT.source, 'g'), ' ')
-      .replace(/(^|\s)\d{3}\.(?=\s|$)/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (lead) parts.push(lead);
-    let reference: string | null = null;
-    let cardNumber: string | null = null;
-    for (const extra of block) {
-      const card = /Kartica\s*:\s*([0-9*]+)/i.exec(extra.text);
-      if (card?.[1]) cardNumber = card[1];
-      if (extra === line) continue;
-      const folded = foldPdfText(extra.text);
-      const complaint = /Poziv za reklamaciju:\s*(\S+)/i.exec(extra.text);
-      if (complaint) reference = complaint[1] ?? null;
-      if (skipRsdNoise(extra.text) || folded.startsWith('poziv za reklamaciju') || folded.startsWith('kartica')) continue;
-      parts.push(extra.text.trim());
-    }
-    if (cardNumber) parts.unshift(`Kartica ${cardNumber}`);
-    rows.push(makeRow(
-      rows.length + 1,
-      isoDate(Number(start[4]), Number(start[3]), Number(start[2])),
-      signed,
-      'RSD',
-      parts.join(' '),
-      { reference, balance: balanceEntry?.minor ?? null },
-    ));
+  if (creditRaw && !debitRaw) {
+    const parsed = parseMajorToMinor(creditRaw, layout.decimal_separator, currency, currencyCatalog);
+    return Math.abs(parsed);
   }
-  if (rows.length === 0) throw new StatementParseError('PDF statement has no transactions');
-  const statement: ParsedStatement = {
-    accountRef: account,
-    currency: 'RSD',
-    rows,
-    warnings: [],
-    dateFormat: 'DD.MM.YYYY',
-  };
-  noteClosing(
-    statement,
-    labeledMinor(lines, 'prethodno stanje', 'RSD'),
-    labeledMinor(lines, 'novo stanje', 'RSD'),
-  );
-  return statement;
+  const source = amountRaw || debitRaw || creditRaw;
+  if (!source) return null;
+
+  const parsed = parseMajorToMinor(source, layout.decimal_separator, currency, currencyCatalog);
+  const foldedLine = foldPdfText(rawLine);
+  if ((layout.debit_indicators ?? []).some((ind) => foldedLine.includes(foldPdfText(ind)))) {
+    return -Math.abs(parsed);
+  }
+  if ((layout.credit_indicators ?? []).some((ind) => foldedLine.includes(foldPdfText(ind)))) {
+    return Math.abs(parsed);
+  }
+  if (sectionSign !== null && parsed > 0 && !source.trim().startsWith('-') && !source.trim().endsWith('-')) {
+    return sectionSign < 0 ? -Math.abs(parsed) : Math.abs(parsed);
+  }
+  return parsed;
 }
 
-function parseBpsFx(lines: PdfLine[]): ParsedStatement {
-  const document = lines.map((line) => line.text).join('\n');
-  const currencyMatch = /\bu (USD|EUR)\b/i.exec(document);
-  if (!currencyMatch) throw new StatementParseError('PDF currency is missing');
-  const currency = currencyMatch[1]!.toUpperCase();
-  const period = /PROMENE U PERIODU:\s*(\d{2})\.(\d{2})\.(\d{2})\s*-\s*(\d{2})\.(\d{2})\.(\d{2})/i.exec(document);
-  if (!period) throw new StatementParseError('PDF statement period is missing');
-  const start = { day: Number(period[1]), month: Number(period[2]), year: century(Number(period[3])) };
-  const end = { day: Number(period[4]), month: Number(period[5]), year: century(Number(period[6])) };
-  const account = /BROJ:\s*([0-9]+(?:-[0-9]+)*)/i.exec(document)?.[1] ?? null;
-  let opening: number | null = null;
-  let closing: number | null = null;
-  const rows: StatementRow[] = [];
-
-  const yearFor = (month: number, day: number): number => {
-    if (start.year === end.year) return start.year;
-    if (month > start.month || (month === start.month && day >= start.day)) return start.year;
-    return end.year;
-  };
-
-  for (const line of lines) {
-    const folded = foldPdfText(line.text);
-    if (folded.includes('prethodno stanje')) {
-      const amounts = textsMatching(line, EU_AMOUNT);
-      const last = amounts[amounts.length - 1];
-      if (last) opening = parseSigned(last, ',', currency);
-      continue;
-    }
-    if (
-      folded.startsWith('izvod br')
-      || folded.includes('promene u periodu')
-      || folded === `u ${currency.toLowerCase()}`
-      || (folded.includes('datum') && folded.includes('saldo'))
-      || folded.startsWith('strana')
-      || folded.includes('stampano')
-    ) {
-      continue;
-    }
-    const date = /^(\d{2})\.(\d{2})(?!\.)/.exec(line.text);
-    if (!date) {
-      const current = rows[rows.length - 1];
-      if (current && line.text.trim()) {
-        current.description = `${current.description} ${line.text.trim()}`.replace(/\s+/g, ' ').trim();
+function findColumnCenters(
+  lines: readonly PdfLine[],
+  rules: PdfColumnRules | null | undefined,
+): { creditX: number | null; debitX: number | null; balanceX: number | null } | null {
+  if (!rules) return null;
+  const matchHeaderX = (headers: readonly string[] | undefined): number | null => {
+    if (!headers || headers.length === 0) return null;
+    const foldedHeaders = headers.map(foldPdfText).filter(Boolean);
+    for (const line of lines) {
+      for (const glyph of line.glyphs) {
+        const fg = foldPdfText(glyph.text);
+        if (!fg) continue;
+        if (foldedHeaders.some((h) => fg === h || fg.startsWith(h) || h === fg)) {
+          return glyph.x + Math.max(glyph.width, 0) / 2;
+        }
       }
-      continue;
     }
-    const amounts = textsMatching(line, EU_AMOUNT);
-    const movement = amounts.length >= 2 ? amounts[amounts.length - 2]! : amounts[0] ?? null;
-    if (!movement) continue;
-    const balanceText = amounts.length >= 2 ? amounts[amounts.length - 1]! : null;
-    const balance = balanceText ? parseSigned(balanceText, ',', currency) : null;
-    if (balance !== null) closing = balance;
-    const description = line.text
-      .replace(/^\d{2}\.\d{2}(?!\.)\s*/, '')
-      .replace(new RegExp(EU_AMOUNT.source, 'g'), '')
-      .replace(/\s+/g, ' ')
-      .trim();
-    rows.push(makeRow(
-      rows.length + 1,
-      isoDate(yearFor(Number(date[2]), Number(date[1])), Number(date[2]), Number(date[1])),
-      parseSigned(movement, ',', currency),
-      currency,
-      description,
-      { balance },
-    ));
-  }
-  if (rows.length === 0) throw new StatementParseError('PDF statement has no transactions');
-  const statement: ParsedStatement = {
-    accountRef: account,
-    currency,
-    rows,
-    warnings: [],
-    dateFormat: 'DD.MM.YYYY',
+    return null;
   };
-  noteClosing(statement, opening, closing);
-  return statement;
+  const creditX = matchHeaderX(rules.credit_headers);
+  const debitX = matchHeaderX(rules.debit_headers);
+  const balanceX = matchHeaderX(rules.balance_headers);
+  if (creditX === null && debitX === null) return null;
+  return { creditX, debitX, balanceX };
 }
 
-function boaSection(text: string): number | null {
-  const name = foldPdfText(text).replace(/\s*-\s*continued$/, '').trim();
-  if (name === 'deposits and other additions') return 1;
-  if (name === 'atm and debit card subtractions') return -1;
-  if (name === 'withdrawals and other subtractions') return -1;
-  if (name === 'other subtractions') return -1;
-  if (name === 'service fees') return -1;
-  return null;
-}
+function extractAmountsByColumn(
+  line: PdfLine,
+  centers: { creditX: number | null; debitX: number | null; balanceX: number | null },
+  decimalSeparator: '.' | ',',
+  currency: string,
+  currencyCatalog: CurrencyCatalog,
+): { amountMinor: number | null; balanceMinor: number | null } {
+  const numRe = decimalSeparator === ','
+    ? /^(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}-?$/
+    : /^-?(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2}$/;
+  const buckets: Array<{ kind: 'credit' | 'debit' | 'balance'; x: number }> = [];
+  if (centers.creditX !== null) buckets.push({ kind: 'credit', x: centers.creditX });
+  if (centers.debitX !== null) buckets.push({ kind: 'debit', x: centers.debitX });
+  if (centers.balanceX !== null) buckets.push({ kind: 'balance', x: centers.balanceX });
 
-function boaHardStop(text: string): boolean {
-  const name = foldPdfText(text);
-  return name.includes('important information')
-    || name.includes('intentionally left blank')
-    || name.includes('scam')
-    || name.includes('braille')
-    || name.includes('©')
-    || name.includes('copyright');
-}
+  let creditMinor: number | null = null;
+  let debitMinor: number | null = null;
+  let balanceMinor: number | null = null;
 
-function boaSoftSkip(text: string): boolean {
-  const name = foldPdfText(text);
-  return name.length === 0
-    || name.includes('continued on the next page')
-    || /page \d+ of \d+/.test(name)
-    || name.startsWith('pull:')
-    || name.includes('account #')
-    || name.startsWith('date description')
-    || name.startsWith('date transaction')
-    || name.startsWith('transaction description')
-    || name.startsWith('beginning balance')
-    || name.startsWith('ending balance')
-    || name.startsWith('total ')
-    || /^(deposits and other additions|atm and debit card subtractions|withdrawals and other subtractions|other subtractions|service fees)\s+\$/.test(name);
-}
-
-function summaryMinor(lines: PdfLine[], label: string): number | null {
-  for (const line of lines) {
-    if (!foldPdfText(line.text).startsWith(label)) continue;
-    const amounts = textsMatching(line, US_AMOUNT);
-    const last = amounts[amounts.length - 1];
-    if (!last) continue;
-    return parseMajorToMinor(last, '.', 'USD');
+  for (const glyph of line.glyphs) {
+    const token = glyph.text.trim();
+    if (!token || !numRe.test(token)) continue;
+    const gx = glyph.x + Math.max(glyph.width, 0) / 2;
+    let best: { kind: 'credit' | 'debit' | 'balance'; dist: number } | null = null;
+    for (const bucket of buckets) {
+      const dist = Math.abs(gx - bucket.x);
+      if (!best || dist < best.dist) best = { kind: bucket.kind, dist };
+    }
+    if (!best) continue;
+    const parsed = Math.abs(parseMajorToMinor(token, decimalSeparator, currency, currencyCatalog));
+    if (best.kind === 'credit' && parsed > 0) creditMinor = parsed;
+    else if (best.kind === 'debit' && parsed > 0) debitMinor = -parsed;
+    else if (best.kind === 'balance') balanceMinor = parseMajorToMinor(token, decimalSeparator, currency, currencyCatalog);
   }
-  return null;
+  const amountMinor = creditMinor ?? debitMinor;
+  return { amountMinor, balanceMinor };
 }
 
-function parseBofa(lines: PdfLine[]): ParsedStatement {
-  const document = lines.map((line) => line.text).join('\n');
-  const account = /Account number:\s*([0-9][0-9 ]*)/i.exec(document)?.[1]?.trim() ?? null;
-  const rows: StatementRow[] = [];
-  let section: number | null = null;
-  let quiet = false;
-  for (const line of lines) {
-    const sectionSign = boaSection(line.text);
-    if (sectionSign !== null) {
-      section = sectionSign;
-      quiet = false;
-      continue;
-    }
-    if (boaHardStop(line.text)) {
-      quiet = true;
-      continue;
-    }
-    if (boaSoftSkip(line.text) || quiet) continue;
-    const date = /^(\d{2})\/(\d{2})\/(\d{2})\b/.exec(line.text.trim());
-    if (!date || section === null) {
-      if (section !== null && rows.length > 0 && line.text.trim()) {
-        const current = rows[rows.length - 1]!;
-        current.description = `${current.description} ${line.text.trim()}`.replace(/\s+/g, ' ').trim();
+export function parsePdfWithLayout(
+  lines: readonly PdfLine[],
+  layout: PdfLayoutPayload,
+  currencyCatalog: CurrencyCatalog = getRuntimeCurrencyCatalog(),
+): ParsedStatement {
+  const documentText = lines.map((line) => line.text).join('\n');
+
+  let accountRef: string | null = null;
+  if (layout.account_ref_pattern) {
+    const re = compileBoundedRegex(layout.account_ref_pattern, 'iu');
+    const m = re?.exec(documentText);
+    if (m) accountRef = (m[1] ?? m[0] ?? '').trim() || null;
+  }
+
+  let yearWindow: PdfYearWindow | null = null;
+  if (layout.year_pattern) {
+    const re = compileBoundedRegex(layout.year_pattern, 'u');
+    const m = re?.exec(documentText);
+    if (m) {
+      const startYear = expandPdfYear(m[1] ?? m[0]);
+      const endYear = m[2] ? expandPdfYear(m[2]) : null;
+      if (startYear !== null) {
+        yearWindow = { startYear, endYear };
       }
-      continue;
     }
-    const amountMatch = /(-?(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2})\s*$/.exec(line.text.trim());
-    if (!amountMatch) continue;
-    const parsed = parseMajorToMinor(amountMatch[1]!, '.', 'USD');
-    const amountMinor = section < 0 ? -Math.abs(parsed) : Math.abs(parsed);
-    const description = line.text.trim()
-      .replace(/^\d{2}\/\d{2}\/\d{2}\s*/, '')
-      .replace(/(-?(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2})\s*$/, '')
-      .trim();
-    rows.push(makeRow(
-      rows.length + 1,
-      isoDate(century(Number(date[3])), Number(date[1]), Number(date[2])),
-      amountMinor,
-      'USD',
-      description,
-    ));
   }
-  if (rows.length === 0) throw new StatementParseError('PDF statement has no transactions');
+
+  let defaultCurrency = normalizeCurrencyCodeSyntax(layout.currency_code ?? null);
+  if (!defaultCurrency && layout.currency_pattern) {
+    const re = compileBoundedRegex(layout.currency_pattern, 'iu');
+    const m = re?.exec(documentText);
+    if (m) defaultCurrency = normalizeCurrencyCodeSyntax(m[1] ?? m[0]);
+  }
+  if (!defaultCurrency) {
+    throw new StatementParseError('PDF currency could not be determined from layout or document');
+  }
+  // Fail closed up front if configured currency has no currency_standards entry in D1.
+  fractionDigits(defaultCurrency, currencyCatalog);
+
+  const rowStartRe = compileBoundedRegex(layout.row_start_pattern, 'u');
+  if (!rowStartRe) {
+    throw new StatementParseError(`Invalid row_start_pattern in PDF layout "${layout.id}"`);
+  }
+  const rowLineRe = layout.row_line_pattern ? compileBoundedRegex(layout.row_line_pattern, 'u') : null;
+
+  const startMarkers = (layout.section_start_markers ?? []).map(foldPdfText);
+  const stopMarkers = (layout.section_stop_markers ?? []).map(foldPdfText);
+  const sectionSigns = (layout.section_signs ?? []).map((rule) => ({
+    marker: foldPdfText(rule.marker),
+    sign: rule.sign,
+  }));
+
+  const rows: StatementRow[] = [];
+  const prevMonthState = { value: null as number | null, activeYear: null as number | null };
+
+  if (layout.row_mode === 'single_line_regex') {
+    const hasStartGate = startMarkers.length > 0 || sectionSigns.length > 0;
+    let inSection = !hasStartGate;
+    let stopped = false;
+    let sectionSign: 1 | -1 | null = null;
+
+    for (const line of lines) {
+      const folded = foldPdfText(line.text);
+      const signMatch = sectionSigns.find((rule) => folded === rule.marker || folded.startsWith(rule.marker));
+      if (signMatch) {
+        sectionSign = signMatch.sign;
+        inSection = true;
+        stopped = false;
+        continue;
+      }
+      if (startMarkers.some((m) => folded.includes(m))) {
+        inSection = true;
+        stopped = false;
+        continue;
+      }
+      if (stopMarkers.some((m) => folded.includes(m))) {
+        stopped = true;
+        continue;
+      }
+      if (stopped || !inSection || isNoiseLine(folded, layout)) continue;
+
+      const trimmed = line.text.trim();
+      const match = rowStartRe.exec(trimmed);
+      if (!match) {
+        if (rows.length > 0 && trimmed) {
+          const prev = rows[rows.length - 1]!;
+          prev.description = `${prev.description} ${trimmed}`.replace(/\s+/g, ' ').trim();
+        }
+        continue;
+      }
+
+      const rowCurrency = layout.currency_group !== undefined
+        ? normalizeCurrencyCodeSyntax(match[layout.currency_group] ?? '') ?? defaultCurrency
+        : defaultCurrency;
+      fractionDigits(rowCurrency, currencyCatalog);
+
+      const dateRaw = match[layout.date_group ?? 1] ?? '';
+      const date = parsePdfDateFlexible(dateRaw, layout.date_format, yearWindow, prevMonthState);
+      const amountMinor = extractAmountAndSign(match, trimmed, layout, rowCurrency, currencyCatalog, sectionSign);
+      if (amountMinor === null || amountMinor === 0) continue;
+
+      let balanceMinor: number | null = null;
+      if (layout.balance_group !== undefined && match[layout.balance_group]) {
+        balanceMinor = parseMajorToMinor(match[layout.balance_group]!, layout.decimal_separator, rowCurrency, currencyCatalog);
+      }
+      const bankRef = layout.bank_ref_group !== undefined ? (match[layout.bank_ref_group]?.trim() || null) : null;
+      let description = layout.description_group !== undefined
+        ? (match[layout.description_group] ?? '').trim()
+        : trimmed.replace(rowStartRe, '').trim();
+      if (!description) description = trimmed;
+
+      rows.push(makePdfRow(rows.length + 1, date, amountMinor, rowCurrency, description, layout, {
+        balanceMinor,
+        bankTransactionId: bankRef,
+      }));
+      assertRowBudget(rows.length);
+    }
+  } else {
+    // 'dated_blocks' mode: collect lines from each `row_start_pattern` until the next `row_start_pattern` or stop marker.
+    const hasStartGate = startMarkers.length > 0;
+    let inSection = !hasStartGate;
+    const blocks: PdfLine[][] = [];
+    let currentBlock: PdfLine[] | null = null;
+    const columnCenters = findColumnCenters(lines, layout.column_rules);
+
+    for (const line of lines) {
+      const folded = foldPdfText(line.text);
+      if (!inSection) {
+        if (startMarkers.some((m) => folded.includes(m))) inSection = true;
+        continue;
+      }
+      if (stopMarkers.some((m) => folded.includes(m))) {
+        if (currentBlock) blocks.push(currentBlock);
+        currentBlock = null;
+        inSection = false;
+        continue;
+      }
+      if (isNoiseLine(folded, layout)) continue;
+
+      const trimmed = line.text.trim();
+      if (rowStartRe.test(trimmed)) {
+        if (currentBlock) blocks.push(currentBlock);
+        currentBlock = [line];
+      } else if (currentBlock) {
+        currentBlock.push(line);
+      }
+    }
+    if (currentBlock) blocks.push(currentBlock);
+
+    for (const blockLines of blocks) {
+      const headLine = blockLines[0]!;
+      const blockTextLines = blockLines.map((item) => item.text.trim());
+      const joined = blockTextLines.join('\n');
+      const target = rowLineRe ?? rowStartRe;
+      const match = target.exec(joined) ?? target.exec(blockTextLines[0]!) ?? rowStartRe.exec(blockTextLines[0]!);
+      if (!match) continue;
+
+      const rowCurrency = layout.currency_group !== undefined
+        ? normalizeCurrencyCodeSyntax(match[layout.currency_group] ?? '') ?? defaultCurrency
+        : defaultCurrency;
+      fractionDigits(rowCurrency, currencyCatalog);
+
+      const dateRaw = match[layout.date_group ?? 1] ?? '';
+      const date = parsePdfDateFlexible(dateRaw, layout.date_format, yearWindow, prevMonthState);
+      let amountMinor: number | null = null;
+      let balanceMinor: number | null = null;
+
+      if (columnCenters) {
+        const byCols = extractAmountsByColumn(headLine, columnCenters, layout.decimal_separator, rowCurrency, currencyCatalog);
+        amountMinor = byCols.amountMinor;
+        balanceMinor = byCols.balanceMinor;
+      }
+      if (amountMinor === null) {
+        amountMinor = extractAmountAndSign(match, joined, layout, rowCurrency, currencyCatalog, null);
+      }
+      if (amountMinor === null || amountMinor === 0) continue;
+
+      if (balanceMinor === null && layout.balance_group !== undefined && match[layout.balance_group]) {
+        balanceMinor = parseMajorToMinor(match[layout.balance_group]!, layout.decimal_separator, rowCurrency, currencyCatalog);
+      }
+
+      let bankRef = layout.bank_ref_group !== undefined ? (match[layout.bank_ref_group]?.trim() || null) : null;
+      if (!bankRef && layout.column_rules?.ref_pattern) {
+        const refRe = compileBoundedRegex(layout.column_rules.ref_pattern, 'iu');
+        const refMatch = refRe?.exec(joined);
+        if (refMatch) bankRef = (refMatch[1] ?? refMatch[0] ?? '').trim() || null;
+      }
+
+      let description = layout.description_group !== undefined && match[layout.description_group]
+        ? match[layout.description_group]!.trim()
+        : '';
+      if (!description) {
+        const extraHead = blockTextLines[0]!.replace(rowStartRe, '').replace(/\d{1,3}(?:,\d{3})*\.\d{2}/g, '').trim();
+        const bodyParts = [extraHead, ...blockTextLines.slice(1)].filter(Boolean);
+        let assembled = bodyParts.join(' ');
+        for (const stripPattern of layout.column_rules?.strip_patterns ?? []) {
+          const stripRe = compileBoundedRegex(stripPattern, 'giu');
+          if (stripRe) assembled = assembled.replace(stripRe, ' ');
+        }
+        description = assembled.replace(/\s+/g, ' ').trim() || blockTextLines[0]!;
+      }
+
+      rows.push(makePdfRow(rows.length + 1, date, amountMinor, rowCurrency, description, layout, {
+        balanceMinor,
+        bankTransactionId: bankRef,
+      }));
+      assertRowBudget(rows.length);
+    }
+  }
+
+  if (rows.length === 0) {
+    throw new StatementParseError('PDF statement has no transactions');
+  }
+
+  const openingMinor = findBalanceMinor(lines, layout.opening_balance, layout.decimal_separator, defaultCurrency, currencyCatalog);
+  const closingMinor = findBalanceMinor(lines, layout.closing_balance, layout.decimal_separator, defaultCurrency, currencyCatalog)
+    ?? (layout.closing_balance ? null : (rows[rows.length - 1]?.balanceMinor ?? null));
+
   const statement: ParsedStatement = {
-    accountRef: account,
-    currency: 'USD',
+    accountRef: accountRef ?? layout.account_label ?? null,
+    currency: defaultCurrency,
     rows,
     warnings: [],
-    dateFormat: 'MM/DD/YYYY',
+    dateFormat: layout.date_format,
   };
-  noteClosing(statement, summaryMinor(lines, 'beginning balance'), summaryMinor(lines, 'ending balance'));
+  noteClosing(statement, openingMinor, closingMinor);
   return statement;
 }
 
 export async function parsePdfStatement(
   bytes: Uint8Array,
-  layouts: readonly PdfLayoutId[] | null,
-): Promise<{ statement: ParsedStatement; detectedPresetId: string }> {
+  layouts: readonly PdfLayoutPayload[],
+  options: {
+    allowedLayoutIds?: readonly string[] | null;
+    currencyCatalog?: CurrencyCatalog;
+  } = {},
+): Promise<{ statement: ParsedStatement; detectedPresetId: string; detectedLayoutId: string }> {
+  if (layouts.length === 0) {
+    throw new StatementParseError(
+      'No active PDF layout rules are configured in D1 rules.',
+      'MISSING_CONFIGURATION',
+    );
+  }
+  const filteredLayouts = options.allowedLayoutIds && options.allowedLayoutIds.length > 0
+    ? layouts.filter(
+        (layout) => options.allowedLayoutIds!.includes(layout.id)
+          || (layout.template_id != null && options.allowedLayoutIds!.includes(layout.template_id)),
+      )
+    : layouts;
+  if (filteredLayouts.length === 0) {
+    throw new StatementParseError(
+      'No active PDF layout rules match the selected statement template.',
+      'MISSING_CONFIGURATION',
+    );
+  }
+
   const lines = await readPdfLines(bytes);
-  const layout = detectPdfLayout(lines);
-  if (!layout || (layouts && !layouts.includes(layout))) {
+  const matched = detectPdfLayout(lines, filteredLayouts);
+  if (!matched) {
     throw new StatementParseError('PDF layout is not recognized', 'PDF_UNKNOWN_LAYOUT');
   }
-  const statement = layout === 'bps-izvod'
-    ? parseBpsIzvod(lines)
-    : layout === 'bps-fx'
-      ? parseBpsFx(lines)
-      : parseBofa(lines);
+
+  const statement = parsePdfWithLayout(lines, matched, options.currencyCatalog ?? getRuntimeCurrencyCatalog());
   return {
     statement,
-    detectedPresetId: layout === 'bofa' ? 'us-bofa-pdf' : 'rs-bps-pdf',
+    detectedPresetId: matched.template_id ?? matched.id,
+    detectedLayoutId: matched.id,
   };
 }

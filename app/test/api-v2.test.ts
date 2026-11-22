@@ -8,6 +8,7 @@ import { CURRENCY_TABLES } from '../src/worker/api';
 import { createSessionCookie } from '../src/worker/auth';
 import type { Env } from '../src/worker/types';
 import { errorBody, errorOf } from './api-error-helpers';
+import { seedAllTestRules, seedTestRecurringPolicies } from './seed-test-rules';
 
 const ISO_SECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 
@@ -33,6 +34,9 @@ beforeEach(async () => {
     env.DB.prepare('DELETE FROM receipts'),
     env.DB.prepare('DELETE FROM fx_rates'),
     env.DB.prepare('DELETE FROM accounts'),
+    env.DB.prepare('DELETE FROM rule_entries'),
+    env.DB.prepare('DELETE FROM rule_sets'),
+    env.DB.prepare('DELETE FROM recurring_policy_bindings'),
     env.DB.prepare(
       `INSERT INTO settings (key, value) VALUES
          ('base_currency', 'USD'),
@@ -40,6 +44,7 @@ beforeEach(async () => {
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     ),
   ]);
+  await seedAllTestRules(env.DB);
 });
 
 async function api(method: string, path: string, body?: unknown, withCookie = true): Promise<Response> {
@@ -799,7 +804,7 @@ describe('fx-rates', () => {
   it('PUT of the base currency → 400, and no row appears in fx_rates', async () => {
     const res = await api('PUT', '/api/v2/fx-rates/USD', { rate: '1' });
     expect(res.status).toBe(400);
-    expect(await errorOf(res)).toContain('USD');
+    expect((await errorBody(res)).code).toBe('BASE_CURRENCY_RATE_FORBIDDEN');
 
     const listRes = await api('GET', '/api/v2/fx-rates');
     const list = (await listRes.json()) as { rates: Array<Record<string, unknown>> };
@@ -2738,13 +2743,13 @@ describe('settings', () => {
     });
 
     it.each([
-      ['a non-string', 123],
-      ['a 2-letter code', 'EU'],
-      ['a code with digits', 'EU1'],
-      ['a three-letter code that does not exist', 'ZZZ'],
-    ])('rejects %s and does not change the setting', async (_label, value) => {
+      ['a non-string', 123, 400],
+      ['a 2-letter code', 'EU', 400],
+      ['a code with digits', 'EU1', 400],
+      ['a three-letter code that does not exist', 'ZZZ', 422],
+    ])('rejects %s and does not change the setting', async (_label, value, expectedStatus) => {
       const res = await api('PUT', '/api/v2/settings/base_currency', { value });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(expectedStatus);
       expect(await errorOf(res)).toBeTypeOf('string');
 
       const refreshed = await api('GET', '/api/v2/settings');
@@ -3186,6 +3191,7 @@ describe('existing-operation fulfillment', () => {
             day_of_month, month_of_year, next_due_date, end_date, active)
          VALUES (?, ?, -1000, 'USD', ?, ?, 'daily', 1, NULL, NULL, '2026-09-20', NULL, 1)`,
       ).bind(id, title, accountId, title).run();
+      await seedTestRecurringPolicies(env.DB, [id]);
     }
 
     it('rejects close_period and fulfill-existing on analytical ids 16 and 17; skip_period still works', async () => {

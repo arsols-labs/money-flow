@@ -12,6 +12,22 @@ import {
   type ReceiptIdentityOperation,
 } from '../src/shared/receipt-groups';
 
+import {
+  makeTestResolvedRuleEntry,
+  TEST_CURRENCY_CATALOG,
+  TEST_DELIVERY_SERVICES,
+  TEST_VENUE_SUFFIXES,
+} from './seed-test-rules';
+
+const RECEIPT_GROUP_RULES = {
+  deliveryServices: TEST_DELIVERY_SERVICES.map((d, i) =>
+    makeTestResolvedRuleEntry('delivery_services', d.key, 'contains', d.pattern, d.payload, (i + 1) * 10),
+  ),
+  venueSuffixes: TEST_VENUE_SUFFIXES.map((v, i) =>
+    makeTestResolvedRuleEntry('venue_suffixes', v.key, 'suffix', v.pattern, v.payload, (i + 1) * 10),
+  ),
+};
+
 const EPOCH = '11111111-1111-4111-8111-111111111111';
 const TOKEN_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const TOKEN_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -85,6 +101,7 @@ describe('manual receipt group projection', () => {
       {
         baseCurrency: 'USD',
         ratesE9: new Map([['EUR', 1_004_000_000]]),
+        currencyCatalog: TEST_CURRENCY_CATALOG,
       },
     );
     expect(group.multi_currency).toBe(true);
@@ -112,6 +129,7 @@ describe('manual receipt group projection', () => {
       {
         baseCurrency: 'USD',
         ratesE9: new Map(),
+        currencyCatalog: TEST_CURRENCY_CATALOG,
       },
     );
     expect(group.multi_currency).toBe(true);
@@ -189,35 +207,35 @@ describe('manual receipt group projection', () => {
     expect(resolveReceiptGroupPlace([
       { store: 'Restoran Synth Kitchen' },
       { store: 'Restoran Synth Bar' },
-    ])).toBe('Restoran Synth');
+    ], null, RECEIPT_GROUP_RULES)).toBe('Restoran Synth');
     expect(resolveReceiptGroupPlace([
       { store: 'Ресторан Синт — кухня' },
       { store: 'Ресторан Синт — бар' },
-    ])).toBe('Ресторан Синт');
+    ], null, RECEIPT_GROUP_RULES)).toBe('Ресторан Синт');
     expect(resolveReceiptGroupPlace([
       { store: 'Wolt d.o.o.' },
       { store: 'Apoteka Synth' },
-    ])).toBe('Apoteka Synth');
+    ], null, RECEIPT_GROUP_RULES)).toBe('Apoteka Synth');
     expect(resolveReceiptGroupPlace([
       { store: 'Apoteka Synth' },
       { store: 'Wolt' },
-    ])).toBe('Apoteka Synth');
+    ], null, RECEIPT_GROUP_RULES)).toBe('Apoteka Synth');
     expect(resolveReceiptGroupPlace([
       { store: 'Apoteka Synth' },
       { store: 'Pekara Synth' },
-    ], 'Typed visit name')).toBe('Typed visit name');
+    ], 'Typed visit name', RECEIPT_GROUP_RULES)).toBe('Typed visit name');
     expect(resolveReceiptGroupPlace([
       { store: 'Apoteka Synth' },
       { store: 'Pekara Synth' },
-    ])).toBeNull();
+    ], null, RECEIPT_GROUP_RULES)).toBeNull();
     expect(resolveReceiptGroupPlace([
       { store: 'Wolt' },
       { store: 'Wolt d.o.o.' },
-    ])).toBeNull();
+    ], null, RECEIPT_GROUP_RULES)).toBeNull();
     expect(resolveReceiptGroupPlace([
       { store: 'Apoteka Synth' },
       { store: null },
-    ])).toBeNull();
+    ], null, RECEIPT_GROUP_RULES)).toBeNull();
   });
 
   it('accepts same calendar date with different times of day and rejects different calendar dates', () => {
@@ -302,20 +320,20 @@ function manualGroup(id: number, operationIds: number[], date = '2026-11-01'): R
 describe('receipt group rename target and analytics nesting', () => {
   it('stores a typed name and falls back to a resolved place without inventing one', () => {
     const cards = [{ store: 'Apoteka Synth' }, { store: 'Wolt' }];
-    expect(receiptGroupRenameTarget(cards, '  Weekend market  ')).toEqual({
+    expect(receiptGroupRenameTarget(cards, '  Weekend market  ', RECEIPT_GROUP_RULES)).toEqual({
       displayName: 'Weekend market',
       place: 'Weekend market',
     });
-    expect(receiptGroupRenameTarget(cards, null)).toEqual({
+    expect(receiptGroupRenameTarget(cards, null, RECEIPT_GROUP_RULES)).toEqual({
       displayName: null,
       place: 'Apoteka Synth',
     });
-    expect(receiptGroupRenameTarget(cards, '   ')).toEqual({
+    expect(receiptGroupRenameTarget(cards, '   ', RECEIPT_GROUP_RULES)).toEqual({
       displayName: null,
       place: 'Apoteka Synth',
     });
-    expect(receiptGroupRenameTarget([{ store: 'Wolt' }, { store: 'Glovo' }], null)).toBeNull();
-    expect(receiptGroupRenameTarget([{ store: '' }, { store: 'Apoteka Synth' }], '')).toBeNull();
+    expect(receiptGroupRenameTarget([{ store: 'Wolt' }, { store: 'Glovo' }], null, RECEIPT_GROUP_RULES)).toBeNull();
+    expect(receiptGroupRenameTarget([{ store: '' }, { store: 'Apoteka Synth' }], '', RECEIPT_GROUP_RULES)).toBeNull();
   });
 
   it('nests grouped lines once, keeps a later loose receipt first, and leaves whole-card totals alone', () => {

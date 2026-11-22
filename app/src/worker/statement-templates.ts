@@ -4,11 +4,20 @@ import {
   validateStatementTemplate,
   type StatementTemplate,
 } from '../shared/statement-import/template-schema';
-import { isBuiltinTemplateId } from '../shared/statement-import/templates';
+import type { RuleEntryRecord, RuleSetRecord } from '../shared/rules';
+import {
+  bumpRulesEpoch,
+  deleteRuleEntry,
+  ensureActiveSharedRuleSet,
+  loadRulesSnapshot,
+  upsertRuleEntry,
+  type RuleActor,
+} from './rules-store';
 
 export const STATEMENT_TEMPLATE_MAX_BYTES = 32_768;
 
 const TEMPLATE_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const DEFAULT_STATEMENT_TEMPLATES_SET_KEY = 'user-statement-templates';
 
 export interface TemplateProvenance {
   createdVia: 'api' | 'mcp' | 'backup';
@@ -25,25 +34,6 @@ export interface StoredStatementTemplate {
   createdVia: string | null;
   createdByClientId: string | null;
   usedBatchId: number | null;
-}
-
-interface TemplateRow {
-  template_id: string;
-  label: string;
-  format: string;
-  document: string;
-  created_at: string;
-  updated_at: string;
-  created_via: string | null;
-  created_by_client_id: string | null;
-  used_batch_id: number | null;
-}
-
-const TEMPLATE_COLUMNS = `template_id, label, format, document, created_at, updated_at,
-  created_via, created_by_client_id, used_batch_id`;
-
-function nowIso(): string {
-  return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -67,28 +57,39 @@ export function parseStatementTemplate(input: unknown): StatementTemplate {
   return result.value;
 }
 
-function rowToStored(row: TemplateRow): StoredStatementTemplate {
+function parseMeta(metaJson: string | null): Record<string, unknown> {
+  if (!metaJson) return {};
+  try {
+    const parsed = JSON.parse(metaJson);
+    return isPlainObject(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function entryToStored(entry: RuleEntryRecord): StoredStatementTemplate {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(row.document);
+    parsed = JSON.parse(entry.payload_json);
   } catch {
     throw new ValidationError('TEMPLATE_INVALID', { detail: '/document must be JSON' });
   }
   const document = parseStatementTemplate(parsed);
+  const meta = parseMeta(entry.meta_json);
   return {
-    templateId: row.template_id,
-    label: row.label,
+    templateId: document.id,
+    label: document.label,
     format: document.format,
     document,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    createdVia: row.created_via,
-    createdByClientId: row.created_by_client_id,
-    usedBatchId: row.used_batch_id,
+    createdAt: entry.created_at,
+    updatedAt: entry.updated_at,
+    createdVia: typeof meta.created_via === 'string' ? meta.created_via : null,
+    createdByClientId: typeof meta.created_by_client_id === 'string' ? meta.created_by_client_id : null,
+    usedBatchId: typeof meta.used_batch_id === 'number' && Number.isInteger(meta.used_batch_id) ? meta.used_batch_id : null,
   };
 }
 
-export function templateJson(template: StatementTemplate, source: 'builtin' | 'user', stamps?: {
+export function templateJson(template: StatementTemplate, source: 'd1' | 'user' = 'user', stamps?: {
   createdAt: string;
   updatedAt: string;
   createdVia?: string | null;
@@ -96,7 +97,7 @@ export function templateJson(template: StatementTemplate, source: 'builtin' | 'u
 }) {
   return {
     source,
-    readonly: source === 'builtin',
+    readonly: false,
     document: template,
     created_at: stamps?.createdAt ?? null,
     updated_at: stamps?.updatedAt ?? null,
@@ -105,22 +106,54 @@ export function templateJson(template: StatementTemplate, source: 'builtin' | 'u
   };
 }
 
+function activeTemplateEntries(snapshot: Awaited<ReturnType<typeof loadRulesSnapshot>>): Array<{
+  set: RuleSetRecord;
+  entry: RuleEntryRecord;
+}> {
+  const activeSets = snapshot.sets
+    .filter((set) => set.domain === 'statement_templates' && set.state === 'active')
+    .sort((a, b) => a.priority - b.priority || a.id - b.id);
+  const out: Array<{ set: RuleSetRecord; entry: RuleEntryRecord }> = [];
+  for (const set of activeSets) {
+    const entries = snapshot.entriesBySetId.get(set.id) ?? [];
+    for (const entry of entries) {
+      if (entry.enabled === 1) out.push({ set, entry });
+    }
+  }
+  out.sort((a, b) => b.entry.updated_at.localeCompare(a.entry.updated_at) || b.entry.id - a.entry.id);
+  return out;
+}
+
 export async function listStatementTemplates(db: D1Database): Promise<StoredStatementTemplate[]> {
-  const { results } = await db.prepare(
-    `SELECT ${TEMPLATE_COLUMNS}
-     FROM statement_templates
-     ORDER BY updated_at DESC, id DESC`,
-  ).all<TemplateRow>();
-  return results.map(rowToStored);
+  const snapshot = await loadRulesSnapshot(db);
+  return activeTemplateEntries(snapshot).map(({ entry }) => entryToStored(entry));
+}
+
+async function findStatementTemplateRecord(
+  db: D1Database,
+  templateId: string,
+): Promise<{ set: RuleSetRecord; entry: RuleEntryRecord; stored: StoredStatementTemplate } | null> {
+  if (!TEMPLATE_ID.test(templateId)) return null;
+  const snapshot = await loadRulesSnapshot(db);
+  for (const { set, entry } of activeTemplateEntries(snapshot)) {
+    const stored = entryToStored(entry);
+    if (stored.templateId === templateId || entry.entry_key === templateId) {
+      return { set, entry, stored };
+    }
+  }
+  return null;
 }
 
 export async function getStatementTemplate(db: D1Database, templateId: string): Promise<StoredStatementTemplate | null> {
-  if (!TEMPLATE_ID.test(templateId)) return null;
-  const row = await db.prepare(
-    `SELECT ${TEMPLATE_COLUMNS}
-     FROM statement_templates WHERE template_id = ?`,
-  ).bind(templateId).first<TemplateRow>();
-  return row ? rowToStored(row) : null;
+  const found = await findStatementTemplateRecord(db, templateId);
+  return found ? found.stored : null;
+}
+
+function actorFromProvenance(provenance: TemplateProvenance): RuleActor {
+  return {
+    source: provenance.createdVia === 'mcp' ? 'mcp' : provenance.createdVia === 'backup' ? 'import' : 'api',
+    actor: provenance.createdByClientId,
+  };
 }
 
 export async function insertStatementTemplate(
@@ -128,34 +161,40 @@ export async function insertStatementTemplate(
   document: StatementTemplate,
   provenance: TemplateProvenance = { createdVia: 'api', createdByClientId: null },
 ): Promise<StoredStatementTemplate> {
-  if (isBuiltinTemplateId(document.id)) {
-    throw new ValidationError('TEMPLATE_ID_RESERVED', undefined, 409);
-  }
-  const existing = await getStatementTemplate(db, document.id);
+  const existing = await findStatementTemplateRecord(db, document.id);
   if (existing) throw new ValidationError('TEMPLATE_ID_TAKEN', undefined, 409);
-  const stamp = nowIso();
-  const encoded = JSON.stringify(document);
+
+  const actor = actorFromProvenance(provenance);
+  const set = await ensureActiveSharedRuleSet(
+    db,
+    'statement_templates',
+    DEFAULT_STATEMENT_TEMPLATES_SET_KEY,
+    'User Statement Templates',
+    actor,
+  );
+  const meta: Record<string, unknown> = {
+    created_via: provenance.createdVia,
+    created_by_client_id: provenance.createdByClientId,
+    used_batch_id: null,
+  };
   try {
-    const row = await db.prepare(
-      `INSERT INTO statement_templates (
-         template_id, label, format, document, created_at, updated_at, created_via, created_by_client_id
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       RETURNING ${TEMPLATE_COLUMNS}`,
-    ).bind(
-      document.id,
-      document.label,
-      document.format,
-      encoded,
-      stamp,
-      stamp,
-      provenance.createdVia,
-      provenance.createdByClientId,
-    ).first<TemplateRow>();
-    if (!row) throw new ValidationError('TEMPLATE_INVALID', { detail: '/ could not be saved' });
-    return rowToStored(row);
+    const res = await upsertRuleEntry(
+      db,
+      set.id,
+      null,
+      {
+        entry_key: document.id,
+        priority: 100,
+        enabled: true,
+        payload: document,
+        meta,
+      },
+      set.revision,
+      actor,
+    );
+    return entryToStored(res.entry);
   } catch (error) {
-    if (error instanceof ValidationError) throw error;
-    if (/UNIQUE/i.test(error instanceof Error ? error.message : String(error))) {
+    if (error instanceof ValidationError && error.code === 'RULE_CONFLICT') {
       throw new ValidationError('TEMPLATE_ID_TAKEN', undefined, 409);
     }
     throw error;
@@ -167,12 +206,9 @@ export async function updateStatementTemplate(
   templateId: string,
   input: { label?: string; document?: StatementTemplate },
 ): Promise<StoredStatementTemplate> {
-  if (isBuiltinTemplateId(templateId)) {
-    throw new ValidationError('TEMPLATE_READONLY', undefined, 403);
-  }
-  const current = await getStatementTemplate(db, templateId);
-  if (!current) throw new ValidationError('TEMPLATE_NOT_FOUND', undefined, 404);
-  let next = input.document ?? current.document;
+  const found = await findStatementTemplateRecord(db, templateId);
+  if (!found) throw new ValidationError('TEMPLATE_NOT_FOUND', undefined, 404);
+  let next = input.document ?? found.stored.document;
   if (next.id !== templateId) {
     throw new ValidationError('TEMPLATE_INVALID', { detail: '/id must match the template being updated' });
   }
@@ -183,22 +219,51 @@ export async function updateStatementTemplate(
       throw new ValidationError('TEMPLATE_INVALID', { detail: '/id must match the template being updated' });
     }
   }
-  const stamp = nowIso();
-  const row = await db.prepare(
-    `UPDATE statement_templates
-     SET label = ?, format = ?, document = ?, updated_at = ?
-     WHERE template_id = ?
-     RETURNING ${TEMPLATE_COLUMNS}`,
-  ).bind(next.label, next.format, JSON.stringify(next), stamp, templateId).first<TemplateRow>();
-  if (!row) throw new ValidationError('TEMPLATE_NOT_FOUND', undefined, 404);
-  return rowToStored(row);
+  const meta = parseMeta(found.entry.meta_json);
+  const res = await upsertRuleEntry(
+    db,
+    found.set.id,
+    found.entry.id,
+    {
+      entry_key: next.id,
+      priority: found.entry.priority,
+      enabled: found.entry.enabled === 1,
+      payload: next,
+      meta,
+    },
+    found.set.revision,
+    { source: 'api' },
+  );
+  return entryToStored(res.entry);
 }
 
 export async function deleteStatementTemplate(db: D1Database, templateId: string): Promise<void> {
-  if (isBuiltinTemplateId(templateId)) {
-    throw new ValidationError('TEMPLATE_READONLY', undefined, 403);
-  }
   if (!TEMPLATE_ID.test(templateId)) throw new ValidationError('TEMPLATE_NOT_FOUND', undefined, 404);
-  const result = await db.prepare('DELETE FROM statement_templates WHERE template_id = ?').bind(templateId).run();
-  if ((result.meta.changes ?? 0) < 1) throw new ValidationError('TEMPLATE_NOT_FOUND', undefined, 404);
+  const found = await findStatementTemplateRecord(db, templateId);
+  if (!found) throw new ValidationError('TEMPLATE_NOT_FOUND', undefined, 404);
+  await deleteRuleEntry(db, found.set.id, found.entry.id, found.set.revision, { source: 'api' });
+}
+
+export function statementTemplateUsedStatement(
+  db: D1Database,
+  idempotencyKey: string,
+  templateId: string,
+): D1PreparedStatement {
+  return db.prepare(
+    `UPDATE rule_entries
+     SET meta_json = json_set(
+       COALESCE(meta_json, '{}'),
+       '$.used_batch_id',
+       (SELECT id FROM import_batches WHERE idempotency_key = ?)
+     )
+     WHERE rule_set_id IN (
+       SELECT id FROM rule_sets WHERE domain = 'statement_templates' AND state = 'active'
+     )
+       AND entry_key = ?
+       AND json_extract(COALESCE(meta_json, '{}'), '$.used_batch_id') IS NULL`,
+  ).bind(idempotencyKey, templateId);
+}
+
+export async function refreshStatementTemplateEpoch(db: D1Database): Promise<void> {
+  await bumpRulesEpoch(db);
 }

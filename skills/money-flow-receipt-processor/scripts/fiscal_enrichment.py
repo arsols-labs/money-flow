@@ -190,6 +190,7 @@ def _connection_factory(
 def fetch_fiscal_page(
     url: str,
     *,
+    allowed_hosts: tuple[str, ...] | list[str] | None = None,
     resolver: Callable[..., Any] = _SYSTEM_RESOLVER,
     connection_factory: Callable[..., Any] | None = None,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
@@ -204,7 +205,7 @@ def fetch_fiscal_page(
     if timeout_value <= 0:
         raise ValueError("fiscal timeout must be positive")
     deadline = clock() + timeout_value
-    validated = validate_fiscal_url(url)
+    validated = validate_fiscal_url(url, allowed_hosts=allowed_hosts)
     addresses = resolve_fiscal_addresses(
         validated.host,
         validated.port,
@@ -623,7 +624,11 @@ def _parse_items(
     return items
 
 
-def parse_fiscal_journal(raw_html: str) -> dict[str, Any]:
+def parse_fiscal_journal(
+    raw_html: str,
+    *,
+    default_currency: str | None = None,
+) -> dict[str, Any]:
     """Parse a complete public Journal page into the planner's normalized shape."""
 
     if not isinstance(raw_html, str) or not raw_html.strip():
@@ -681,12 +686,13 @@ def parse_fiscal_journal(raw_html: str) -> dict[str, Any]:
     )
     pib = _label_value(parser.lines, "ПИБ", "Пиб")
     explicit_currency = _label_value(parser.lines, "Валута")
-    currency = (explicit_currency or "RSD").upper()
+    fallback_currency = str(default_currency).strip().upper() if default_currency else ""
+    currency = (explicit_currency or fallback_currency).upper()
     total_raw = _label_value(parser.lines, "Укупан износ")
     if not merchant or not timestamp or not fiscal_id or not total_raw:
         raise FiscalParseError("fiscal journal missing core fields")
     if not re.fullmatch(r"[A-Z]{3}", currency):
-        raise FiscalParseError("invalid fiscal currency")
+        raise FiscalParseError("fiscal currency is missing or invalid")
 
     total_minor = _money_minor(total_raw)
     if total_minor <= 0:
@@ -706,7 +712,7 @@ def parse_fiscal_journal(raw_html: str) -> dict[str, Any]:
         "fiscal_receipt_id": fiscal_id,
         "pib": pib,
         "currency": currency,
-        "currency_source": "page" if explicit_currency else "serbian-fiscal-default",
+        "currency_source": "page" if explicit_currency else "format-default",
         "total_minor": total_minor,
         "items": items,
     }
@@ -839,8 +845,10 @@ def enrich(
             warning="missing fiscal QR URL; using complete scan fallback",
         )
 
+    allowed_hosts = payload.get("allowed_fiscal_hosts") or []
+    default_currency = payload.get("default_currency")
     try:
-        validate_fiscal_url(qr_url)
+        validate_fiscal_url(qr_url, allowed_hosts=allowed_hosts)
     except FiscalSecurityError as exc:
         return _result(
             status="fallback",
@@ -851,7 +859,10 @@ def enrich(
         )
 
     try:
-        raw_html = fetch_fn(qr_url)
+        if fetch_fn is fetch_fiscal_page:
+            raw_html = fetch_fiscal_page(qr_url, allowed_hosts=allowed_hosts)
+        else:
+            raw_html = fetch_fn(qr_url)
     except (FiscalSecurityError, ssl.SSLError) as exc:
         return _result(
             status="fallback",
@@ -881,7 +892,10 @@ def enrich(
         )
 
     try:
-        fiscal = parse_fn(raw_html)
+        if parse_fn is parse_fiscal_journal:
+            fiscal = parse_fiscal_journal(raw_html, default_currency=default_currency)
+        else:
+            fiscal = parse_fn(raw_html)
         if fiscal["fiscal_receipt_id"] in known_ids:
             merged, _mismatch = merge_fiscal_and_scan(fiscal, scan)
             return _result(

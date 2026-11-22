@@ -8,10 +8,10 @@
 // re-exports it: other UI modules and test/money.test.ts use the public fractionDigits
 // export from this module, so it must not be broken. The comment with
 // the rationale for the table (rather than Intl) lives there; we do not keep a second copy.
-import { fractionDigits } from '../shared/currency';
+import { fractionDigits, tryFractionDigits } from '../shared/currency';
 import i18n from './i18n';
 import { intlLocale } from './language';
-export { fractionDigits };
+export { fractionDigits, tryFractionDigits };
 
 function currentIntlLocale() {
   return intlLocale(i18n.resolvedLanguage || i18n.language);
@@ -64,7 +64,8 @@ export function parseAmountToMinor(input, currency) {
 
 /** The reverse conversion for an input field — also done with string operations. */
 export function minorToInputString(minor, currency) {
-  const digits = fractionDigits(currency);
+  const digits = tryFractionDigits(currency);
+  if (digits === null) return String(minor ?? 0);
   const negative = minor < 0;
   const absStr = String(Math.abs(minor)).padStart(digits + 1, '0');
   if (digits === 0) return (negative ? '-' : '') + absStr;
@@ -77,24 +78,29 @@ export function minorToInputString(minor, currency) {
 /**
  * Division is acceptable for display (see the spec) — balances are orders of magnitude below
  * MAX_SAFE_INTEGER, so precision is not lost here.
+ * When a currency is not yet configured in D1, displays raw minor units with currency code
+ * instead of assuming a 2-decimal fallback.
  */
 export function formatMinor(minor, currency) {
-  return formatMajor(minor / 10 ** fractionDigits(currency), currency);
+  const digits = tryFractionDigits(currency);
+  if (digits === null) {
+    const code = typeof currency === 'string' && currency.trim() ? ` ${currency.trim().toUpperCase()}` : '';
+    return `${minor}${code}`;
+  }
+  return formatMajor(minor / 10 ** digits, currency);
 }
 
 /**
  * Major units (already after minor→major) into a grouped currency string.
- * Separate from formatMinor: charts hand recharts major numbers already, and
- * dividing by 10**digits again would shift the axis into thousandths.
- *
- * `compact: true` — no fractional part (axis ticks, a short min marker).
- * Thousands grouping must not be stripped here with a `[.,]\d+` regex: in en-US
- * `$17,521.60`.replace(/[.,]\d+/, '') yields `$17.60`.
  */
 export function formatMajor(value, currency, locale = currentIntlLocale(), options = {}) {
-  const currencyDigits = fractionDigits(currency);
-  const digits = options.compact ? 0 : currencyDigits;
+  const currencyDigits = tryFractionDigits(currency);
   const numeric = Number(value);
+  if (currencyDigits === null) {
+    const code = typeof currency === 'string' && currency.trim() ? ` ${currency.trim().toUpperCase()}` : '';
+    return `${numeric}${code}`;
+  }
+  const digits = options.compact ? 0 : currencyDigits;
   try {
     return new Intl.NumberFormat(locale, {
       style: 'currency',

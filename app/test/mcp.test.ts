@@ -1,7 +1,10 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import mcpApp from '../src/worker/mcp-server';
+import mcpApp, { sanitizeJsonSchema } from '../src/worker/mcp-server';
+import app from '../src/worker/index';
+import { RULES_READ_TOOLS, RULES_WRITE_TOOLS } from '../src/worker/mcp-rules';
 import type { Env } from '../src/worker/types';
+import { seedAllTestRules, seedTestRecurringPolicies } from './seed-test-rules';
 
 describe('MCP Server', () => {
   const typedEnv = env as unknown as Env;
@@ -19,7 +22,10 @@ describe('MCP Server', () => {
       env.DB.prepare('DELETE FROM oauth_tokens'),
       env.DB.prepare('DELETE FROM oauth_clients'),
       env.DB.prepare('DELETE FROM fx_rates'),
+      env.DB.prepare('DELETE FROM rule_entries'),
+      env.DB.prepare('DELETE FROM rule_sets'),
     ]);
+    await seedAllTestRules(env.DB);
 
     await env.DB.prepare(
       `INSERT INTO oauth_clients (id, name, created_at) VALUES (?, 'Test Client', datetime('now'))`
@@ -39,11 +45,115 @@ describe('MCP Server', () => {
       expect(res.status).toBe(200);
       const body: any = await res.json();
       expect(body.status).toBe('ok');
+
+      const jsonProbe = new Request('http://localhost/mcp', {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+      const jsonRes = await mcpApp.fetch(jsonProbe, typedEnv, {} as any);
+      expect(jsonRes.status).toBe(200);
+      expect(((await jsonRes.json()) as any).status).toBe('ok');
+    });
+
+    it('returns 405 Method Not Allowed for GET /mcp with Accept: text/event-stream', async () => {
+      const req = new Request('http://localhost/mcp', {
+        method: 'GET',
+        headers: { Accept: 'text/event-stream' },
+      });
+      const res = await mcpApp.fetch(req, typedEnv, {} as any);
+      expect(res.status).toBe(405);
+      expect(res.headers.get('Allow')).toContain('POST');
+    });
+
+    it('returns 405 Method Not Allowed for DELETE /mcp', async () => {
+      const req = new Request('http://localhost/mcp', { method: 'DELETE' });
+      const res = await mcpApp.fetch(req, typedEnv, {} as any);
+      expect(res.status).toBe(405);
+      expect(res.headers.get('Allow')).toContain('POST');
+    });
+
+    it('exposes Streamable HTTP methods and headers in /mcp CORS preflight and preserves OAuth exposeHeaders on 401', async () => {
+      const origin = `https://${typedEnv.APP_DOMAIN || 'localhost'}`;
+      const preflightReq = new Request(`${origin}/mcp`, {
+        method: 'OPTIONS',
+        headers: {
+          Origin: origin,
+          'Access-Control-Request-Method': 'DELETE',
+          'Access-Control-Request-Headers': 'Content-Type, Authorization, Mcp-Protocol-Version, Mcp-Session-Id',
+        },
+      });
+      const preflightRes = await app.fetch(preflightReq, typedEnv, {} as any);
+      expect(preflightRes.status).toBe(204);
+      const allowMethods = preflightRes.headers.get('Access-Control-Allow-Methods') || '';
+      const allowHeaders = (preflightRes.headers.get('Access-Control-Allow-Headers') || '').toLowerCase();
+      expect(allowMethods).toContain('DELETE');
+      expect(allowHeaders).toContain('mcp-protocol-version');
+      expect(allowHeaders).toContain('mcp-session-id');
+      expect(allowHeaders).toContain('accept');
+
+      const unauthReq = new Request(`${origin}/mcp`, {
+        method: 'POST',
+        headers: {
+          Origin: origin,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+      });
+      const unauthRes = await app.fetch(unauthReq, typedEnv, {} as any);
+      expect(unauthRes.status).toBe(401);
+      const exposeHeaders = (unauthRes.headers.get('Access-Control-Expose-Headers') || '')
+        .split(',')
+        .map((header) => header.trim().toLowerCase())
+        .filter(Boolean);
+      expect(exposeHeaders).toContain('www-authenticate');
+      expect(exposeHeaders).toContain('retry-after');
+      expect(exposeHeaders).toContain('mcp-method');
+      expect(exposeHeaders).toContain('mcp-name');
+      expect(exposeHeaders).toContain('mcp-session-id');
     });
   });
 
   describe('Handshake', () => {
-    it('responds to initialize with the negotiated 2026-07-28 protocolVersion and capabilities', async () => {
+    function expectInitializeMetadata(result: any) {
+      expect(result.serverInfo).toMatchObject({
+        name: 'money-flow',
+        title: 'Money Flow',
+        version: '0.1.0',
+      });
+      expect(typeof result.serverInfo.description).toBe('string');
+      expect(result.serverInfo.description.trim().length).toBeGreaterThan(0);
+      expect(result.serverInfo.description).toMatch(/personal and family.*financial ledger/i);
+      expect(result.serverInfo.description).toContain('tools/list');
+      expect(result.serverInfo.description).toContain('money-flow://docs/');
+
+      expect(typeof result.instructions).toBe('string');
+      expect(result.instructions.trim().length).toBeGreaterThan(0);
+      expect(result.instructions).toMatch(/personal and family.*financial ledger/i);
+      for (const token of [
+        'tools/list',
+        'inputSchema',
+        'outputSchema',
+        'annotations',
+        'resources/list',
+        'resources/read',
+        'money-flow://docs/',
+        'amount_minor',
+        'config_runtime_get',
+        'minor_digits',
+        'accounts_list',
+        'account_resolve',
+        'operations_list',
+        'fx_rate_set',
+        'auto_confirm=false',
+        'input_required',
+        'requestState',
+        'MRTR',
+      ]) {
+        expect(result.instructions).toContain(token);
+      }
+    }
+
+    it('responds to initialize with the negotiated 2026-07-28 protocolVersion, capabilities, serverInfo, and instructions', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -63,9 +173,9 @@ describe('MCP Server', () => {
       const body: any = await res.json();
       expect(body.error).toBeUndefined();
       expect(body.result.protocolVersion).toBe('2026-07-28');
-      expect(body.result.serverInfo.name).toBe('money-flow');
       expect(body.result.capabilities.tools).toBeTruthy();
       expect(body.result.capabilities.resources).toBeTruthy();
+      expectInitializeMetadata(body.result);
     });
 
     it('responds to initialize with the negotiated legacy 2025-11-25 protocolVersion', async () => {
@@ -88,6 +198,7 @@ describe('MCP Server', () => {
       const body: any = await res.json();
       expect(body.error).toBeUndefined();
       expect(body.result.protocolVersion).toBe('2025-11-25');
+      expectInitializeMetadata(body.result);
     });
 
     it('returns the default 2026-07-28 for an unknown protocolVersion, not 32601', async () => {
@@ -105,6 +216,47 @@ describe('MCP Server', () => {
       const body: any = await res.json();
       expect(body.error).toBeUndefined();
       expect(body.result.protocolVersion).toBe('2026-07-28');
+      expectInitializeMetadata(body.result);
+    });
+
+    it.each(['2025-06-18', '2025-03-26', '2024-11-05'])(
+      'responds to initialize for legacy protocolVersion %s with serverInfo and instructions',
+      async (protocolVersion) => {
+        const req = new Request('http://localhost/mcp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 20,
+            method: 'initialize',
+            params: { protocolVersion, capabilities: {} },
+          }),
+        });
+        const res = await mcpApp.fetch(req, typedEnv, { props: { scopes: [], clientId } } as any);
+        expect(res.status).toBe(200);
+        const body: any = await res.json();
+        expect(body.error).toBeUndefined();
+        expect(body.result.protocolVersion).toBe(protocolVersion);
+        expectInitializeMetadata(body.result);
+      },
+    );
+
+    it('supports Mcp-Method: initialize header routing with serverInfo and instructions', async () => {
+      const req = new Request('http://localhost/mcp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Mcp-Method': 'initialize',
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 21, params: { protocolVersion: '2026-07-28' } }),
+      });
+      const res = await mcpApp.fetch(req, typedEnv, { props: { scopes: [], clientId } } as any);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Mcp-Method')).toBe('initialize');
+      const body: any = await res.json();
+      expect(body.error).toBeUndefined();
+      expect(body.result.protocolVersion).toBe('2026-07-28');
+      expectInitializeMetadata(body.result);
     });
 
     it('accepts notifications/initialized without a JSON-RPC error', async () => {
@@ -120,6 +272,20 @@ describe('MCP Server', () => {
       if (text) {
         const body = JSON.parse(text);
         expect(body.error).toBeUndefined();
+      }
+    });
+
+    it('accepts other JSON-RPC notifications/* without id with 204', async () => {
+      for (const method of ['notifications/cancelled', 'notifications/roots/list_changed']) {
+        const req = new Request('http://localhost/mcp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method, params: { requestId: 1 } }),
+        });
+        const res = await mcpApp.fetch(req, typedEnv, { props: { scopes: ['read'], clientId } } as any);
+        expect(res.status, method).toBe(204);
+        expect(res.headers.get('Mcp-Method'), method).toBe(method);
+        expect(await res.text(), method).toBe('');
       }
     });
 
@@ -150,7 +316,7 @@ describe('MCP Server', () => {
       const body: any = await res.json();
 
       expect(body.jsonrpc).toBe('2.0');
-      expect(body.result.tools.length).toBe(20);
+      expect(body.result.tools.length).toBe(21 + RULES_READ_TOOLS.length);
       expect(body.result.tools.map((t: any) => t.name)).toEqual([
         'accounts_list',
         'fx_rates_list',
@@ -164,6 +330,7 @@ describe('MCP Server', () => {
         'account_resolve',
         'pending_accounts_list',
         'settings_get',
+        'cron_schedule_get',
         'backup_export',
         'template_list',
         'template_get',
@@ -172,6 +339,7 @@ describe('MCP Server', () => {
         'purchase_order_get',
         'receipt_groups_list',
         'receipt_group_get',
+        ...RULES_READ_TOOLS,
       ]);
     });
 
@@ -187,7 +355,7 @@ describe('MCP Server', () => {
       const body: any = await res.json();
 
       expect(body.jsonrpc).toBe('2.0');
-      expect(body.result.tools.length).toBe(46);
+      expect(body.result.tools.length).toBe(48 + RULES_WRITE_TOOLS.length);
       expect(body.result.tools.map((t: any) => t.name)).toEqual([
         'operation_add',
         'operation_update',
@@ -207,6 +375,7 @@ describe('MCP Server', () => {
         'recurring_item_cancel_period_fulfillment',
         'fx_rate_set',
         'fx_rate_delete',
+        'fx_rates_refresh',
         'data_reset',
         'account_add',
         'account_update',
@@ -217,6 +386,7 @@ describe('MCP Server', () => {
         'transfer_update',
         'transfer_delete',
         'setting_set',
+        'cron_schedule_set',
         'backup_import',
         'template_create',
         'template_update',
@@ -235,6 +405,7 @@ describe('MCP Server', () => {
         'receipt_group_receipt_unlink',
         'receipt_group_delete',
         'receipt_group_rename',
+        ...RULES_WRITE_TOOLS,
       ]);
       const operationUpdate = body.result.tools.find((t: any) => t.name === 'operation_update');
       const operationDelete = body.result.tools.find((t: any) => t.name === 'operation_delete');
@@ -254,7 +425,7 @@ describe('MCP Server', () => {
       expect(recurringSkip.outputSchema.properties.balance_unchanged).toBeDefined();
     });
 
-    it('returns all 66 tools when both scopes ["read", "write"] are present', async () => {
+    it('returns all 69 tools when both scopes ["read", "write"] are present', async () => {
       const req = new Request('http://localhost/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -266,7 +437,41 @@ describe('MCP Server', () => {
       const body: any = await res.json();
 
       expect(body.jsonrpc).toBe('2.0');
-      expect(body.result.tools.length).toBe(66);
+      expect(body.result.tools.length).toBe(69 + RULES_READ_TOOLS.length + RULES_WRITE_TOOLS.length);
+    });
+
+    it('exposes a non-empty description on every live tool and aligns legacy read-tool descriptions', async () => {
+      const req = new Request('http://localhost/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 5, method: 'tools/list', params: {} })
+      });
+
+      const ctx = { props: { scopes: ['read', 'write'], clientId } };
+      const res = await mcpApp.fetch(req, typedEnv, ctx as any);
+      const body: any = await res.json();
+      const tools: any[] = body.result.tools;
+      expect(tools.length).toBeGreaterThan(0);
+
+      for (const tool of tools) {
+        expect(typeof tool.description, tool.name).toBe('string');
+        expect(tool.description.trim().length, tool.name).toBeGreaterThan(0);
+        expect(typeof tool.inputSchema, tool.name).toBe('object');
+        expect(tool.inputSchema, tool.name).not.toBeNull();
+        expect(typeof tool.annotations, tool.name).toBe('object');
+        expect(tool.annotations, tool.name).not.toBeNull();
+      }
+
+      const byName = new Map(tools.map((t) => [t.name, t]));
+      expect(byName.get('fx_rates_list')?.description).toBe(
+        'Lists configured foreign-exchange rates relative to the workspace anchor currency.'
+      );
+      expect(byName.get('planned_items_list')?.description).toBe(
+        'Lists one-off planned income or expense expectations and their completion and fulfillment links.'
+      );
+      expect(byName.get('recurring_items_list')?.description).toBe(
+        'Lists recurring income or expense schedules with frequency, next due date, end date, and active state.'
+      );
     });
 
     it('returns an empty tool list when scopes are empty', async () => {
@@ -282,6 +487,120 @@ describe('MCP Server', () => {
 
       expect(body.jsonrpc).toBe('2.0');
       expect(body.result.tools.length).toBe(0);
+    });
+
+    it('sanitizes both inputSchema and outputSchema across all live tools for strict client compatibility', async () => {
+      const req = new Request('http://localhost/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 6, method: 'tools/list', params: {} }),
+      });
+      const res = await mcpApp.fetch(req, typedEnv, { props: { scopes: ['read', 'write'], clientId } } as any);
+      expect(res.status).toBe(200);
+      const body: any = await res.json();
+      const tools: any[] = body.result.tools;
+      expect(tools.length).toBe(69 + RULES_READ_TOOLS.length + RULES_WRITE_TOOLS.length);
+
+      const forbiddenKeywords = new Set(['anyOf', 'oneOf', 'allOf', 'not', '$schema', 'uniqueItems']);
+
+      function assertStrictSchema(node: any, path: string) {
+        if (!node || typeof node !== 'object') return;
+        if (Array.isArray(node)) {
+          node.forEach((entry, idx) => assertStrictSchema(entry, `${path}[${idx}]`));
+          return;
+        }
+        expect(Array.isArray(node.type), `${path}.type must not be an array`).toBe(false);
+        for (const key of Object.keys(node)) {
+          expect(forbiddenKeywords.has(key), `${path} must not contain "${key}"`).toBe(false);
+          expect(key.startsWith('x-'), `${path} must not contain extension "${key}"`).toBe(false);
+        }
+        if (node.type === 'array') {
+          expect(
+            node.items && typeof node.items === 'object' && !Array.isArray(node.items),
+            `${path} with type=array must define an items object`,
+          ).toBe(true);
+        }
+        if (node.properties && typeof node.properties === 'object') {
+          for (const [propName, propSchema] of Object.entries(node.properties)) {
+            assertStrictSchema(propSchema, `${path}.properties.${propName}`);
+          }
+        }
+        if (node.items) {
+          assertStrictSchema(node.items, `${path}.items`);
+        }
+      }
+
+      for (const tool of tools) {
+        assertStrictSchema(tool.inputSchema, `${tool.name}.inputSchema`);
+        if (tool.outputSchema !== undefined) {
+          assertStrictSchema(tool.outputSchema, `${tool.name}.outputSchema`);
+        }
+      }
+
+      const byName = new Map(tools.map((t) => [t.name, t]));
+      expect(byName.get('account_resolve')?.outputSchema?.properties?.account_id?.type).toBe('number');
+      expect(byName.get('purchase_orders_list')?.outputSchema?.properties?.next_cursor?.type).toBe('number');
+      expect(byName.get('purchase_orders_list')?.outputSchema?.properties?.limit?.type).toBe('number');
+      expect(byName.get('purchase_orders_list')?.outputSchema?.properties?.orders?.items).toEqual({ type: 'object' });
+      expect(byName.get('receipt_groups_list')?.outputSchema?.properties?.next_cursor?.type).toBe('number');
+      expect(byName.get('receipt_groups_list')?.outputSchema?.properties?.limit?.type).toBe('number');
+      expect(byName.get('receipt_groups_list')?.outputSchema?.properties?.groups?.items).toEqual({ type: 'object' });
+      expect(byName.get('receipt_group_receipt_unlink')?.outputSchema?.properties?.group?.type).toBe('object');
+      expect(byName.get('template_list')?.outputSchema?.properties?.templates?.items).toEqual({ type: 'object' });
+      expect(byName.get('statement_import_preview')?.outputSchema?.properties?.rows?.items).toEqual({ type: 'object' });
+      expect(byName.get('rule_set_create')?.outputSchema?.properties?.entries?.items).toEqual({ type: 'object' });
+      expect(byName.get('rule_set_update')?.outputSchema?.properties?.entries?.items).toEqual({ type: 'object' });
+      expect(byName.get('forecast_get')?.inputSchema?.properties?.days?.['x-mcp-header']).toBeUndefined();
+      expect(byName.get('recurring_item_fulfill_existing')?.inputSchema?.properties?.operation_ids?.uniqueItems).toBeUndefined();
+    });
+
+    it('sanitizeJsonSchema collapses anyOf/oneOf/allOf, strips unsupported keywords, and defaults missing array items', () => {
+      const sanitized = sanitizeJsonSchema({
+        $schema: 'https://json-schema.org/draft/2020-12/schema',
+        type: 'object',
+        properties: {
+          nullable_any: {
+            description: 'Optional label',
+            anyOf: [{ type: 'null' }, { type: 'string', maxLength: 50 }],
+          },
+          nullable_one: {
+            oneOf: [{ type: 'integer', minimum: 1 }, { type: 'null' }],
+          },
+          combined: {
+            allOf: [{ type: 'object', properties: { a: { type: ['number', 'null'] } }, required: ['a'] }],
+          },
+          tags: {
+            type: 'array',
+            uniqueItems: true,
+            'x-custom': true,
+          },
+          not: {
+            type: 'string',
+          },
+        },
+      });
+
+      expect(sanitized.$schema).toBeUndefined();
+      expect(sanitized.properties.nullable_any).toEqual({
+        description: 'Optional label',
+        type: 'string',
+        maxLength: 50,
+      });
+      expect(sanitized.properties.nullable_one).toEqual({
+        type: 'integer',
+        minimum: 1,
+      });
+      expect(sanitized.properties.combined).toEqual({
+        type: 'object',
+        properties: { a: { type: 'number' } },
+        required: ['a'],
+      });
+      expect(sanitized.properties.tags).toEqual({
+        type: 'array',
+        items: { type: 'object' },
+      });
+      // A property legitimately named "not" inside properties is preserved.
+      expect(sanitized.properties.not).toEqual({ type: 'string' });
     });
   });
 
@@ -1403,6 +1722,7 @@ describe('MCP Server', () => {
            VALUES (17, 'Ежедневные', -1000, 'EUR', ?, 'Food', 'daily', 1, NULL, NULL, '2026-09-20', NULL, 1)`,
         ).bind(accountId),
       ]);
+      await seedTestRecurringPolicies(env.DB, [16, 17]);
       for (const [name, args, key] of [
         ['recurring_item_close_period', { recurring_item_id: 16 }, 'idem-565-analytical-close-16'],
         ['recurring_item_close_period', { recurring_item_id: 17 }, 'idem-565-analytical-close-17'],
@@ -2210,8 +2530,8 @@ describe('MCP Server', () => {
             name: 'fx_rate_set',
             arguments: {
               auto_confirm: false,
-              code: 'USD',
-              rate: 1.09,
+              code: 'EUR',
+              rate: 0.92,
               idempotency_key: 'idem-fx-324-1'
             }
           }
@@ -2472,10 +2792,10 @@ describe('MCP Server', () => {
         'recurring_item_add', 'recurring_item_update', 'recurring_item_delete',
         'recurring_item_close_period', 'recurring_item_fulfill_existing', 'recurring_item_skip_period',
         'recurring_item_cancel_period_fulfillment',
-        'transfer_add', 'fx_rate_delete', 'data_reset',
+        'transfer_add', 'fx_rate_delete', 'fx_rates_refresh', 'data_reset',
         'account_add', 'account_update', 'account_delete',
         'account_alias_add', 'account_alias_delete', 'pending_account_bind',
-        'transfer_update', 'transfer_delete', 'setting_set', 'backup_import',
+        'transfer_update', 'transfer_delete', 'setting_set', 'cron_schedule_set', 'backup_import',
         'purchase_order_upsert', 'purchase_order_update', 'purchase_order_component_link',
         'purchase_order_component_update', 'purchase_order_component_reconfirm',
         'purchase_order_component_unlink', 'purchase_order_delete',
@@ -3023,7 +3343,7 @@ describe('MCP Server', () => {
         body: JSON.stringify({ jsonrpc: '2.0', id: 3342, method: 'tools/list', params: {} })
       });
       const body: any = await (await mcpApp.fetch(req, typedEnv, { props: { scopes: ['read', 'write'], clientId } } as any)).json();
-      expect(body.result.tools.length).toBe(66);
+      expect(body.result.tools.length).toBe(69 + RULES_READ_TOOLS.length + RULES_WRITE_TOOLS.length);
       for (const tool of body.result.tools) {
         expect(tool.annotations, tool.name).toBeDefined();
         expect(typeof tool.annotations.readOnlyHint, tool.name).toBe('boolean');

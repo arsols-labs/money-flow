@@ -45,7 +45,7 @@ export default function PurchaseOrderCard({
   const [componentType, setComponentType] = useState('goods');
   const [pfr, setPfr] = useState('');
   const [expectedAmount, setExpectedAmount] = useState('');
-  const [expectedCurrency, setExpectedCurrency] = useState(order?.order_total_currency || 'RSD');
+  const [expectedCurrency, setExpectedCurrency] = useState(order?.order_total_currency || '');
   const [expectedLabel, setExpectedLabel] = useState('');
   const [formError, setFormError] = useState(null);
 

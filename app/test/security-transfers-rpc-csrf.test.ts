@@ -19,6 +19,7 @@ import { getPulseHtml } from '../src/worker/mcp-pulse-ui';
 import { getWriteConfirmHtml } from '../src/worker/mcp-write-confirm-ui';
 import { consumeSetupTokenFromSearch } from '../src/shared/setup-token-query';
 import type { Env } from '../src/worker/types';
+import { seedAllTestRules } from './seed-test-rules';
 
 const TEST_ORIGIN = 'https://auth.example.com';
 
@@ -51,7 +52,10 @@ describe('security hardening', () => {
         env.DB.prepare('DELETE FROM operations'),
         env.DB.prepare('DELETE FROM transfers'),
         env.DB.prepare('DELETE FROM accounts'),
+        env.DB.prepare('DELETE FROM rule_entries'),
+        env.DB.prepare('DELETE FROM rule_sets'),
       ]);
+      await seedAllTestRules(env.DB);
 
       const from = await api('POST', '/api/v2/accounts', {
         name: 'From', currency: 'USD', owner: 'Alex', country: 'SRB', balance_minor: 10_000,

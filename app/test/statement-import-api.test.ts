@@ -7,6 +7,7 @@ import { statementImportLedgerGuard } from '../src/worker/statement-import';
 import { IMPORT_UNDO_PHRASE, STATEMENT_IMPORT_MAX_FILE_BYTES, STATEMENT_IMPORT_MAX_ROWS } from '../src/shared/statement-import/types';
 import { rowsFromPreview } from '../src/ui/statementImportState';
 import { bpsLine, syntheticBpsWorkbook } from './statement-parsers.test';
+import { TEST_STATEMENT_TEMPLATES, seedAllTestRules } from './seed-test-rules';
 
 let cookie: string;
 
@@ -24,7 +25,10 @@ beforeEach(async () => {
     env.DB.prepare('DELETE FROM account_aliases'),
     env.DB.prepare('DELETE FROM pending_account_strings'),
     env.DB.prepare('DELETE FROM accounts'),
+    env.DB.prepare('DELETE FROM rule_entries'),
+    env.DB.prepare('DELETE FROM rule_sets'),
   ]);
+  await seedAllTestRules(env.DB);
 });
 
 async function api(method: string, path: string, body?: unknown, withCookie = true): Promise<Response> {
@@ -546,6 +550,12 @@ describe('statement import on the demo ledger', () => {
     expect(created.status, await created.clone().text()).toBe(201);
     const cookie = created.headers.getSetCookie().find((item) => item.startsWith('mf_demo_sid='))!.split(';')[0]!;
     const accountId = ((await created.json()) as { account: { id: number } }).account.id;
+    const bofaTemplate = TEST_STATEMENT_TEMPLATES.find((t) => t.id === 'us-bofa')!;
+    expect((await demoFetch('/api/v2/statement-templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bofaTemplate),
+    }, cookie)).status).toBe(201);
     const file = {
       filename: 'bofa.csv',
       preset_id: 'us-bofa',
@@ -601,6 +611,12 @@ describe('statement import on the demo ledger', () => {
     expect(created.status, await created.clone().text()).toBe(201);
     const cookie = created.headers.getSetCookie().find((item) => item.startsWith('mf_demo_sid='))!.split(';')[0]!;
     const accountId = ((await created.json()) as { account: { id: number } }).account.id;
+    const bofaTemplate = TEST_STATEMENT_TEMPLATES.find((t) => t.id === 'us-bofa')!;
+    expect((await demoFetch('/api/v2/statement-templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bofaTemplate),
+    }, cookie)).status).toBe(201);
     const lines = ['Date,Description,Amount,Running Bal.'];
     let expected = 5_000_000;
     for (let i = 0; i < 120; i += 1) {

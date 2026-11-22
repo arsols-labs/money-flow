@@ -1,4 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import './use-ru-i18n';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { EMPTY_CURRENCY_CATALOG, setRuntimeCurrencyCatalog } from '../src/shared/currency';
+import { installTestRuntimeCurrencies } from './seed-test-rules';
+
+beforeAll(() => {
+  installTestRuntimeCurrencies();
+});
+
+afterAll(() => {
+  setRuntimeCurrencyCatalog(EMPTY_CURRENCY_CATALOG);
+});
 import {
   accountKey,
   accountsWithForecastSeries,

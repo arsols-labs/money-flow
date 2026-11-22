@@ -1,4 +1,4 @@
--- Seed data for MCP Access and Audit (Issue #501 staging test data)
+-- Seed data for MCP Access and Audit (staging test data)
 
 -- 1. OAuth Clients
 INSERT OR REPLACE INTO oauth_clients (id, name, metadata_document_url, created_at) VALUES

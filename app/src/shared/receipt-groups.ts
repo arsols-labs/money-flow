@@ -1,19 +1,29 @@
 // Manual receipt groups. Read-only projection: no ledger writes.
 // A group is a purchase order with kind "manual". Membership is metadata.
 
-import { normalizeIso4217CurrencyCode } from './currency';
+import {
+  EMPTY_CURRENCY_CATALOG,
+  normalizeConfiguredCurrencyCode,
+  normalizeCurrencyCodeSyntax,
+  type CurrencyCatalog,
+} from './currency';
 import { canonicalizePfr, groupFiscalReceipts, fiscalReceiptMatchesQuery, type FiscalReceiptGroup, type FiscalReceiptOperation } from './fiscal-receipts';
 import { minorBigIntToNumber } from './money';
+import { matchPattern, stripPatternSuffix } from './rules/matcher';
+import type { DeliveryServicePayload, ResolvedRuleEntry, VenueSuffixPayload } from './rules/types';
 import { makeConverter } from '../worker/forecast/convert';
 
 export const RECEIPT_GROUP_KIND = 'manual' as const;
 export const RECEIPT_KEY_MAX = 100;
 
+export interface ReceiptGroupRules {
+  deliveryServices?: ReadonlyArray<ResolvedRuleEntry<DeliveryServicePayload>>;
+  venueSuffixes?: ReadonlyArray<ResolvedRuleEntry<VenueSuffixPayload>>;
+}
+
 const TOKEN_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const OP_KEY_RE = /^op:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const CALENDAR_DATE_PREFIX_RE = /^(\d{4}-\d{2}-\d{2})(?:$|[T\s])/;
-const DELIVERY_SERVICE_RE = /^(?:wolt(?!\s+market\b)|glovo|mister\s*d|donesi|uber\s*eats|bolt\s*food|deliveroo|doordash|grubhub|instacart|yandex\s*(?:eats|delivery)|яндекс[\s.]*(?:еда|доставка)|delivery\s*club|деливери(?:\s*клаб)?|delivery|доставка|dostava|courier|курьер|kurir)(?:\b|[\s.,\-()/]|$)/iu;
-const VENUE_STATION_SUFFIX_RE = /(?:[\s,./:–—\-]+|\s*\()(?:kitchen|bar|kuhinja|šank|sank|kuhinja\s*i\s*bar|кухня|бар|зал|food|drinks|храна|пиће|hrana|piće|pice)\)?$/iu;
 
 export type ReceiptResolution = 'resolved' | 'epoch_changed' | 'missing' | 'ambiguous';
 
@@ -49,7 +59,7 @@ export interface ReceiptGroup {
   number: number;
   receipts: ReceiptGroupMemberView[];
   subtotals: ReceiptGroupSubtotal[];
-  base_currency: string;
+  base_currency: string | null;
   total_minor: number | null;
   total_currency: string | null;
   missing_rates: string[];
@@ -59,7 +69,10 @@ export interface ReceiptGroup {
 
 export interface ReceiptGroupFx {
   ratesE9?: ReadonlyMap<string, number>;
-  baseCurrency?: string;
+  baseCurrency?: string | null;
+  fxAnchorCurrency?: string | null;
+  currencyCatalog?: CurrencyCatalog;
+  rules?: ReceiptGroupRules;
 }
 
 export interface ManualGroupRow {
@@ -99,42 +112,68 @@ function normalizeStoreText(value: unknown): string {
   return value.normalize('NFKC').replace(/\s+/gu, ' ').trim();
 }
 
-/** True when a store label names a delivery intermediary rather than the merchant where goods were bought. */
-export function isDeliveryServiceStore(value: unknown): boolean {
+/** True when a store label names a delivery intermediary configured in active D1 `delivery_services` rules. */
+export function isDeliveryServiceStore(
+  value: unknown,
+  deliveryRules: ReadonlyArray<ResolvedRuleEntry<DeliveryServicePayload>> = [],
+): boolean {
+  if (deliveryRules.length === 0) return false;
   const normalized = normalizeStoreText(value);
   if (!normalized) return false;
-  return DELIVERY_SERVICE_RE.test(normalized);
+  for (const rule of deliveryRules) {
+    if (!rule.entry.pattern || !rule.entry.match_type) continue;
+    if (matchPattern(rule.entry.match_type, rule.entry.pattern, normalized, {
+      caseSensitive: rule.payload.case_sensitive,
+    })) {
+      return true;
+    }
+  }
+  return false;
 }
 
-function stripVenueStationSuffix(store: string): string {
-  const stripped = store.replace(VENUE_STATION_SUFFIX_RE, '').trim();
-  return stripped.length >= 2 ? stripped : store;
+function stripVenueStationSuffix(
+  store: string,
+  venueSuffixRules: ReadonlyArray<ResolvedRuleEntry<VenueSuffixPayload>> = [],
+): string {
+  if (venueSuffixRules.length === 0) return store;
+  for (const rule of venueSuffixRules) {
+    if (!rule.entry.pattern || !rule.entry.match_type) continue;
+    const stripped = stripPatternSuffix(rule.entry.match_type, rule.entry.pattern, store, {
+      caseSensitive: rule.payload.case_sensitive,
+      trimResult: rule.payload.trim_result ?? true,
+    });
+    if (stripped.matched) {
+      return stripped.value.length >= 2 ? stripped.value : store;
+    }
+  }
+  return store;
 }
 
 /**
- * Resolves the place where the goods were bought for a manual receipt group.
+ * Resolves the place where goods were bought for a manual receipt group.
  * - An explicit user-typed name always wins.
- * - Otherwise, every receipt must have a store; delivery-service stores (e.g. Wolt) are ignored
- *   when paired with the merchant where the goods were bought (e.g. a pharmacy), and a venue's
- *   kitchen and bar receipts resolve to the shared restaurant name.
- * - Returns null when the place cannot be determined without guessing.
+ * - Uses D1-configured `delivery_services` and `venue_suffixes` rules when present.
+ * - When no rules match, preserves exact stored values without inventing normalization.
  */
 export function resolveReceiptGroupPlace(
   cards: ReadonlyArray<{ store?: string | null }>,
   explicitName?: string | null,
+  rules: ReceiptGroupRules = {},
 ): string | null {
   const typed = normalizeStoreText(explicitName);
   if (typed.length > 0) return typed;
   if (cards.length === 0) return null;
-  const stores = cards.map((card) => normalizeStoreText(card.store));
-  if (stores.some((store) => store.length === 0)) return null;
-  const merchantStores = stores.filter((store) => !isDeliveryServiceStore(store));
+  const rawStores = cards.map((card) => (typeof card.store === 'string' ? card.store : ''));
+  if (rawStores.some((store) => store.trim().length === 0)) return null;
+  const deliveryRules = rules.deliveryServices ?? [];
+  const venueRules = rules.venueSuffixes ?? [];
+  const merchantStores = rawStores.filter((store) => !isDeliveryServiceStore(store, deliveryRules));
   if (merchantStores.length === 0) return null;
   const firstExact = merchantStores[0]!;
   if (merchantStores.every((store) => store.toLowerCase() === firstExact.toLowerCase())) {
     return firstExact;
   }
-  const baseStores = merchantStores.map(stripVenueStationSuffix);
+  const baseStores = merchantStores.map((store) => stripVenueStationSuffix(store, venueRules));
   const firstBase = baseStores[0]!;
   if (
     firstBase.length > 0
@@ -154,8 +193,9 @@ export function resolveReceiptGroupPlace(
 export function receiptGroupRenameTarget(
   cards: ReadonlyArray<{ store?: string | null }>,
   explicitName: string | null,
+  rules: ReceiptGroupRules = {},
 ): { displayName: string | null; place: string } | null {
-  const place = resolveReceiptGroupPlace(cards, explicitName);
+  const place = resolveReceiptGroupPlace(cards, explicitName, rules);
   if (!place) return null;
   const typed = typeof explicitName === 'string' && explicitName.trim().length > 0;
   return { displayName: typed ? place : null, place };
@@ -427,7 +467,12 @@ function cardPostedMinor(card: FiscalReceiptGroup): number {
   return total;
 }
 
-function subtotalsFor(cards: FiscalReceiptGroup[]): { subtotals: ReceiptGroupSubtotal[]; multiCurrency: boolean; currencyMissing: boolean } {
+function subtotalsFor(
+  cards: FiscalReceiptGroup[],
+  currencyCatalog?: CurrencyCatalog,
+): { subtotals: ReceiptGroupSubtotal[]; multiCurrency: boolean; currencyMissing: boolean } {
+  const normalizeCode = (raw: unknown) =>
+    currencyCatalog ? normalizeConfiguredCurrencyCode(raw, currencyCatalog) : normalizeCurrencyCodeSyntax(raw);
   const seen = new Set<number>();
   const buckets = new Map<string, number>();
   let currencyMissing = false;
@@ -435,7 +480,7 @@ function subtotalsFor(cards: FiscalReceiptGroup[]): { subtotals: ReceiptGroupSub
     for (const line of card.lines) {
       if (seen.has(line.id)) continue;
       seen.add(line.id);
-      const currency = normalizeIso4217CurrencyCode(card.account_currency);
+      const currency = normalizeCode(card.account_currency);
       if (!currency) {
         currencyMissing = true;
         const next = addMinor(buckets.get('') ?? 0, line.amount_minor);
@@ -464,10 +509,13 @@ export function projectManualGroup(
   currentEpoch: string | null,
   fx?: ReceiptGroupFx,
 ): ReceiptGroup {
-  const baseCurrency = normalizeIso4217CurrencyCode(fx?.baseCurrency) ?? 'USD';
+  const currencyCatalog = fx?.currencyCatalog;
+  const normalizeCode = (raw: unknown) =>
+    currencyCatalog ? normalizeConfiguredCurrencyCode(raw, currencyCatalog) : normalizeCurrencyCodeSyntax(raw);
+  const baseCurrency = normalizeCode(fx?.baseCurrency) ?? null;
   const ratesMap = new Map<string, number>();
   for (const [code, rate] of fx?.ratesE9 ?? []) {
-    const normalized = normalizeIso4217CurrencyCode(code);
+    const normalized = normalizeCode(code);
     if (normalized) ratesMap.set(normalized, rate);
   }
   const indexed = indexCards(operations);
@@ -528,7 +576,7 @@ export function projectManualGroup(
         fiscal_receipt_id: canonical,
         date: receiptCalendarDate(card.date),
         store: card.store ?? null,
-        currency: normalizeIso4217CurrencyCode(card.account_currency),
+        currency: normalizeCode(card.account_currency),
         posted_minor: cardPostedMinor(card),
         base_minor: null,
       };
@@ -569,17 +617,25 @@ export function projectManualGroup(
       fiscal_receipt_id: null,
       date: receiptCalendarDate(card.date),
       store: card.store ?? null,
-      currency: normalizeIso4217CurrencyCode(card.account_currency),
+      currency: normalizeCode(card.account_currency),
       posted_minor: cardPostedMinor(card),
       base_minor: null,
     };
   });
-  const totals = subtotalsFor(resolvedCards);
+  const totals = subtotalsFor(resolvedCards, currencyCatalog);
   const missingRates = new Set<string>();
-  const convertTracked = makeConverter(ratesMap, baseCurrency, (code) => missingRates.add(code));
-  const convertQuiet = makeConverter(ratesMap, baseCurrency);
+  const converterCatalog = currencyCatalog ?? EMPTY_CURRENCY_CATALOG;
+  const fxAnchor = fx?.fxAnchorCurrency ?? converterCatalog.fxAnchorCode ?? null;
+  const convertTracked = makeConverter(ratesMap, baseCurrency, (code) => missingRates.add(code), {
+    fxAnchorCurrency: fxAnchor,
+    currencyCatalog: converterCatalog,
+  });
+  const convertQuiet = makeConverter(ratesMap, baseCurrency, undefined, {
+    fxAnchorCurrency: fxAnchor,
+    currencyCatalog: converterCatalog,
+  });
   for (const receipt of receipts) {
-    if (receipt.resolution !== 'resolved' || receipt.currency === null || receipt.posted_minor === null) {
+    if (receipt.resolution !== 'resolved' || receipt.currency === null || receipt.posted_minor === null || baseCurrency === null) {
       continue;
     }
     const converted = totals.multiCurrency
@@ -589,7 +645,7 @@ export function projectManualGroup(
   }
   const missing_rates = [...missingRates].sort();
   const unresolved = receipts.some((receipt) => receipt.resolution !== 'resolved');
-  const incomplete = unresolved || totals.currencyMissing || missing_rates.length > 0;
+  const incomplete = unresolved || totals.currencyMissing || missing_rates.length > 0 || (totals.multiCurrency && baseCurrency === null);
   const namedCurrencies = totals.subtotals
     .map((row) => row.currency)
     .filter((code): code is string => code !== null);
@@ -603,7 +659,7 @@ export function projectManualGroup(
       total_minor = totals.subtotals.find((row) => row.currency === singleCurrency)?.posted_minor ?? null;
     }
   }
-  const place = resolveReceiptGroupPlace(resolvedCards, order.display_name);
+  const place = resolveReceiptGroupPlace(resolvedCards, order.display_name, fx?.rules);
   const date = resolveReceiptGroupDate(resolvedCards, order.order_date ?? order.created_at ?? null);
   return {
     id: order.id,

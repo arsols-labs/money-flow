@@ -3,10 +3,12 @@ import { describe, it } from 'node:test';
 
 import {
   PRIVATE_FORBIDDEN_CONTENT_PATTERNS,
+  RESERVED_PRODUCTION_D1_NAMES,
   RESERVED_PRODUCTION_HOST_MARKERS,
   RESERVED_PRODUCTION_RATE_LIMIT_IDS,
   RESERVED_PRODUCTION_RESOURCE_IDS,
   RESERVED_PRODUCTION_WORKERS_DEV_ACCOUNT,
+  RESERVED_PRODUCTION_WORKERS_DEV_LABELS,
 } from './constants.mjs';
 import { parseLocalWranglerConfig } from './config.mjs';
 import { runSetup } from './run.mjs';
@@ -92,10 +94,15 @@ describe('runSetup dry-run', () => {
     }
     assert.doesNotMatch(joined, /\$ npx wrangler/);
     const planned = result.planned.map((row) => row.command.join(' '));
-    assert.equal(planned.some((line) => line.includes('d1 execute')), false);
+    const migrateAt = planned.findIndex((line) => line.includes('migrations apply'));
+    const starterAt = planned.findIndex((line) => line.includes('d1 execute') && line.includes('starter-currency.sql'));
     const deployAt = planned.findIndex((line) => line.includes('wrangler deploy'));
     const secretAt = planned.findIndex((line) => line.includes('secret put'));
-    assert.ok(deployAt >= 0 && secretAt >= 0 && deployAt < secretAt);
+    assert.ok(migrateAt >= 0 && starterAt >= 0 && migrateAt < starterAt);
+    assert.equal(planned.some((line) => line.includes('seed-demo.sql')), false);
+    assert.ok(deployAt >= 0 && secretAt >= 0 && starterAt < deployAt && deployAt < secretAt);
+    assert.match(joined, /would write starter currency USD/);
+    assert.match(joined, /Starter currency: USD.*Settings.*other currencies/i);
     assert.match(joined, /Leaving the instance empty/);
     for (const id of RESERVED_PRODUCTION_RATE_LIMIT_IDS) {
       assert.equal(JSON.stringify(result.config).includes(id), false);
@@ -155,7 +162,8 @@ describe('runSetup dry-run', () => {
     });
     assert.equal(result.seedDemo, false);
     const planned = result.planned.map((row) => row.command.join(' '));
-    assert.equal(planned.some((line) => line.includes('d1 execute')), false);
+    assert.equal(planned.some((line) => line.includes('seed-demo.sql')), false);
+    assert.ok(planned.some((line) => line.includes('starter-currency.sql')));
   });
 
   it('requires hostname flags in custom non-interactive mode', async () => {
@@ -357,6 +365,9 @@ function liveRunner({
       if (line.includes('d1 execute')) {
         return { code: 0, stdout: 'Executed 4 queries', stderr: '' };
       }
+      if (line === 'npm ci' || line === 'npm install') {
+        return { code: 0, stdout: 'installed', stderr: '' };
+      }
       if (line.includes('npm run build')) {
         return { code: 0, stdout: 'built', stderr: '' };
       }
@@ -406,16 +417,19 @@ describe('runSetup mocked live path', () => {
     assert.deepEqual(secretPuts, ['SESSION_SECRET', 'SETUP_TOKEN']);
 
     const migrateAt = commandIndex(calls, 'migrations apply');
-    const seedAt = commandIndex(calls, 'd1 execute');
+    const starterAt = commandIndex(calls, 'd1 execute');
     const buildAt = commandIndex(calls, 'npm run build');
     const firstDeployAt = commandIndex(calls, 'wrangler deploy');
-    assert.equal(seedAt, -1);
+    assert.ok(starterAt >= 0 && calls[starterAt].includes('starter-currency.sql'));
+    assert.equal(calls.some((line) => line.includes('seed-demo.sql')), false);
     const secretListAt = commandIndex(calls, 'secret list');
     const firstSecretAt = commandIndex(calls, 'secret put');
     assert.ok(migrateAt >= 0 && buildAt >= 0 && firstDeployAt >= 0 && firstSecretAt >= 0);
-    assert.ok(migrateAt < buildAt);
+    assert.ok(migrateAt < starterAt);
+    assert.ok(starterAt < buildAt);
     assert.ok(buildAt < firstDeployAt);
     assert.ok(firstDeployAt < firstSecretAt);
+    assert.match(logs.join(''), /Starter currency: USD.*Settings.*other currencies/i);
     assert.ok(secretListAt > firstDeployAt && secretListAt < firstSecretAt);
     const deployIndexes = calls
       .map((line, index) => (line.includes('wrangler deploy') ? index : -1))
@@ -1247,5 +1261,364 @@ describe('runSetup reuse confirm', () => {
     assert.match(questions[0], /already-there\.myacct\.workers\.dev/);
     assert.equal(questions.some((q) => /Worker \/ service name/.test(q)), false);
     assert.doesNotMatch(logs.join(''), /reserved production preview/i);
+  });
+});
+
+describe('runSetup --update', () => {
+  const legacyLocalConfig = `{
+    "name": "cash-desk",
+    "vars": { "APP_DOMAIN": "cash-desk.myacct.workers.dev" },
+    "kv_namespaces": [{ "binding": "KV", "id": "cccccccccccccccccccccccccccccccc" }],
+    "d1_databases": [{ "binding": "DB", "database_name": "cash-desk-db", "database_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd" }]
+  }`;
+
+  it('fails closed when wrangler.local.jsonc is missing', async () => {
+    const { run, calls } = liveRunner();
+    await assert.rejects(
+      () =>
+        runSetup({
+          argv: ['--update'],
+          cwd: '/tmp/app-v2-update-missing',
+          isTTY: true,
+          stdout: { write() {} },
+          stderr: { write() {} },
+          ask: async () => {
+            throw new Error('must not prompt');
+          },
+          run,
+          fs: memoryFs(),
+        }),
+      /No existing local config found/,
+    );
+    assert.equal(calls.length, 0);
+  });
+
+  it('fails closed when existing local config is incomplete or reserved', async () => {
+    await assert.rejects(
+      () =>
+        runSetup({
+          argv: ['--update', '--dry-run'],
+          cwd: '/tmp/app-v2-update-incomplete',
+          isTTY: false,
+          stdout: { write() {} },
+          stderr: { write() {} },
+          run: async () => ({ code: 0, stdout: '', stderr: '' }),
+          fs: memoryFs({
+            '/tmp/app-v2-update-incomplete/wrangler.local.jsonc': '{"name":"cash-desk"}',
+          }),
+        }),
+      /is incomplete/,
+    );
+
+    if (RESERVED_PRODUCTION_RESOURCE_IDS.length > 0) {
+      await assert.rejects(
+        () =>
+          runSetup({
+            argv: ['--update', '--dry-run'],
+            cwd: '/tmp/app-v2-update-reserved',
+            isTTY: false,
+            stdout: { write() {} },
+            stderr: { write() {} },
+            run: async () => ({ code: 0, stdout: '', stderr: '' }),
+            fs: memoryFs({
+              '/tmp/app-v2-update-reserved/wrangler.local.jsonc': legacyLocalConfig.replace(
+                'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+                RESERVED_PRODUCTION_RESOURCE_IDS[0],
+              ),
+            }),
+          }),
+        /reserved production D1/,
+      );
+    }
+
+    if (RESERVED_PRODUCTION_RESOURCE_IDS.length > 1) {
+      await assert.rejects(
+        () =>
+          runSetup({
+            argv: ['--update', '--dry-run'],
+            cwd: '/tmp/app-v2-update-reserved-kv',
+            isTTY: false,
+            stdout: { write() {} },
+            stderr: { write() {} },
+            run: async () => ({ code: 0, stdout: '', stderr: '' }),
+            fs: memoryFs({
+              '/tmp/app-v2-update-reserved-kv/wrangler.local.jsonc': legacyLocalConfig.replace(
+                'cccccccccccccccccccccccccccccccc',
+                RESERVED_PRODUCTION_RESOURCE_IDS[1],
+              ),
+            }),
+          }),
+        /reserved production KV/,
+      );
+    }
+
+    if (RESERVED_PRODUCTION_WORKERS_DEV_LABELS.length > 0) {
+      await assert.rejects(
+        () =>
+          runSetup({
+            argv: ['--update', '--dry-run'],
+            cwd: '/tmp/app-v2-update-reserved-worker',
+            isTTY: false,
+            stdout: { write() {} },
+            stderr: { write() {} },
+            run: async () => ({ code: 0, stdout: '', stderr: '' }),
+            fs: memoryFs({
+              '/tmp/app-v2-update-reserved-worker/wrangler.local.jsonc': legacyLocalConfig.replace(
+                '"name": "cash-desk"',
+                `"name": "${RESERVED_PRODUCTION_WORKERS_DEV_LABELS[0]}"`,
+              ),
+            }),
+          }),
+        /Worker name is reserved for production/,
+      );
+    }
+
+    if (RESERVED_PRODUCTION_D1_NAMES.length > 0) {
+      await assert.rejects(
+        () =>
+          runSetup({
+            argv: ['--update', '--dry-run'],
+            cwd: '/tmp/app-v2-update-reserved-d1-name',
+            isTTY: false,
+            stdout: { write() {} },
+            stderr: { write() {} },
+            run: async () => ({ code: 0, stdout: '', stderr: '' }),
+            fs: memoryFs({
+              '/tmp/app-v2-update-reserved-d1-name/wrangler.local.jsonc': legacyLocalConfig.replace(
+                '"database_name": "cash-desk-db"',
+                `"database_name": "${RESERVED_PRODUCTION_D1_NAMES[0]}"`,
+              ),
+            }),
+          }),
+        /D1 name is reserved for production/,
+      );
+    }
+
+    if (RESERVED_PRODUCTION_HOST_MARKERS.length > 0) {
+      await assert.rejects(
+        () =>
+          runSetup({
+            argv: ['--update', '--dry-run'],
+            cwd: '/tmp/app-v2-update-reserved-host',
+            isTTY: false,
+            stdout: { write() {} },
+            stderr: { write() {} },
+            run: async () => ({ code: 0, stdout: '', stderr: '' }),
+            fs: memoryFs({
+              '/tmp/app-v2-update-reserved-host/wrangler.local.jsonc': legacyLocalConfig.replace(
+                'cash-desk.myacct.workers.dev',
+                `app.${RESERVED_PRODUCTION_HOST_MARKERS[0]}`,
+              ),
+            }),
+          }),
+        /reserved production APP_DOMAIN/,
+      );
+    }
+
+    await assert.rejects(
+      () =>
+        runSetup({
+          argv: ['--update', '--dry-run', '--config', 'wrangler.jsonc'],
+          cwd: '/tmp/app-v2-update-wrangler-jsonc',
+          isTTY: false,
+          stdout: { write() {} },
+          stderr: { write() {} },
+          run: async () => ({ code: 0, stdout: '', stderr: '' }),
+          fs: memoryFs({
+            '/tmp/app-v2-update-wrangler-jsonc/wrangler.jsonc': legacyLocalConfig,
+          }),
+        }),
+      /Refusing to overwrite wrangler\.jsonc/,
+    );
+  });
+
+  it('plans npm ci, config refresh (crons), migrations, build, and deploy on --update --dry-run', async () => {
+    const logs = [];
+    const cwd = '/tmp/app-v2-update-dry';
+    const customConfig = `{
+      "name": "cash-desk",
+      "vars": { "APP_DOMAIN": "finance.example.com" },
+      "routes": [{ "pattern": "finance.example.com", "custom_domain": true }],
+      "kv_namespaces": [{ "binding": "KV", "id": "cccccccccccccccccccccccccccccccc" }],
+      "d1_databases": [{ "binding": "DB", "database_name": "cash-desk-db", "database_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd" }]
+    }`;
+    const fs = memoryFs({
+      [`${cwd}/wrangler.local.jsonc`]: customConfig,
+      [`${cwd}/package-lock.json`]: '{}',
+    });
+    const result = await runSetup({
+      argv: ['--update', '--dry-run'],
+      cwd,
+      isTTY: false,
+      stdout: { write: (text) => logs.push(text) },
+      stderr: { write: (text) => logs.push(text) },
+      run: async () => ({ code: 0, stdout: '', stderr: '' }),
+      fs,
+      now: () => '2026-11-22T00:00:00.000Z',
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.dryRun, true);
+    assert.equal(result.update, true);
+    assert.equal(result.d1.id, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+    assert.equal(result.kv.id, 'cccccccccccccccccccccccccccccccc');
+    assert.deepEqual(result.config.triggers, { crons: ['0 * * * *'] });
+    assert.deepEqual(result.config.routes, [{ pattern: 'finance.example.com', custom_domain: true }]);
+    assert.equal(fs.files[`${cwd}/wrangler.local.jsonc`], customConfig);
+    const joined = logs.join('');
+    assert.match(joined, /Dry-run: would run npm ci to sync dependencies/);
+    assert.match(joined, /Dry-run complete/);
+    assert.doesNotMatch(joined, /Leaving the instance empty/);
+    assert.doesNotMatch(joined, /Enroll a Passkey/);
+  });
+
+  it('updates non-interactively on a TTY without prompts, refreshes config, and preserves secrets', async () => {
+    const logs = [];
+    const fetchUrls = [];
+    const cwd = '/tmp/app-v2-update-live';
+    const fs = memoryFs({
+      [`${cwd}/wrangler.local.jsonc`]: legacyLocalConfig,
+      [`${cwd}/package-lock.json`]: '{}',
+    });
+    const { run, calls, secretPuts } = liveRunner({
+      workerName: 'cash-desk',
+      subdomain: 'myacct',
+      secrets: ['SESSION_SECRET', 'SETUP_TOKEN'],
+    });
+
+    const result = await runSetup({
+      argv: ['--update'],
+      cwd,
+      isTTY: true,
+      stdout: { write: (text) => logs.push(text) },
+      stderr: { write: (text) => logs.push(text) },
+      ask: async (question) => {
+        throw new Error(`--update must not prompt: ${question}`);
+      },
+      run,
+      fs,
+      now: () => '2026-11-22T00:00:00.000Z',
+      randomSecret: () => {
+        throw new Error('must not regenerate existing secrets on --update');
+      },
+      fetch: async (url) => {
+        fetchUrls.push(String(url));
+        if (String(url).endsWith('/mcp')) {
+          return { status: 401, json: async () => ({ error: 'unauthorized' }) };
+        }
+        return {
+          status: 200,
+          json: async () => ({ issuer: 'https://cash-desk.myacct.workers.dev' }),
+        };
+      },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.update, true);
+    assert.equal(result.mcpHealth?.ok, true);
+    assert.ok(fetchUrls.includes('https://cash-desk.myacct.workers.dev/mcp'));
+    assert.ok(fetchUrls.includes('https://cash-desk.myacct.workers.dev/.well-known/oauth-authorization-server'));
+    assert.deepEqual(secretPuts, []);
+    const npmCiAt = commandIndex(calls, 'npm ci');
+    const migrateAt = commandIndex(calls, 'migrations apply');
+    const starterAt = calls.findIndex((line) => line.includes('d1 execute') && line.includes('starter-currency.sql'));
+    const buildAt = commandIndex(calls, 'npm run build');
+    const deployAt = commandIndex(calls, 'wrangler deploy');
+    assert.ok(npmCiAt >= 0 && migrateAt > npmCiAt && starterAt > migrateAt && buildAt > starterAt && deployAt > buildAt);
+    assert.equal(calls.some((line) => line.includes('d1 create') || line.includes('kv namespace create')), false);
+    const updatedConfig = parseLocalWranglerConfig(fs.files[`${cwd}/wrangler.local.jsonc`]).raw;
+    assert.deepEqual(updatedConfig.triggers, { crons: ['0 * * * *'] });
+    assert.equal(updatedConfig.d1_databases[0].database_id, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+    assert.equal(updatedConfig.kv_namespaces[0].id, 'cccccccccccccccccccccccccccccccc');
+    const joined = logs.join('');
+    assert.match(joined, /MCP endpoint and OAuth discovery — ok/);
+    assert.match(joined, /Update complete\./);
+    assert.match(joined, /Worker secrets unchanged \(SESSION_SECRET, SETUP_TOKEN\)/);
+    assert.doesNotMatch(joined, /Leaving the instance empty/);
+    assert.doesNotMatch(joined, /Enroll a Passkey/);
+  });
+
+  it('falls back to npm install when package-lock.json is absent and preserves custom domain routes live', async () => {
+    const cwd = '/tmp/app-v2-update-custom-live';
+    const customConfig = `{
+      "name": "cash-desk",
+      "vars": { "APP_DOMAIN": "finance.example.com" },
+      "routes": [{ "pattern": "finance.example.com", "custom_domain": true }],
+      "kv_namespaces": [{ "binding": "KV", "id": "cccccccccccccccccccccccccccccccc" }],
+      "d1_databases": [{ "binding": "DB", "database_name": "cash-desk-db", "database_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd" }]
+    }`;
+    const fs = memoryFs({
+      [`${cwd}/wrangler.local.jsonc`]: customConfig,
+    });
+    const { run, calls } = liveRunner({
+      workerName: 'cash-desk',
+      secrets: ['SESSION_SECRET', 'SETUP_TOKEN'],
+      deployStdout: 'Uploaded cash-desk\n  https://finance.example.com',
+    });
+
+    const result = await runSetup({
+      argv: ['--update'],
+      cwd,
+      isTTY: false,
+      stdout: { write() {} },
+      stderr: { write() {} },
+      run,
+      fs,
+      now: () => '2026-11-22T00:00:00.000Z',
+    });
+
+    assert.equal(result.ok, true);
+    assert.ok(calls.includes('npm install'));
+    assert.equal(calls.includes('npm ci'), false);
+    const updatedConfig = parseLocalWranglerConfig(fs.files[`${cwd}/wrangler.local.jsonc`]).raw;
+    assert.deepEqual(updatedConfig.routes, [{ pattern: 'finance.example.com', custom_domain: true }]);
+    assert.deepEqual(updatedConfig.triggers, { crons: ['0 * * * *'] });
+    assert.equal(updatedConfig.vars.APP_DOMAIN, 'finance.example.com');
+  });
+
+  it('skips npm ci/install when --update --skip-install is passed and fails closed if local Wrangler is missing', async () => {
+    const cwd = '/tmp/app-v2-update-skip-install';
+    const fs = memoryFs({
+      [`${cwd}/wrangler.local.jsonc`]: legacyLocalConfig,
+      [`${cwd}/package-lock.json`]: '{}',
+    });
+    const { run, calls } = liveRunner({
+      workerName: 'cash-desk',
+      subdomain: 'myacct',
+      secrets: ['SESSION_SECRET', 'SETUP_TOKEN'],
+    });
+
+    const result = await runSetup({
+      argv: ['--update', '--skip-install'],
+      cwd,
+      isTTY: false,
+      stdout: { write() {} },
+      stderr: { write() {} },
+      run,
+      fs,
+      now: () => '2026-11-22T00:00:00.000Z',
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(calls.some((line) => line === 'npm ci' || line === 'npm install'), false);
+    assert.ok(commandIndex(calls, 'migrations apply') >= 0);
+    assert.ok(commandIndex(calls, 'wrangler deploy') >= 0);
+
+    await assert.rejects(
+      () =>
+        runSetup({
+          argv: ['--update', '--skip-install'],
+          cwd: '/tmp/app-v2-update-skip-missing-deps',
+          isTTY: false,
+          stdout: { write() {} },
+          stderr: { write() {} },
+          run,
+          fs: memoryFs(
+            { '/tmp/app-v2-update-skip-missing-deps/wrangler.local.jsonc': legacyLocalConfig },
+            { localWrangler: false },
+          ),
+        }),
+      (err) => err?.code === 'deps' && /Local Wrangler is required/.test(err.message),
+    );
   });
 });

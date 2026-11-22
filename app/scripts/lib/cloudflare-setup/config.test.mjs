@@ -42,6 +42,7 @@ describe('buildLocalWranglerConfig', () => {
       { tag: 'v1-demo-session', new_sqlite_classes: ['DemoSession'] },
     ]);
     assert.equal(config.rules[0].fallthrough, true);
+    assert.deepEqual(config.triggers, { crons: ['0 * * * *'] });
     const serialized = serializeWranglerJsonc(config);
     assert.match(serialized, /Do not commit/);
     for (const id of RESERVED_PRODUCTION_RESOURCE_IDS) {

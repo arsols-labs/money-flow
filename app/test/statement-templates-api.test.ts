@@ -6,6 +6,7 @@ import type { Env } from '../src/worker/types';
 import { BACKUP_VERSION } from '../src/worker/backup';
 import { BUILTIN_TEMPLATES } from '../src/shared/statement-import/templates';
 import { templateFromMapping } from '../src/ui/statementImportState.js';
+import { seedAllTestRules, seedTestCurrencyRules } from './seed-test-rules';
 
 let cookie: string;
 
@@ -15,7 +16,15 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await env.DB.prepare('DELETE FROM statement_templates').run();
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM operations'),
+    env.DB.prepare('DELETE FROM import_batches'),
+    env.DB.prepare('DELETE FROM accounts'),
+    env.DB.prepare('DELETE FROM statement_templates'),
+    env.DB.prepare('DELETE FROM rule_entries'),
+    env.DB.prepare('DELETE FROM rule_sets'),
+  ]);
+  await seedAllTestRules(env.DB);
 });
 
 async function api(method: string, path: string, body?: unknown, withCookie = true): Promise<Response> {
@@ -51,19 +60,22 @@ describe('statement template API', () => {
     expect(res.status).toBe(401);
   });
 
-  it('lists built-ins as read-only and stores a user template', async () => {
+  it('lists D1-seeded templates as writable and stores a user template', async () => {
+    expect(BUILTIN_TEMPLATES).toEqual([]);
     const listed = await api('GET', '/api/v2/statement-templates');
     expect(listed.status).toBe(200);
     const body = await listed.json() as { templates: Array<{ source: string; readonly: boolean; document: { id: string } }> };
-    expect(body.templates.filter((row) => row.source === 'builtin').map((row) => row.document.id)).toEqual(['us-bofa', 'us-bofa-pdf', 'rs-bps', 'rs-bps-pdf']);
-    expect(body.templates.filter((row) => row.source === 'builtin').every((row) => row.readonly)).toBe(true);
+    expect(body.templates.map((row) => row.document.id)).toEqual(
+      expect.arrayContaining(['us-bofa', 'us-bofa-pdf', 'rs-bps', 'rs-bps-pdf']),
+    );
+    expect(body.templates.every((row) => row.readonly === false)).toBe(true);
 
     const created = await api('POST', '/api/v2/statement-templates', userTemplate());
     expect(created.status).toBe(201);
     const again = await api('POST', '/api/v2/statement-templates', userTemplate());
     expect(again.status).toBe(409);
-    const reserved = await api('POST', '/api/v2/statement-templates', userTemplate('us-bofa', 'Copy'));
-    expect(reserved.status).toBe(409);
+    const taken = await api('POST', '/api/v2/statement-templates', userTemplate('us-bofa', 'Copy'));
+    expect(taken.status).toBe(409);
     const invalid = await api('POST', '/api/v2/statement-templates', { schemaVersion: 1, id: 'bad', label: 'Bad', format: 'csv', extra: true });
     expect(invalid.status).toBe(400);
     const invalidBody = await invalid.json() as { error: { code: string; params: { detail: string } } };
@@ -75,15 +87,16 @@ describe('statement template API', () => {
     const renamedBody = await renamed.json() as { document: { label: string; id: string } };
     expect(renamedBody.document).toMatchObject({ id: 'my-bank', label: 'Renamed bank' });
 
-    const builtinPatch = await api('PATCH', '/api/v2/statement-templates/us-bofa', { label: 'Nope' });
-    expect(builtinPatch.status).toBe(403);
-    const builtinDelete = await api('DELETE', '/api/v2/statement-templates/rs-bps');
-    expect(builtinDelete.status).toBe(403);
+    const editedSeed = await api('PATCH', '/api/v2/statement-templates/us-bofa', { label: 'Edited Bank of America' });
+    expect(editedSeed.status).toBe(200);
+    expect(((await editedSeed.json()) as { document: { label: string } }).document.label).toBe('Edited Bank of America');
 
     const presets = await api('GET', '/api/v2/statement-imports/presets');
     const presetBody = await presets.json() as { presets: Array<{ id: string; source: string }> };
-    expect(presetBody.presets.map((preset) => preset.id)).toEqual(['us-bofa', 'us-bofa-pdf', 'rs-bps', 'rs-bps-pdf', 'my-bank']);
-    expect(presetBody.presets.find((preset) => preset.id === 'my-bank')?.source).toBe('user');
+    expect(presetBody.presets.map((preset) => preset.id)).toEqual(
+      expect.arrayContaining(['us-bofa', 'us-bofa-pdf', 'rs-bps', 'rs-bps-pdf', 'my-bank']),
+    );
+    expect(presetBody.presets.find((preset) => preset.id === 'my-bank')?.source).toBe('d1');
 
     const removed = await api('DELETE', '/api/v2/statement-templates/my-bank');
     expect(removed.status).toBe(200);
@@ -286,16 +299,26 @@ describe('statement template API', () => {
   });
 
   it('round-trips templates in a version 2 backup and still imports a version 1 backup', async () => {
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM rule_entries'),
+      env.DB.prepare('DELETE FROM rule_sets'),
+    ]);
+    await seedTestCurrencyRules(env.DB);
     expect((await api('POST', '/api/v2/statement-templates', userTemplate())).status).toBe(201);
     const exported = await api('GET', '/api/v2/backup/export');
     expect(exported.status).toBe(200);
     const dump = await exported.json() as {
       version: number;
-      tables: { statement_templates: Array<{ template_id: string; document: string }> };
+      tables: {
+        rule_sets: Array<{ id: number; domain: string }>;
+        rule_entries: Array<{ rule_set_id: number; entry_key: string; payload_json: string }>;
+      };
     };
     expect(dump.version).toBe(BACKUP_VERSION);
-    expect(dump.tables.statement_templates.map((row) => row.template_id)).toEqual(['my-bank']);
-    expect(JSON.parse(dump.tables.statement_templates[0]!.document).label).toBe('My bank');
+    const tplSetIds = new Set(dump.tables.rule_sets.filter((row) => row.domain === 'statement_templates').map((row) => row.id));
+    const tplEntries = dump.tables.rule_entries.filter((row) => tplSetIds.has(row.rule_set_id));
+    expect(tplEntries.map((row) => row.entry_key)).toEqual(['my-bank']);
+    expect(JSON.parse(tplEntries[0]!.payload_json).label).toBe('My bank');
 
     await api('DELETE', '/api/v2/statement-templates/my-bank');
     const legacy = structuredClone(dump) as {
@@ -304,9 +327,12 @@ describe('statement template API', () => {
     };
     legacy.version = 1;
     delete legacy.tables.statement_templates;
+    delete legacy.tables.rule_sets;
+    delete legacy.tables.rule_entries;
+    delete legacy.tables.recurring_policy_bindings;
     const legacyImport = await api('POST', '/api/v2/backup/import', { ...legacy, confirm: true });
     expect(legacyImport.status, await legacyImport.clone().text()).toBe(200);
-    const afterLegacy = await env.DB.prepare('SELECT COUNT(*) AS n FROM statement_templates').first<{ n: number }>();
+    const afterLegacy = await env.DB.prepare('SELECT COUNT(*) AS n FROM rule_entries').first<{ n: number }>();
     expect(afterLegacy?.n).toBe(0);
 
     const restored = await api('POST', '/api/v2/backup/import', { ...dump, confirm: true });
@@ -341,7 +367,7 @@ describe('statement templates on the demo ledger', () => {
 
   it('creates, renames, and deletes a template without writing shared D1', async () => {
     const real = env as unknown as Env;
-    const before = await real.DB.prepare('SELECT COUNT(*) AS n FROM statement_templates').first<{ n: number }>();
+    const before = await real.DB.prepare('SELECT COUNT(*) AS n FROM rule_entries').first<{ n: number }>();
     const createdAccount = await demoFetch('/api/v2/accounts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -370,11 +396,11 @@ describe('statement templates on the demo ledger', () => {
     expect(renamed.status, await renamed.clone().text()).toBe(200);
     const listed = await demoFetch('/api/v2/statement-templates', {}, session);
     const listBody = await listed.json() as { templates: Array<{ source: string; document: { id: string; label: string } }> };
-    expect(listBody.templates.filter((row) => row.source === 'user').map((row) => row.document.label)).toEqual(['Demo renamed']);
-    expect(listBody.templates.filter((row) => row.source === 'builtin')).toHaveLength(BUILTIN_TEMPLATES.length);
+    expect(listBody.templates.map((row) => row.document.id)).toEqual(expect.arrayContaining(['demo-csv', 'demo-bank']));
+    expect(listBody.templates.find((row) => row.document.id === 'demo-bank')?.document.label).toBe('Demo renamed');
     const removed = await demoFetch('/api/v2/statement-templates/demo-bank', { method: 'DELETE' }, session);
     expect(removed.status).toBe(200);
-    const after = await real.DB.prepare('SELECT COUNT(*) AS n FROM statement_templates').first<{ n: number }>();
+    const after = await real.DB.prepare('SELECT COUNT(*) AS n FROM rule_entries').first<{ n: number }>();
     expect(after?.n).toBe(before?.n);
   });
 });

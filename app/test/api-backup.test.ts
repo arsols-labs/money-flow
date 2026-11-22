@@ -15,6 +15,7 @@ import {
   parseBackupDocument,
 } from '../src/worker/backup';
 import { expectErrorCode } from './api-error-helpers';
+import { seedTestCurrencyRules } from './seed-test-rules';
 
 let cookie: string;
 
@@ -42,6 +43,8 @@ beforeEach(async () => {
     env.DB.prepare('DELETE FROM receipts'),
     env.DB.prepare('DELETE FROM fx_rates'),
     env.DB.prepare('DELETE FROM accounts'),
+    env.DB.prepare('DELETE FROM rule_entries'),
+    env.DB.prepare('DELETE FROM rule_sets'),
     env.DB.prepare(
       `INSERT INTO settings (key, value) VALUES
          ('base_currency', 'USD'),
@@ -49,6 +52,7 @@ beforeEach(async () => {
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     ),
   ]);
+  await seedTestCurrencyRules(env.DB);
 });
 
 async function api(method: string, path: string, body?: unknown, withCookie = true): Promise<Response> {
@@ -92,6 +96,10 @@ describe('GET /api/v2/backup/export', () => {
   });
 
   it('returns a versioned dump of user tables with a download filename', async () => {
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM rule_entries'),
+      env.DB.prepare('DELETE FROM rule_sets'),
+    ]);
     const res = await api('GET', '/api/v2/backup/export');
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Disposition')).toMatch(

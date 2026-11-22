@@ -1,16 +1,4 @@
-// One JSON file per known bank. Register the file here. Adding a bank is that
-// file plus this import. test/statement-template-files.test.mjs fails when a
-// bank JSON file in templates/ is not imported.
-import usBofa from './templates/us-bofa.json';
-import usBofaPdf from './templates/us-bofa-pdf.json';
-import rsBps from './templates/rs-bps.json';
-import rsBpsPdf from './templates/rs-bps-pdf.json';
-import { pdfLayoutsForTemplate, type PdfLayoutId } from './pdf-preset';
-import {
-  validateStatementTemplate,
-  type StatementTemplate,
-  type XlsTemplateLayout,
-} from './template-schema';
+import type { StatementTemplate, XlsTemplateLayout } from './template-schema';
 import type {
   CsvColumnMapping,
   CsvParseOptions,
@@ -43,36 +31,26 @@ export interface PdfPreset {
   id: string;
   label: string;
   format: 'pdf';
-  /** Null accepts every known text-layer layout. A bank id accepts only that bank. */
-  layouts: readonly PdfLayoutId[] | null;
+  /** Layout IDs accepted for this template (null accepts any configured D1 pdf_layout). */
+  layouts: readonly string[] | null;
 }
 
 export type StatementPreset = CsvPreset | XlsPreset | OfxPreset | PdfPreset;
 
-const BUILTIN_SOURCES = [usBofa, usBofaPdf, rsBps, rsBpsPdf];
-
-function loadBuiltin(raw: unknown): StatementTemplate {
-  const result = validateStatementTemplate(raw);
-  if (!result.ok) {
-    const id = typeof raw === 'object' && raw !== null && 'id' in raw ? String(raw.id) : 'unknown';
-    throw new Error(`Built-in statement template ${id} is invalid`);
-  }
-  return result.value;
-}
-
-export const BUILTIN_TEMPLATES: readonly StatementTemplate[] = BUILTIN_SOURCES.map(loadBuiltin);
+/** Shipped built-in statement templates are intentionally empty: all templates live in D1 rules. */
+export const BUILTIN_TEMPLATES: readonly StatementTemplate[] = [];
 
 const HEADER_ROLES = ['valueDate', 'transactionDate', 'currency', 'credit', 'debit', 'description'] as const;
 
-export function isBuiltinTemplateId(id: string): boolean {
-  return BUILTIN_TEMPLATES.some((template) => template.id === id);
+export function isBuiltinTemplateId(_id: string): boolean {
+  return false;
 }
 
-export function builtinTemplateById(id: string): StatementTemplate | null {
-  return BUILTIN_TEMPLATES.find((template) => template.id === id) ?? null;
+export function builtinTemplateById(_id: string): StatementTemplate | null {
+  return null;
 }
 
-export function builtinXlsHeaderAliases(): XlsHeaderAliases {
+export function mergeXlsHeaderAliases(templates: readonly StatementTemplate[]): XlsHeaderAliases {
   const merged: Record<(typeof HEADER_ROLES)[number], string[]> = {
     valueDate: [],
     transactionDate: [],
@@ -81,10 +59,10 @@ export function builtinXlsHeaderAliases(): XlsHeaderAliases {
     debit: [],
     description: [],
   };
-  for (const template of BUILTIN_TEMPLATES) {
+  for (const template of templates) {
     if (template.format !== 'xls' || !template.xls) continue;
     for (const role of HEADER_ROLES) {
-      for (const alias of template.xls.headerAliases[role]) {
+      for (const alias of template.xls.headerAliases[role] ?? []) {
         if (!merged[role].includes(alias)) merged[role].push(alias);
       }
     }
@@ -92,9 +70,9 @@ export function builtinXlsHeaderAliases(): XlsHeaderAliases {
   return merged;
 }
 
-export function builtinAccountAliases(): readonly string[] {
+export function mergeAccountAliases(templates: readonly StatementTemplate[]): string[] {
   const aliases: string[] = [];
-  for (const template of BUILTIN_TEMPLATES) {
+  for (const template of templates) {
     for (const alias of template.xls?.accountAliases ?? []) {
       if (!aliases.includes(alias)) aliases.push(alias);
     }
@@ -135,8 +113,11 @@ function xlsLayout(layout: XlsTemplateLayout): XlsLayout {
   };
 }
 
-/** A stored template the parser can run. PDF presets select a known text-layer layout. */
-export function templateAsPreset(template: StatementTemplate): StatementPreset | null {
+/** Converts a D1-stored statement template into a runnable parser preset. */
+export function templateAsPreset(
+  template: StatementTemplate,
+  pdfLayoutIds: readonly string[] | null = null,
+): StatementPreset | null {
   if (template.format === 'csv' && template.csv) {
     return {
       id: template.id,
@@ -162,16 +143,20 @@ export function templateAsPreset(template: StatementTemplate): StatementPreset |
       id: template.id,
       label: template.label,
       format: 'pdf',
-      layouts: pdfLayoutsForTemplate(template.id),
+      layouts: pdfLayoutIds,
     };
   }
   return null;
 }
 
-export function builtinPresets(): StatementPreset[] {
-  return BUILTIN_TEMPLATES.map((template) => {
-    const preset = templateAsPreset(template);
-    if (!preset) throw new Error(`Built-in statement template ${template.id} cannot be used as a preset`);
-    return preset;
-  });
+export function presetsFromTemplates(
+  templates: readonly StatementTemplate[],
+  pdfLayoutsByTemplate?: ReadonlyMap<string, readonly string[]>,
+): StatementPreset[] {
+  const result: StatementPreset[] = [];
+  for (const template of templates) {
+    const preset = templateAsPreset(template, pdfLayoutsByTemplate?.get(template.id) ?? null);
+    if (preset) result.push(preset);
+  }
+  return result;
 }

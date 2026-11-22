@@ -94,7 +94,7 @@ class NotificationPolicyTests(unittest.TestCase):
             "total_minor": 237389,
             "currency": "RSD",
             "matched_account": "PSB-RSD",
-            "matched_recurring_rule": "Продукты #16",
+            "matched_recurring_rule": "Daily groceries #21",
             "question": "Was this purchase paid from PSB-RSD?",
         }
         self.assertIs(np.validate_action_required_context(context), context)

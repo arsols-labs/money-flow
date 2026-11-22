@@ -8,15 +8,26 @@
 // It runs in the same workerd pool as the other v2 tests; no DOM is
 // needed here — money.js works with strings and Intl.
 import './use-ru-i18n';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { EMPTY_CURRENCY_CATALOG, MissingCurrencyConfigError, setRuntimeCurrencyCatalog } from '../src/shared/currency';
+import { installTestRuntimeCurrencies } from './seed-test-rules';
 import {
   parseAmountToMinor,
   minorToInputString,
   normalizeRateInput,
   fractionDigits,
+  tryFractionDigits,
   formatMajor,
   formatMajorCompact,
 } from '../src/ui/money.js';
+
+beforeAll(() => {
+  installTestRuntimeCurrencies();
+});
+
+afterAll(() => {
+  setRuntimeCurrencyCatalog(EMPTY_CURRENCY_CATALOG);
+});
 
 describe('fractionDigits', () => {
   it('knows the scale of ordinary currencies', () => {
@@ -35,10 +46,13 @@ describe('fractionDigits', () => {
     expect(fractionDigits('RSD')).toBe(2);
   });
 
-  it('does not throw on an unknown code and returns two digits', () => {
-    expect(fractionDigits('ZZZ')).toBe(2);
-    expect(fractionDigits('')).toBe(2);
-    expect(fractionDigits(undefined)).toBe(2);
+  it('fails closed on unconfigured currency codes in fractionDigits while tryFractionDigits returns null', () => {
+    expect(() => fractionDigits('ZZZ')).toThrow(MissingCurrencyConfigError);
+    expect(() => fractionDigits('')).toThrow(MissingCurrencyConfigError);
+    expect(() => fractionDigits(undefined)).toThrow(MissingCurrencyConfigError);
+    expect(tryFractionDigits('ZZZ')).toBeNull();
+    expect(tryFractionDigits('')).toBeNull();
+    expect(tryFractionDigits(undefined)).toBeNull();
   });
 });
 

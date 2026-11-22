@@ -2,6 +2,7 @@ import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import mcpApp from '../src/worker/mcp-server';
 import type { Env } from '../src/worker/types';
+import { seedAllTestRules } from './seed-test-rules';
 
 const typedEnv = env as unknown as Env;
 const clientId = 'client-mcp-no-auto-confirm';
@@ -24,6 +25,9 @@ const REFUSING_TOOLS = [
   'receipt_group_receipt_unlink',
   'receipt_group_delete',
   'receipt_group_rename',
+  'rule_set_delete',
+  'rule_entry_delete',
+  'rules_bundle_import',
 ] as const;
 
 const NEWLY_REFUSING = [
@@ -35,7 +39,7 @@ const NEWLY_REFUSING = [
 ] as const;
 
 const REFUSAL_CATALOG =
-  'auto_confirm is not accepted for account_delete, account_alias_delete, transfer_delete, backup_import, operation_delete, planned_item_delete, recurring_item_delete, fx_rate_delete, data_reset, template_delete, statement_import_undo, purchase_order_component_unlink, purchase_order_delete, receipt_group_receipt_unlink, receipt_group_delete, receipt_group_rename, and for setting_set when the key is base_currency; a human confirmation is always required.';
+  'auto_confirm is not accepted for account_delete, account_alias_delete, transfer_delete, backup_import, operation_delete, planned_item_delete, recurring_item_delete, fx_rate_delete, data_reset, template_delete, statement_import_undo, purchase_order_component_unlink, purchase_order_delete, receipt_group_receipt_unlink, receipt_group_delete, receipt_group_rename, rule_set_delete, rule_entry_delete, rules_bundle_import, and for setting_set when the key is base_currency; a human confirmation is always required.';
 
 function refusalError(name: string) {
   return `Error executing tool: auto_confirm is not accepted for ${name}; a destructive change always needs a human confirmation through requestState`;
@@ -90,7 +94,10 @@ beforeEach(async () => {
     env.DB.prepare('DELETE FROM fx_rates'),
     env.DB.prepare('DELETE FROM oauth_tokens'),
     env.DB.prepare('DELETE FROM oauth_clients'),
+    env.DB.prepare('DELETE FROM rule_entries'),
+    env.DB.prepare('DELETE FROM rule_sets'),
   ]);
+  await seedAllTestRules(env.DB);
   await env.DB.prepare(`INSERT INTO oauth_clients (id, name, created_at) VALUES (?, 'No Auto Confirm', datetime('now'))`)
     .bind(clientId).run();
 });

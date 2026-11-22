@@ -1,9 +1,77 @@
 import { describe, expect, it } from 'vitest';
+import { buildCurrencyCatalog } from '../src/shared/currency';
 import { rowKeyFromStoredFingerprint, statementFingerprint, statementRowKey } from '../src/shared/statement-import/amounts';
 import { parseStatementFile } from '../src/shared/statement-import/parse';
-import { presetById, STATEMENT_PRESETS } from '../src/shared/statement-import/presets';
+import { templateAsPreset, type StatementPreset } from '../src/shared/statement-import/templates';
+import type { StatementTemplate } from '../src/shared/statement-import/template-schema';
 
-const BOFA_CSV = [
+const TEST_CURRENCIES = buildCurrencyCatalog([
+  { code: 'USD', minor_digits: 2, symbol: '$', is_fx_anchor: true },
+  { code: 'EUR', minor_digits: 2, symbol: '€' },
+  { code: 'RSD', minor_digits: 2, symbol: 'RSD' },
+]);
+
+const SAMPLE_CSV_TEMPLATE: StatementTemplate = {
+  schemaVersion: 1,
+  id: 'sample-csv',
+  label: 'Sample US CSV',
+  format: 'csv',
+  csv: {
+    mapping: { date: 'Date', description: 'Description', amount: 'Amount', balance: 'Running Bal.' },
+    options: {
+      delimiter: ',',
+      decimalSeparator: '.',
+      dateFormat: 'MM/DD/YYYY',
+      encoding: 'utf-8',
+      hasHeader: true,
+      defaultCurrency: 'USD',
+      skipEmptyAmount: true,
+      checkRunningBalance: true,
+    },
+  },
+};
+
+const SAMPLE_XLS_TEMPLATE: StatementTemplate = {
+  schemaVersion: 1,
+  id: 'sample-xls',
+  label: 'Sample Bilingual XLS',
+  format: 'xls',
+  xls: {
+    sheetName: 'Sheet1',
+    accountLabel: 'Account',
+    accountAliases: ['account', 'account number', 'racun', 'broj racuna'],
+    dateFormat: 'DD/MM/YYYY',
+    decimalSeparator: '.',
+    amountMode: 'credit-debit',
+    currencyMode: 'per-row',
+    columns: {
+      valueDate: { index: 1, header: 'Value date' },
+      transactionDate: { index: 2, header: 'Transaction date' },
+      currency: { index: 6, header: 'Currency code' },
+      credit: { index: 8, header: 'Credit' },
+      debit: { index: 10, header: 'Debit' },
+      description: { index: 12, header: 'Description' },
+    },
+    headerAliases: {
+      valueDate: ['value date', 'datum valute'],
+      transactionDate: ['transaction date', 'datum transakcije', 'datum knjizenja', 'datum prometa'],
+      currency: ['currency code', 'oznaka valute', 'sifra valute', 'currency', 'valuta'],
+      credit: ['credit', 'potrazuje', 'potrazivanje', 'odobrenje', 'uplata'],
+      debit: ['debit', 'duguje', 'dugovanje', 'zaduzenje', 'isplata'],
+      description: ['description', 'opis transakcije', 'opis'],
+    },
+    descriptionFlags: [
+      { id: 'possible_own_account_transfer', pattern: 'otkup strane valute' },
+    ],
+  },
+};
+
+const TEST_TEMPLATES: readonly StatementTemplate[] = [SAMPLE_CSV_TEMPLATE, SAMPLE_XLS_TEMPLATE];
+const TEST_PRESETS: readonly StatementPreset[] = TEST_TEMPLATES
+  .map((t) => templateAsPreset(t))
+  .filter((p): p is StatementPreset => p !== null);
+
+const SAMPLE_CSV_END_IMPORT = [
   'Description,,Summary Amt.',
   'Beginning balance as of 03/01/2026,,"1,250.00"',
   'Total credits,,"500.00"',
@@ -86,20 +154,23 @@ export async function syntheticBpsWorkbook(dataRows: string[][]): Promise<Uint8A
 }
 
 describe('statement presets', () => {
-  it('ships us-bofa and rs-bps as data, with no parser branch on the bank id', () => {
-    expect(STATEMENT_PRESETS.map((preset) => preset.id)).toEqual(['us-bofa', 'us-bofa-pdf', 'rs-bps', 'rs-bps-pdf']);
-    expect(presetById('us-bofa')?.format).toBe('csv');
-    expect(presetById('rs-bps')?.format).toBe('xls');
-    expect(presetById('missing')).toBeNull();
+  it('converts D1 statement templates to runtime presets with no code branch on bank id', () => {
+    expect(TEST_PRESETS.map((preset) => preset.id)).toEqual(['sample-csv', 'sample-xls']);
+    expect(TEST_PRESETS.find((p) => p.id === 'sample-csv')?.format).toBe('csv');
+    expect(TEST_PRESETS.find((p) => p.id === 'sample-xls')?.format).toBe('xls');
+    expect(TEST_PRESETS.find((p) => p.id === 'missing') ?? null).toBeNull();
   });
 });
 
-describe('us-bofa CSV preset', () => {
+describe('D1 CSV template', () => {
   it('detects the header by content, skips the empty-amount pseudo-row, and checks the running balance', async () => {
     const parsed = await parseStatementFile({
       format: 'auto',
-      text: BOFA_CSV,
-      presetId: 'us-bofa',
+      text: SAMPLE_CSV_END_IMPORT,
+      presetId: 'sample-csv',
+      availablePresets: TEST_PRESETS,
+      templates: TEST_TEMPLATES,
+      currencyCatalog: TEST_CURRENCIES,
     });
     expect(parsed.format).toBe('csv');
     const rows = parsed.statements[0]!.rows;
@@ -110,14 +181,21 @@ describe('us-bofa CSV preset', () => {
     expect(rows.every((row) => row.warnings.length === 0)).toBe(true);
     expect(rows.every((row) => row.bankTransactionId === null)).toBe(true);
     expect(rows[0]!.description).toContain('ACME COFFEE');
-    const broken = BOFA_CSV.replace('1,237.55', '1,000.00');
-    const warned = await parseStatementFile({ format: 'csv', text: broken, presetId: 'us-bofa' });
+    const broken = SAMPLE_CSV_END_IMPORT.replace('1,237.55', '1,000.00');
+    const warned = await parseStatementFile({
+      format: 'csv',
+      text: broken,
+      presetId: 'sample-csv',
+      availablePresets: TEST_PRESETS,
+      templates: TEST_TEMPLATES,
+      currencyCatalog: TEST_CURRENCIES,
+    });
     expect(warned.statements[0]!.rows[0]!.warnings.join(' ')).toMatch(/running balance/i);
   });
 
   it('reads a user mapping after a preamble and refuses a mapping that yields no rows', async () => {
     const text = [
-      'Bank of America',
+      'Sample Bank',
       'Synthetic statement',
       'Account number,0000',
       'From,03/01/2026',
@@ -141,6 +219,7 @@ describe('us-bofa CSV preset', () => {
       text,
       mapping,
       options: { ...options, defaultCurrency: 'USD' },
+      currencyCatalog: TEST_CURRENCIES,
     });
     expect(parsed.statements[0]!.rows).toEqual([
       expect.objectContaining({ date: '2026-03-04', amountMinor: -1245, currency: 'USD', kind: 'expense' }),
@@ -150,6 +229,7 @@ describe('us-bofa CSV preset', () => {
       text,
       mapping,
       options,
+      currencyCatalog: TEST_CURRENCIES,
     });
     expect(deferred.statements[0]!.rows[0]).toMatchObject({
       date: '2026-03-04',
@@ -162,6 +242,7 @@ describe('us-bofa CSV preset', () => {
       text: 'Date,Description,Amount\nnot-a-date,COFFEE,-1.00\n',
       mapping,
       options,
+      currencyCatalog: TEST_CURRENCIES,
     })).rejects.toThrow(/invalid date "not-a-date"/i);
   });
 
@@ -179,6 +260,7 @@ describe('us-bofa CSV preset', () => {
         hasHeader: true,
         defaultCurrency: 'USD',
       },
+      currencyCatalog: TEST_CURRENCIES,
     });
     expect(parsed.statements[0]!.dateFormat).toBe('MM/DD/YYYY');
     expect(parsed.statements[0]!.rows[0]).toMatchObject({ date: '2026-04-23', amountMinor: -1245, currency: 'USD' });
@@ -186,7 +268,7 @@ describe('us-bofa CSV preset', () => {
   });
 });
 
-describe('rs-bps Excel preset', () => {
+describe('D1 XLS template', () => {
   it('reads a synthetic BIFF8 workbook: header, signs, currencies, transfer flag, and dedup key', async () => {
     const bytes = await syntheticBpsWorkbook([
       bpsLine('14/03/2026', '13/03/2026', 'RSD', '', '2,345.60', '123 - TEST MARKET 45>BEOGRAD            RS'),
@@ -194,7 +276,14 @@ describe('rs-bps Excel preset', () => {
       bpsLine('10/03/2026', '09/03/2026', 'EUR', '', '3.50', 'Naplata provizije za vodjenje racuna za period 02.'),
       bpsLine('08/03/2026', '08/03/2026', 'RSD', '100.00', '', 'Pošiljalac: TEST ŠALTER'),
     ]);
-    const parsed = await parseStatementFile({ format: 'xls', bytes, presetId: 'rs-bps' });
+    const parsed = await parseStatementFile({
+      format: 'xls',
+      bytes,
+      presetId: 'sample-xls',
+      availablePresets: TEST_PRESETS,
+      templates: TEST_TEMPLATES,
+      currencyCatalog: TEST_CURRENCIES,
+    });
     const statement = parsed.statements[0]!;
     expect(statement.accountRef).toBe('265-0000000000001-23');
     expect(statement.rows.map((row) => [row.date, row.valueDate, row.currency, row.amountMinor, row.kind])).toEqual([
@@ -252,14 +341,27 @@ describe('rs-bps Excel preset', () => {
         ['08/03/2026', '08/03/2026', 'RSD', '100,00', '', 'TEST SALARY'],
       ],
     );
-    const parsed = await parseStatementFile({ format: 'xls', bytes, presetId: 'rs-bps' });
+    const parsed = await parseStatementFile({
+      format: 'xls',
+      bytes,
+      presetId: 'sample-xls',
+      availablePresets: TEST_PRESETS,
+      templates: TEST_TEMPLATES,
+      currencyCatalog: TEST_CURRENCIES,
+    });
     const statement = parsed.statements[0]!;
     expect(statement.accountRef).toBe('265-0000000000001-23');
     expect(statement.rows.map((row) => [row.date, row.currency, row.amountMinor, row.kind])).toEqual([
       ['2026-03-13', 'RSD', -123456, 'expense'],
       ['2026-03-08', 'RSD', 10000, 'income'],
     ]);
-    const auto = await parseStatementFile({ format: 'auto', bytes });
+    const auto = await parseStatementFile({
+      format: 'auto',
+      bytes,
+      availablePresets: TEST_PRESETS,
+      templates: TEST_TEMPLATES,
+      currencyCatalog: TEST_CURRENCIES,
+    });
     expect(auto.format).toBe('xls');
     expect(auto.statements[0]!.rows).toHaveLength(2);
   });
@@ -269,7 +371,13 @@ describe('rs-bps Excel preset', () => {
       ['Datum valute', 'Datum transakcije', 'Šifra valute', 'Potražuje', 'Duguje', 'Opis'],
       [['14/03/2026', '13/03/2026', 'RSD', '', '10,00', 'PRODAVNICA']],
     );
-    const parsed = await parseStatementFile({ format: 'auto', bytes: serbian });
+    const parsed = await parseStatementFile({
+      format: 'auto',
+      bytes: serbian,
+      availablePresets: TEST_PRESETS,
+      templates: TEST_TEMPLATES,
+      currencyCatalog: TEST_CURRENCIES,
+    });
     expect(parsed.statements[0]!.rows[0]).toMatchObject({
       date: '2026-03-13',
       currency: 'RSD',
@@ -284,7 +392,14 @@ describe('rs-bps Excel preset', () => {
         ['01/03/2026', '01/03/2026', 'EUR', '4.00', '', 'TEST REFUND'],
       ],
     );
-    const foreign = await parseStatementFile({ format: 'auto', bytes: mixed, presetId: 'rs-bps' });
+    const foreign = await parseStatementFile({
+      format: 'auto',
+      bytes: mixed,
+      presetId: 'sample-xls',
+      availablePresets: TEST_PRESETS,
+      templates: TEST_TEMPLATES,
+      currencyCatalog: TEST_CURRENCIES,
+    });
     expect(foreign.statements[0]!.currency).toBeNull();
     expect(foreign.statements[0]!.rows.map((row) => [row.currency, row.amountMinor, row.kind])).toEqual([
       ['USD', -1000, 'expense'],
@@ -297,7 +412,14 @@ describe('rs-bps Excel preset', () => {
       bpsLine('02/03/2026', '02/03/2026', 'USD', '', '10.00', 'TEST SHOP, CITY'),
       bpsLine('01/03/2026', '01/03/2026', 'EUR', '4.00', '', 'TEST REFUND'),
     ]);
-    const parsed = await parseStatementFile({ format: 'auto', bytes, presetId: 'rs-bps' });
+    const parsed = await parseStatementFile({
+      format: 'auto',
+      bytes,
+      presetId: 'sample-xls',
+      availablePresets: TEST_PRESETS,
+      templates: TEST_TEMPLATES,
+      currencyCatalog: TEST_CURRENCIES,
+    });
     expect(parsed.statements[0]!.currency).toBeNull();
     expect(parsed.statements[0]!.rows.map((row) => [row.currency, row.amountMinor])).toEqual([
       ['USD', -1000],
@@ -333,7 +455,7 @@ OFXHEADER:100
 </BANKTRANLIST>
 </STMTRS></STMTTRNRS></BANKMSGSRSV1>
 </OFX>`;
-    const ofx = await parseStatementFile({ format: 'ofx', text: sgml });
+    const ofx = await parseStatementFile({ format: 'ofx', text: sgml, currencyCatalog: TEST_CURRENCIES });
     expect(ofx.statements[0]!.accountRef).toBe('SYNTH-ACCT');
     expect(ofx.statements[0]!.rows.map((row) => [row.bankTransactionId, row.amountMinor, row.kind])).toEqual([
       ['FIT-1', -1245, 'expense'],
@@ -343,7 +465,7 @@ OFXHEADER:100
     const xml = sgml
       .replace('<TRNAMT>-12.45', '<TRNAMT>-12.45</TRNAMT>')
       .replace('<FITID>FIT-1', '<FITID>FIT-1</FITID>');
-    const xmlParsed = await parseStatementFile({ format: 'qfx', text: xml });
+    const xmlParsed = await parseStatementFile({ format: 'qfx', text: xml, currencyCatalog: TEST_CURRENCIES });
     expect(xmlParsed.format).toBe('qfx');
     expect(xmlParsed.statements[0]!.rows[0]!.bankTransactionId).toBe('FIT-1');
 
@@ -364,7 +486,7 @@ OFXHEADER:100
     </Ntry>
   </Stmt></BkToCstmrStmt>
 </Document>`;
-    const camtParsed = await parseStatementFile({ format: 'camt053', text: camt });
+    const camtParsed = await parseStatementFile({ format: 'camt053', text: camt, currencyCatalog: TEST_CURRENCIES });
     const row = camtParsed.statements[0]!.rows[0]!;
     expect(camtParsed.statements[0]!.accountRef).toBe('DE89370400440532013000');
     expect(row.amountMinor).toBe(-350);

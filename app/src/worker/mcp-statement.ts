@@ -1,10 +1,5 @@
 import { apiErrorMessage } from '../shared/api-errors';
 import { isOleWorkbook, isPdfBytes, isPdfName, detectTextFormat, looksLikePdf } from '../shared/statement-import/parse';
-import {
-  BUILTIN_TEMPLATES,
-  builtinTemplateById,
-  isBuiltinTemplateId,
-} from '../shared/statement-import/templates';
 import type { StatementTemplate } from '../shared/statement-import/template-schema';
 import {
   IMPORT_UNDO_PHRASE,
@@ -84,13 +79,13 @@ export function statementMcpToolDefinitions(notes: { mrtr: string; noAutoConfirm
   return [
     {
       name: 'template_list',
-      description: 'List built-in statement templates and the templates saved in this ledger. Built-in templates are read-only.',
+      description: 'List statement templates saved in active D1 rules for this ledger. An empty list is normal; no built-in template catalog is installed.',
       inputSchema: { type: 'object', properties: {} },
-      outputSchema: { type: 'object', properties: { templates: { type: 'array' }, error: { type: 'string' } } },
+      outputSchema: { type: 'object', properties: { templates: { type: 'array', items: { type: 'object' } }, error: { type: 'string' } } },
     },
     {
       name: 'template_get',
-      description: 'Read one statement template by id, including its document. Built-in templates are read-only.',
+      description: 'Read one saved D1 statement template by id, including its document.',
       inputSchema: {
         type: 'object',
         properties: { template_id: { type: 'string', description: 'Template id, for example us-bofa or rs-bps' } },
@@ -108,7 +103,7 @@ export function statementMcpToolDefinitions(notes: { mrtr: string; noAutoConfirm
           content: { type: 'string', description: 'UTF-8 text for CSV or OFX. Mutually exclusive with content_base64 and upload_id.' },
           content_base64: { type: 'string', description: `Base64 of the file. Decoded size must be at most ${STATEMENT_IMPORT_MAX_FILE_BYTES} bytes (1 MiB), the same raw cap as upload_id.` },
           upload_id: { type: 'string', description: 'Id from statement_import_upload_create after the client PUT the bytes.' },
-          template_id: { type: 'string', description: 'Built-in or saved template id. Omitted templates are detected when exactly one template matches.' },
+          template_id: { type: 'string', description: 'Saved D1 template id. Omitted templates are detected when exactly one template matches.' },
           account_id: { type: 'number' },
           category_mode: { type: 'string', enum: ['manual', 'rules'] },
           idempotency_key: { type: 'string', description: 'Key statement_import_commit must repeat with requestState. Generated when omitted.' },
@@ -118,10 +113,10 @@ export function statementMcpToolDefinitions(notes: { mrtr: string; noAutoConfirm
         type: 'object',
         properties: {
           detected_template: { type: 'object' },
-          account_mapping: { type: 'array' },
-          rows: { type: 'array' },
+          account_mapping: { type: 'array', items: { type: 'object' } },
+          rows: { type: 'array', items: { type: 'object' } },
           duplicates: { type: 'number' },
-          totals: { type: 'array' },
+          totals: { type: 'array', items: { type: 'object' } },
           requestState: { type: 'string' },
           error: { type: 'string' },
           code: { type: 'string' },
@@ -130,11 +125,11 @@ export function statementMcpToolDefinitions(notes: { mrtr: string; noAutoConfirm
     },
     {
       name: 'template_create',
-      description: 'Create a user statement template, or copy a built-in or saved template (copy_from) and save it under a new id. The document is checked with the same strict template schema as the app. Built-in templates are not edited in place. auto_confirm is accepted: an authenticated client may pass auto_confirm true to save immediately. ' + notes.mrtr,
+      description: 'Create a D1 statement template, or copy an existing saved template (copy_from) under a new id. The document is checked with the same strict template schema as the app. auto_confirm is accepted: an authenticated client may pass auto_confirm true to save immediately. ' + notes.mrtr,
       inputSchema: {
         type: 'object',
         properties: {
-          copy_from: { type: 'string', description: 'Template id to copy. Use this to edit a built-in template: the copy is yours.' },
+          copy_from: { type: 'string', description: 'Existing saved template id to copy under the supplied new id.' },
           id: { type: 'string', description: 'New template id. Required with copy_from.' },
           label: { type: 'string' },
           document: { type: 'object', description: 'Full template document. Omit when copy_from is set.' },
@@ -147,7 +142,7 @@ export function statementMcpToolDefinitions(notes: { mrtr: string; noAutoConfirm
     },
     {
       name: 'template_update',
-      description: 'Update a user statement template (label and/or document). Built-in templates are read-only; copy one with template_create copy_from. auto_confirm is accepted only when this MCP client created the template and it has not been used in an import batch. Otherwise a human confirmation through requestState is required. ' + notes.mrtr,
+      description: 'Update a saved D1 statement template (label and/or document). auto_confirm is accepted only when this MCP client created the template and it has not been used in an import batch. Otherwise a human confirmation through requestState is required. ' + notes.mrtr,
       inputSchema: {
         type: 'object',
         properties: {
@@ -163,7 +158,7 @@ export function statementMcpToolDefinitions(notes: { mrtr: string; noAutoConfirm
     },
     {
       name: 'template_delete',
-      description: 'Delete a user statement template. Built-in templates cannot be deleted. ' + notes.noAutoConfirm + 'Requires scope "write" and confirmation (MRTR).' + notes.mrtr,
+      description: 'Delete a saved D1 statement template. ' + notes.noAutoConfirm + 'Requires scope "write" and confirmation (MRTR).' + notes.mrtr,
       inputSchema: {
         type: 'object',
         properties: {
@@ -244,7 +239,7 @@ export function statementMcpToolDefinitions(notes: { mrtr: string; noAutoConfirm
 interface CatalogTemplate {
   id: string;
   label: string;
-  source: 'builtin' | 'user';
+  source: 'd1' | 'user';
   document: StatementTemplate;
 }
 
@@ -284,33 +279,21 @@ export async function readStatementTemplateTool(
   if (name === 'template_list') {
     const stored = await listStatementTemplates(db);
     return {
-      templates: [
-        ...BUILTIN_TEMPLATES.map((template) => ({
-          id: template.id,
-          label: template.label,
-          format: template.format,
-          source: 'builtin',
-          readonly: true,
-          used: false,
-        })),
-        ...stored.map((row) => ({
-          id: row.templateId,
-          label: row.label,
-          format: row.format,
-          source: 'user',
-          readonly: false,
-          created_via: row.createdVia,
-          used: row.usedBatchId != null,
-          created_at: row.createdAt,
-          updated_at: row.updatedAt,
-        })),
-      ],
+      templates: stored.map((row) => ({
+        id: row.templateId,
+        label: row.label,
+        format: row.format,
+        source: 'user',
+        readonly: false,
+        created_via: row.createdVia,
+        used: row.usedBatchId != null,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+      })),
     };
   }
   const templateId = typeof args.template_id === 'string' ? args.template_id.trim() : '';
   if (!templateId) throw new ValidationError('TEMPLATE_NOT_FOUND', undefined, 404);
-  const builtin = builtinTemplateById(templateId);
-  if (builtin) return templateJson(builtin, 'builtin');
   const stored = await getStatementTemplate(db, templateId);
   if (!stored) throw new ValidationError('TEMPLATE_NOT_FOUND', undefined, 404);
   return templateJson(stored.document, 'user', stored);
@@ -318,10 +301,7 @@ export async function readStatementTemplateTool(
 
 async function catalog(db: D1Database): Promise<CatalogTemplate[]> {
   const stored = await listStatementTemplates(db);
-  return [
-    ...BUILTIN_TEMPLATES.map((document) => ({ id: document.id, label: document.label, source: 'builtin' as const, document })),
-    ...stored.map((row) => ({ id: row.templateId, label: row.label, source: 'user' as const, document: row.document })),
-  ];
+  return stored.map((row) => ({ id: row.templateId, label: row.label, source: 'user' as const, document: row.document }));
 }
 
 function headerCells(line: string): Set<string> {
@@ -646,16 +626,12 @@ export async function validateStatementWrite(
         const sourceId = String(args.copy_from).trim();
         const id = typeof args.id === 'string' ? args.id.trim() : '';
         if (!id) return { error: 'id is required when copy_from is set' };
-        const builtin = builtinTemplateById(sourceId);
-        const stored = builtin ? null : await getStatementTemplate(db, sourceId);
-        if (!builtin && !stored) return { error: `TEMPLATE_NOT_FOUND: ${apiErrorMessage('TEMPLATE_NOT_FOUND')}` };
+        const stored = await getStatementTemplate(db, sourceId);
+        if (!stored) return { error: `TEMPLATE_NOT_FOUND: ${apiErrorMessage('TEMPLATE_NOT_FOUND')}` };
         const label = typeof args.label === 'string' ? args.label : undefined;
-        document = copyTemplate((builtin ?? stored!.document), id, label);
+        document = copyTemplate(stored.document, id, label);
       } else {
         document = parseStatementTemplate(args.document);
-      }
-      if (isBuiltinTemplateId(document.id)) {
-        return { error: `TEMPLATE_ID_RESERVED: ${apiErrorMessage('TEMPLATE_ID_RESERVED')}` };
       }
       return {
         description: `Confirm creating statement template "${document.label}" (${document.id})${hasCopy ? ` copied from ${String(args.copy_from).trim()}` : ''}`,
@@ -664,9 +640,6 @@ export async function validateStatementWrite(
     }
     if (name === 'template_update') {
       const templateId = typeof args.template_id === 'string' ? args.template_id.trim() : '';
-      if (isBuiltinTemplateId(templateId)) {
-        return { error: `TEMPLATE_READONLY: ${apiErrorMessage('TEMPLATE_READONLY')}` };
-      }
       const current = await getStatementTemplate(db, templateId);
       if (!current) return { error: `TEMPLATE_NOT_FOUND: ${apiErrorMessage('TEMPLATE_NOT_FOUND')}` };
       const patch: { label?: string; document?: StatementTemplate } = {};
@@ -683,13 +656,10 @@ export async function validateStatementWrite(
     }
     if (name === 'template_delete') {
       const templateId = typeof args.template_id === 'string' ? args.template_id.trim() : '';
-      if (isBuiltinTemplateId(templateId)) {
-        return { error: `TEMPLATE_READONLY: ${apiErrorMessage('TEMPLATE_READONLY')}` };
-      }
       const current = await getStatementTemplate(db, templateId);
       if (!current) return { error: `TEMPLATE_NOT_FOUND: ${apiErrorMessage('TEMPLATE_NOT_FOUND')}` };
       return {
-        description: `Confirm deleting user statement template "${current.label}" (${templateId}). Built-in templates are not affected.`,
+        description: `Confirm deleting statement template "${current.label}" (${templateId}).`,
         confirmedArgs: { idempotency_key: idempotencyKey, template_id: templateId },
       };
     }

@@ -507,8 +507,9 @@ html[data-theme="light"] {
 /* "Data" section header — the same pattern as .card-head (see below): title
    on the left, controls on the right. The class is separate for historical reasons, but
    the rules are shared so sections do not drift apart. */
-.data-section-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; }
+.data-section-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; flex-wrap: wrap; }
 .data-section-header h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.data-section-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 /* Collapsible block title. The button inside the h2 is reset to
    look like a plain heading: no border, no background, font size and weight
@@ -534,6 +535,156 @@ html[data-theme="light"] {
 .data-section-body { display: flex; flex-direction: column; gap: 10px; }
 .data-section-body[hidden] { display: none; }
 .data-hint { margin: -4px 0 0; font-size: 12px; color: var(--text-faint); }
+.data-fx-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+.data-fx-toggle-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+.data-schedule-jump {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.data-fx-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.data-fx-toggle input[type="checkbox"] {
+  margin-top: 2px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+.data-fx-description {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.data-fx-link {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.data-fx-link:hover { color: var(--text-muted); }
+.data-fx-status {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.data-fx-notice {
+  background: color-mix(in srgb, var(--safe) 10%, transparent);
+  border: 1px solid var(--safe);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.recurring-auto-skip-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+.recurring-auto-skip-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.recurring-auto-skip-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.recurring-auto-skip-toggle input[type="checkbox"] {
+  margin-top: 2px;
+  accent-color: var(--primary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.info-toggletip {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.info-toggletip-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  cursor: pointer;
+  --interest-delay-start: 0.15s;
+  interest-delay-start: var(--interest-delay-start);
+  --interest-delay-end: 0.1s;
+  interest-delay-end: var(--interest-delay-end);
+}
+.info-toggletip-trigger:hover,
+.info-toggletip-trigger:focus-visible,
+.info-toggletip-trigger:is(:interest-source, .interest-source) {
+  color: var(--text);
+  border-color: var(--border-hover);
+}
+.info-toggletip-trigger:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.info-toggletip-popover {
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--border-hover);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  max-width: min(320px, calc(100vw - 24px));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+}
+[popover].info-toggletip-popover:is(:popover-open, .\:popover-open) {
+  display: block;
+}
+@supports (position-area: block-start) {
+  .info-toggletip-popover {
+    inset: auto;
+    margin: 6px 0;
+    position-area: block-start span-inline-end;
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+  }
+}
+@keyframes data-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.data-spin { animation: data-spin 0.9s linear infinite; }
 /* Same technique as .data-warning below: the border and background carry the color, and the text
    is normal. After the palette fix colored text would pass AA here, but
    the technique stays — a 12px message in a saturated color reads worse than the same
@@ -3250,3 +3401,186 @@ html[data-theme="light"] .statement-mapping select {
   .topbar-btn-text { display: none; }
   .topbar-btn { padding: 8px 10px; }
 }
+
+.banner--warning {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  border: 1px solid var(--warning);
+  color: var(--text);
+}
+
+.banner--warning .banner-body {
+  flex: 1 1 240px;
+  font-size: 13px;
+}
+
+.rules-settings-section .rules-readiness {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 8px 0 12px;
+}
+
+.rules-chip--missing {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.rules-filter-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.rules-set-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+  color: var(--text);
+}
+
+.rules-set-detail {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.rules-payload-preview {
+  margin: 6px 0 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.rules-bundle-textarea {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.visually-hidden {
+  position: absolute;
+  clip-path: inset(50%);
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  white-space: nowrap;
+}
+
+.cron-schedule-section {
+  margin-top: 8px;
+  scroll-margin-top: calc(var(--appbar-h, 92px) + var(--data-filter-bar-h, 0px) + 12px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cron-schedule-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cron-schedule-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cron-schedule-tz-field {
+  min-width: 0;
+}
+
+.cron-schedule-tz-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.cron-schedule-tz-row input {
+  flex: 1 1 220px;
+  min-width: 0;
+  font-size: max(1rem, 1em);
+  min-height: 40px;
+}
+
+.cron-schedule-detect-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.cron-schedule-hours {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 10px;
+}
+
+.cron-schedule-hours .data-form-field {
+  min-width: 0;
+}
+
+.cron-schedule-hours select {
+  width: 100%;
+  font-size: max(1rem, 1em);
+  min-height: 40px;
+}
+
+.cron-schedule-form input:focus-visible,
+.cron-schedule-form select:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.cron-schedule-form input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.cron-schedule-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.cron-schedule-actions {
+  display: flex;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.recurring-auto-skip-schedule {
+  margin: 0;
+}
+
+@media (max-width: 600px) {
+  .cron-schedule-detect-btn {
+    width: 100%;
+    white-space: normal;
+    text-align: center;
+  }
+}
+

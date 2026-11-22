@@ -1,9 +1,11 @@
+import { getRuntimeCurrencyCatalog, type CurrencyCatalog } from '../currency';
+import type { PdfLayoutPayload } from '../rules/types';
 import { parseCamt053 } from './camt053';
 import { parseCsvStatement } from './csv';
 import { parseOfx } from './ofx';
 import { parsePdfStatement } from './pdf';
-import { pdfLayoutsForTemplate } from './pdf-preset';
-import { presetById, type CsvPreset, type StatementPreset, type XlsPreset } from './presets';
+import type { CsvPreset, StatementPreset, XlsPreset } from './presets';
+import type { StatementTemplate } from './template-schema';
 import {
   type CsvColumnMapping,
   type CsvParseOptions,
@@ -121,11 +123,17 @@ export async function parseStatementFile(input: {
   encoding?: StatementEncoding | null;
   presetId?: string | null;
   preset?: StatementPreset | null;
+  availablePresets?: readonly StatementPreset[];
+  templates?: readonly StatementTemplate[];
+  pdfLayouts?: readonly PdfLayoutPayload[];
+  currencyCatalog?: CurrencyCatalog;
   mapping?: CsvColumnMapping | null;
   options?: Partial<CsvParseOptions> | null;
   xlsLayout?: XlsLayout | null;
 }): Promise<StatementParseResult> {
-  const preset = input.preset ?? (input.presetId ? presetById(input.presetId) : null);
+  const currencyCatalog = input.currencyCatalog ?? getRuntimeCurrencyCatalog();
+  const preset = input.preset
+    ?? (input.presetId ? (input.availablePresets?.find((item) => item.id === input.presetId) ?? null) : null);
   if (input.presetId && !preset) throw new StatementParseError(`unknown preset "${input.presetId}"`);
   const encoding = input.encoding ?? (preset?.format === 'csv' ? preset.options.encoding : 'utf-8');
   let format = input.format;
@@ -154,7 +162,13 @@ export async function parseStatementFile(input: {
       throw new StatementParseError('PDF file bytes are required');
     }
     const bytes = input.bytes ?? new TextEncoder().encode(input.text ?? '');
-    const parsed = await parsePdfStatement(bytes, pdfLayoutsForTemplate(preset?.id));
+    const allowedLayouts = preset?.format === 'pdf'
+      ? preset.layouts
+      : (input.presetId ? [input.presetId] : null);
+    const parsed = await parsePdfStatement(bytes, input.pdfLayouts ?? [], {
+      allowedLayoutIds: allowedLayouts,
+      currencyCatalog,
+    });
     return {
       format: 'pdf',
       encodingNote: null,
@@ -167,7 +181,10 @@ export async function parseStatementFile(input: {
   if (format === 'xls' || preset?.format === 'xls') {
     const layout = input.xlsLayout ?? (preset?.format === 'xls' ? preset.layout : null);
     if (!input.bytes) throw new StatementParseError('Excel file bytes are required');
-    const statement = await parseXls(input.bytes, layout);
+    const statement = await parseXls(input.bytes, layout, {
+      templates: input.templates,
+      currencyCatalog,
+    });
     return { format: 'xls', encodingNote: null, statements: [statement], warnings: [] };
   }
 
@@ -177,7 +194,7 @@ export async function parseStatementFile(input: {
     return {
       format: format === 'qfx' ? 'qfx' : 'ofx',
       encodingNote: encoding,
-      statements: parseOfx(text),
+      statements: parseOfx(text, currencyCatalog),
       warnings: [],
     };
   }
@@ -185,7 +202,7 @@ export async function parseStatementFile(input: {
     return {
       format: 'camt053',
       encodingNote: encoding,
-      statements: parseCamt053(text),
+      statements: parseCamt053(text, currencyCatalog),
       warnings: [],
     };
   }
@@ -193,7 +210,7 @@ export async function parseStatementFile(input: {
   return {
     format: 'csv',
     encodingNote: csv.options.encoding,
-    statements: [parseCsvStatement(text, csv.mapping, csv.options)],
+    statements: [parseCsvStatement(text, csv.mapping, csv.options, currencyCatalog)],
     warnings: [],
   };
 }

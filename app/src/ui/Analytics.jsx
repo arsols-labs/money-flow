@@ -15,7 +15,7 @@ import {
 import PurchaseOrderCard from './PurchaseOrderCard';
 import { nestManualGroupsInReceiptList } from '../shared/receipt-groups';
 import { useRefreshNonce } from './RefreshContext';
-import { formatMinor, formatMajor, fractionDigits } from './money';
+import { formatMinor, formatMajor, tryFractionDigits } from './money';
 import { splitTrendPoint, trendHasRefunds, TREND_EXPENSE_COLOR, TREND_REFUND_COLOR } from './analyticsTrend';
 import { compactComment, ReceiptUrlLink } from './ReceiptUrlLink';
 import { emphasisTint, emphasisBorder, emphasisText, relativeColor, spendColor } from './palette';
@@ -312,12 +312,12 @@ function TrendSection({
   const [internalGranularity, setInternalGranularity] = useState('day');
   const granularity = onGranularityChange ? propGranularity : internalGranularity;
   const setGranularity = onGranularityChange || setInternalGranularity;
-  const digits = fractionDigits(baseCurrency);
+  const digits = baseCurrency ? tryFractionDigits(baseCurrency) : null;
 
   const rawPoints = series?.[granularity] ?? [];
 
   const data = useMemo(
-    () => rawPoints.map((p) => {
+    () => (digits === null || rawPoints.length === 0) ? [] : rawPoints.map((p) => {
       const d = new Date(p.ts);
       let tipLabel = '';
       if (granularity === 'week') {
@@ -1506,7 +1506,7 @@ export default function Analytics({ isCustomizing: externalCustomizing = false, 
   }, [loadData, refreshNonce]);
 
   const activeCount = state.cats.size + state.merchants.size + state.accounts.size + state.currencies.size;
-  const baseCurrency = data?.base_currency || 'USD';
+  const baseCurrency = data?.base_currency ?? null;
   const stats = data?.stats;
 
   const categories = data?.categories ?? [];
@@ -1543,7 +1543,12 @@ export default function Analytics({ isCustomizing: externalCustomizing = false, 
         activeCount={activeCount}
       />
 
-      {error && <div className="data-error">{error}</div>}
+      {error && (
+        <div className="data-error">
+          {error}{' '}
+          <a className="link-btn" href="#/data/rules">{t('onboarding.openSettings')}</a>
+        </div>
+      )}
 
       {data?.missing_rates?.length > 0 && (
         <div className="data-warning" role="status">

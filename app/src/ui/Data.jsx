@@ -4,7 +4,7 @@ import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from
 import { useTranslation } from 'react-i18next';
 import {
   Plus, Archive, ArchiveRestore, Trash2, ChevronDown, ChevronRight, AlertTriangle, Check,
-  Search, SlidersHorizontal, X, RotateCcw,
+  Search, SlidersHorizontal, X, RotateCcw, RefreshCw,
 } from 'lucide-react';
 import { api } from './api';
 import { SectionSkeleton, InlineEditable, DataSection } from './components';
@@ -26,7 +26,16 @@ import { blockTitle } from './i18nLabels';
 import DashboardSettingsModal from './DashboardSettingsModal';
 import BackupSection from './BackupSection';
 import StatementImportSection from './StatementImportSection';
+import RulesSettingsSection from './RulesSettingsSection';
 import ResetSection from './ResetSection';
+import CronScheduleSection from './CronScheduleSection';
+import {
+  CRON_DEFAULT_HOUR,
+  CRON_DEFAULT_TIMEZONE,
+  formatCronHour,
+  formatUtcEquivalentForHour,
+} from '../shared/cron-schedule';
+import { getFxAnchorCurrency, useRuntimeConfig } from './runtimeConfig';
 import {
   formatMinor, minorToInputString, parseAmountToMinor,
   normalizeRateInput, formatRelativeDate, daysSince, STALE_RATE_DAYS,
@@ -60,13 +69,13 @@ function AccountForm({ initial, onSubmit, onCancel, submitLabel, existingAccount
   const { t } = useTranslation();
   const [form, setForm] = useState(() => ({
     name: initial?.name ?? '',
-    currency: initial?.currency ?? 'USD',
+    currency: initial?.currency ?? '',
     bank: initial?.bank ?? '',
     type: initial?.type ?? '',
     account_number: initial?.account_number ?? '',
     owner: initial?.owner ?? '',
-    country: initial?.country ?? 'Global',
-    balance: initial ? minorToInputString(initial.balance_minor, initial.currency || 'USD') : '0',
+    country: initial?.country ?? '',
+    balance: initial ? minorToInputString(initial.balance_minor, initial.currency || '') : '0',
   }));
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -138,16 +147,14 @@ function AccountForm({ initial, onSubmit, onCancel, submitLabel, existingAccount
     setError(null);
 
     const name = form.name.trim();
-    const currency = (form.currency.trim() || 'USD').toUpperCase();
+    const currency = form.currency.trim().toUpperCase();
     const owner = form.owner.trim();
-    let country = form.country.trim();
-    if (!country) {
-      country = 'Global';
-    }
+    const country = form.country.trim();
     if (!name) { setError(t('data.accounts.nameRequired')); return; }
     if (!currency) { setError(t('data.accounts.currencyRequired')); return; }
     // The owner is required — the server will not accept it empty
     if (!owner) { setError(t('data.accounts.ownerRequired')); return; }
+    if (!country) { setError(t('data.accounts.countryRequired')); return; }
 
     const payload = { name, currency, owner, country };
     // Optional fields: in edit mode they are sent explicitly (even empty — that is
@@ -509,15 +516,12 @@ function RateForm({ baseCurrency, initialCode = '', onSubmit, onCancel }) {
   );
 }
 
-function RateRow({ rate, baseCurrency, onSave, onDelete }) {
+function RateRow({ rate, baseCurrency, fxAnchorCode, onSave, onDelete }) {
   const { t } = useTranslation();
-  // A USD rate row is an input error (USD is now the absolute anchor): conversion
-  // does not use it, editing it is pointless, and a save will hit 400 anyway.
-  // The only meaningful action is to delete it, so the value here is plain
-  // text, not InlineEditable.
-  const isAnchorCurrency = rate.code === 'USD';
+  const isAnchorCurrency = Boolean(fxAnchorCode && rate.code === fxAnchorCode);
   const stale = !isAnchorCurrency && daysSince(rate.updated_at) > STALE_RATE_DAYS;
   const flagged = stale || isAnchorCurrency;
+  const anchorSuffix = fxAnchorCode ? ` ${fxAnchorCode}` : '';
 
   return (
     <li className={`data-row data-row--rate ${stale ? 'data-row--stale' : ''} ${isAnchorCurrency ? 'data-row--rate-invalid' : ''}`}>
@@ -528,17 +532,15 @@ function RateRow({ rate, baseCurrency, onSave, onDelete }) {
             {t('data.rates.expression', { code: rate.code })}
             {' '}
             {isAnchorCurrency ? (
-              // The currency code is not hidden: "1 USD = 2 USD" shows the nonsense
-              // in full and explains the row by itself, while "= 2" would read as a fragment.
-              <span className="data-rate-value">{rate.rate} USD</span>
+              <span className="data-rate-value">{rate.rate}{anchorSuffix}</span>
             ) : (
               <InlineEditable
                 value={rate.rate}
-                formatDisplay={(v) => `${v} USD`}
+                formatDisplay={(v) => `${v}${anchorSuffix}`}
                 toEditString={(v) => v}
                 parseValue={normalizeRateInput}
                 onSave={onSave}
-                ariaLabel={t('data.rates.editAria', { code: rate.code, base: baseCurrency || 'USD' })}
+                ariaLabel={t('data.rates.editAria', { code: rate.code, base: fxAnchorCode || baseCurrency || '' })}
                 inputMode="decimal"
               />
             )}
@@ -576,6 +578,7 @@ export function DataDashboard({
   visibleRates = [],
   missingRates = [],
   baseCurrency = null,
+  fxAnchorCode = null,
   rateError = null,
   newRateCode = null,
   openRateForm = () => {},
@@ -583,6 +586,26 @@ export function DataDashboard({
   handleCreateRate = () => {},
   handleSaveRate = () => {},
   handleDeleteRate = () => {},
+  fxAutoUpdate = {
+    enabled: false,
+    provider: 'exchangerate-api',
+    provider_name: 'ExchangeRate-API',
+    provider_url: 'https://www.exchangerate-api.com',
+    schedule_utc: '02:00',
+    schedule_hour: CRON_DEFAULT_HOUR,
+    schedule_timezone: CRON_DEFAULT_TIMEZONE,
+    schedule_time: formatCronHour(CRON_DEFAULT_HOUR),
+    last_run_at: null,
+    last_status: null,
+    last_error: null,
+    last_trigger: null,
+  },
+  cronSchedule = null,
+  togglingFxAuto = false,
+  handleToggleFxAutoUpdate = () => {},
+  refreshingRates = false,
+  handleRefreshRatesNow = () => {},
+  fxRefreshNotice = null,
   actionError = null,
   showNewAccount = false,
   setShowNewAccount = () => {},
@@ -790,6 +813,7 @@ export function DataDashboard({
               search={search}
               pausedOpen={filters.pausedRecurringOpen}
               onTogglePausedOpen={() => onUpdateFilter('pausedRecurringOpen', !filters.pausedRecurringOpen)}
+              cronSchedule={cronSchedule}
             />
           </div>
         );
@@ -803,12 +827,73 @@ export function DataDashboard({
               expanded={Boolean(filters.ratesOpen)}
               onToggle={() => onToggleSection('rates')}
               actions={(
-                <button type="button" className="btn-secondary" onClick={() => (newRateCode === '' ? setNewRateCode(null) : openRateForm(''))}>
-                  <Plus size={14} /> {t('data.rates.addShort')}
-                </button>
+                <div className="data-section-actions">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    disabled={refreshingRates}
+                    onClick={handleRefreshRatesNow}
+                  >
+                    <RefreshCw size={14} className={refreshingRates ? 'data-spin' : undefined} />{' '}
+                    {refreshingRates ? t('data.rates.refreshing') : t('data.rates.refreshNow')}
+                  </button>
+                  <button type="button" className="btn-secondary" onClick={() => (newRateCode === '' ? setNewRateCode(null) : openRateForm(''))}>
+                    <Plus size={14} /> {t('data.rates.addShort')}
+                  </button>
+                </div>
               )}
             >
-              <p className="data-hint">{t('data.rates.manualHint')}</p>
+              <div className="data-fx-controls">
+                <div className="data-fx-toggle-row">
+                  <label className="data-fx-toggle">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(fxAutoUpdate.enabled)}
+                      disabled={togglingFxAuto}
+                      onChange={(e) => handleToggleFxAutoUpdate(e.target.checked)}
+                    />
+                    <span>
+                      {t('data.rates.autoUpdateToggle', {
+                        time:
+                          fxAutoUpdate.schedule_time ||
+                          formatCronHour(
+                            fxAutoUpdate.schedule_hour ??
+                              cronSchedule?.fx_auto_update_hour ??
+                              CRON_DEFAULT_HOUR,
+                          ),
+                        timezone:
+                          fxAutoUpdate.schedule_timezone ||
+                          cronSchedule?.timezone ||
+                          CRON_DEFAULT_TIMEZONE,
+                      })}
+                    </span>
+                  </label>
+                  <a href="#/data/schedule" className="data-fx-link data-schedule-jump">
+                    {t('data.rates.changeSchedule')}
+                  </a>
+                </div>
+                <p className="data-fx-description">
+                  {t('data.rates.autoUpdateHintPrefix')}{' '}
+                  <a
+                    href={fxAutoUpdate.provider_url || 'https://www.exchangerate-api.com'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="data-fx-link"
+                  >
+                    {fxAutoUpdate.provider_name || 'ExchangeRate-API'}
+                  </a>
+                  {t('data.rates.autoUpdateHintSuffix')}
+                </p>
+                {fxAutoUpdate.last_run_at && (
+                  <p className="data-fx-status">
+                    {t('data.rates.lastRefresh', {
+                      when: formatRelativeDate(fxAutoUpdate.last_run_at),
+                      status: t(`data.rates.refreshStatus.${fxAutoUpdate.last_status || 'ok'}`),
+                    })}
+                  </p>
+                )}
+              </div>
+              {fxRefreshNotice && <div className="data-fx-notice" role="status">{fxRefreshNotice}</div>}
               {rateError && <div className="data-error" role="alert">{rateError}</div>}
               {baseCurrency === null && (
                 <div className="data-warning" role="status">
@@ -863,6 +948,7 @@ export function DataDashboard({
                       key={r.code}
                       rate={r}
                       baseCurrency={baseCurrency}
+                      fxAnchorCode={fxAnchorCode}
                       onSave={(rateStr) => handleSaveRate(r.code, rateStr)}
                       onDelete={() => handleDeleteRate(r)}
                     />
@@ -883,33 +969,52 @@ export function DataDashboard({
               <div className="data-section-header">
                 <h2>{blockTitle(DATA_BLOCK_DEFS.forecast, t)}</h2>
               </div>
-              <p className="data-hint">
-                {t('data.forecast.thresholdHint', { currency: baseCurrency })}
-              </p>
-              {thresholdMinor !== null && (
-                <ul className="data-list">
-                  <li className="data-row">
-                    <div className="data-row-top">
-                      <div className="data-row-main">
-                        <div className="data-row-title"><span>{t('data.forecast.thresholdLabel')}</span></div>
-                      </div>
-                      <div className="data-row-value">
-                        <InlineEditable
-                          className="data-row-balance"
-                          value={thresholdMinor}
-                          formatDisplay={(v) => formatMinor(v, baseCurrency || 'USD')}
-                          toEditString={(v) => minorToInputString(v, baseCurrency || 'USD')}
-                          parseValue={(s) => parseAmountToMinor(s, baseCurrency || 'USD')}
-                          onSave={handleSaveThreshold}
-                          ariaLabel={t('data.forecast.thresholdLabel')}
-                          inputMode="decimal"
-                        />
-                      </div>
-                    </div>
-                  </li>
-                </ul>
+              {baseCurrency ? (
+                <>
+                  <p className="data-hint">
+                    {t('data.forecast.thresholdHint', { currency: baseCurrency })}
+                  </p>
+                  {thresholdMinor !== null && (
+                    <ul className="data-list">
+                      <li className="data-row">
+                        <div className="data-row-top">
+                          <div className="data-row-main">
+                            <div className="data-row-title"><span>{t('data.forecast.thresholdLabel')}</span></div>
+                          </div>
+                          <div className="data-row-value">
+                            <InlineEditable
+                              className="data-row-balance"
+                              value={thresholdMinor}
+                              formatDisplay={(v) => formatMinor(v, baseCurrency)}
+                              toEditString={(v) => minorToInputString(v, baseCurrency)}
+                              parseValue={(s) => parseAmountToMinor(s, baseCurrency)}
+                              onSave={handleSaveThreshold}
+                              ariaLabel={t('data.forecast.thresholdLabel')}
+                              inputMode="decimal"
+                            />
+                          </div>
+                        </div>
+                      </li>
+                    </ul>
+                  )}
+                </>
+              ) : (
+                <p className="data-hint">
+                  {t('onboarding.missingBaseCurrency')}{' '}
+                  <a href="#/data/rules">{t('onboarding.openSettings')}</a>
+                </p>
               )}
             </section>
+          </div>
+        );
+
+      case 'rules':
+        return (
+          <div key="rules" className="data-block data-block--rules">
+            <RulesSettingsSection
+              expanded={Boolean(filters.rulesOpen)}
+              onToggle={() => onToggleSection('rules')}
+            />
           </div>
         );
 
@@ -928,8 +1033,10 @@ export function DataDashboard({
 export default function Data({
   isCustomizing: controlledIsCustomizing = undefined,
   onCustomizingChange = undefined,
+  demoMode = false,
 }) {
   const { t } = useTranslation();
+  const runtimeConfig = useRuntimeConfig();
   const [internalCustomizing, setInternalCustomizing] = useState(false);
   const isCustomizing = controlledIsCustomizing !== undefined ? controlledIsCustomizing : internalCustomizing;
   const setIsCustomizing = onCustomizingChange || setInternalCustomizing;
@@ -978,6 +1085,8 @@ export default function Data({
   const refreshNonce = useRefreshNonce();
   const [status, setStatus] = useState('loading'); // loading | ready | error
   const readyRef = useRef(false);
+  const pendingScrollToSettingsRef = useRef(false);
+  const [scrollSettingsNonce, setScrollSettingsNonce] = useState(0);
   const [loadError, setLoadError] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [rates, setRates] = useState([]);
@@ -988,6 +1097,43 @@ export default function Data({
   // unusable). A default of 'USD' here would be a lie: the screen would show
   // "USD" even when the server itself does not know which currency is base.
   const [baseCurrency, setBaseCurrency] = useState(null);
+  const [fxAutoUpdate, setFxAutoUpdate] = useState({
+    enabled: false,
+    provider: 'exchangerate-api',
+    provider_name: 'ExchangeRate-API',
+    provider_url: 'https://www.exchangerate-api.com',
+    schedule_utc: '02:00',
+    schedule_hour: CRON_DEFAULT_HOUR,
+    schedule_timezone: CRON_DEFAULT_TIMEZONE,
+    schedule_time: formatCronHour(CRON_DEFAULT_HOUR),
+    last_run_at: null,
+    last_status: null,
+    last_error: null,
+    last_trigger: null,
+  });
+  const [cronSchedule, setCronSchedule] = useState({
+    timezone: CRON_DEFAULT_TIMEZONE,
+    fx_auto_update_hour: CRON_DEFAULT_HOUR,
+    recurring_auto_skip_hour: CRON_DEFAULT_HOUR,
+    fx_auto_update_enabled: false,
+    demo_mode: Boolean(demoMode),
+    jobs: {
+      fx_refresh: {
+        hour: CRON_DEFAULT_HOUR,
+        time: formatCronHour(CRON_DEFAULT_HOUR),
+        last_run_local_date: null,
+      },
+      recurring_auto_skip: {
+        hour: CRON_DEFAULT_HOUR,
+        time: formatCronHour(CRON_DEFAULT_HOUR),
+        last_run_local_date: null,
+      },
+    },
+  });
+  const [scheduleLoadError, setScheduleLoadError] = useState(null);
+  const [togglingFxAuto, setTogglingFxAuto] = useState(false);
+  const [refreshingRates, setRefreshingRates] = useState(false);
+  const [fxRefreshNotice, setFxRefreshNotice] = useState(null);
 
   // The low-balance warning threshold is read together with
   // the rest of the screen's data. null means "not loaded yet" (distinct from
@@ -1033,15 +1179,46 @@ export default function Data({
   // Deep links to screen blocks when the hash changes live.
   useEffect(() => {
     const handleHash = () => {
-      const section = sectionFromHash(window.location.hash);
+      const h = window.location.hash;
+      const section = sectionFromHash(h);
       if (section) {
         handleUpdateFilter(`${section}Open`, true);
+      }
+      if (h === '#/settings' || h === '#/data/rules' || h === '#/data/settings') {
+        handleUpdateFilter('rulesOpen', true);
+        setDataConfig((prev) => {
+          const idx = prev.findIndex((b) => b.id === 'rules');
+          if (idx >= 0 && prev[idx].visible) return prev;
+          const next = idx >= 0
+            ? prev.map((b) => (b.id === 'rules' ? { ...b, visible: true } : b))
+            : [...prev, { id: 'rules', visible: true, column: 'full' }];
+          saveDataConfig(next);
+          return next;
+        });
+        pendingScrollToSettingsRef.current = true;
+        setScrollSettingsNonce((n) => n + 1);
       }
     };
     handleHash();
     window.addEventListener('hashchange', handleHash);
     return () => window.removeEventListener('hashchange', handleHash);
   }, [handleUpdateFilter]);
+
+  useEffect(() => {
+    if (status !== 'ready' || !pendingScrollToSettingsRef.current) return;
+    const rulesBlock = dataConfig.find((b) => b.id === 'rules');
+    if (!rulesBlock?.visible) return;
+    pendingScrollToSettingsRef.current = false;
+    const scrollToSettings = () => {
+      const el = document.getElementById('settings');
+      if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(scrollToSettings);
+    } else {
+      scrollToSettings();
+    }
+  }, [status, dataConfig, scrollSettingsNonce]);
   const [showNewAccount, setShowNewAccount] = useState(false);
   // null — the rate form is hidden; a string means it is open with that code in the field (an empty
   // string = the ordinary "Rate" button, a code = a jump from the warning).
@@ -1058,6 +1235,9 @@ export default function Data({
     setRates(res.rates);
     setMissingRates(res.missing || []);
     setBaseCurrency(res.base_currency ?? null);
+    if (res.auto_update) {
+      setFxAutoUpdate((prev) => ({ ...prev, ...res.auto_update }));
+    }
     // The data has been re-read — the previous complaint about it no longer deserves trust.
     // Without this a 409 "currency in use" would keep hanging after
     // exactly what the banner asked for was done: the account in that currency was removed.
@@ -1076,11 +1256,23 @@ export default function Data({
       // would diverge from the first — the server normalizes the value, /settings returns
       // it as stored. One fewer request as well: this screen does not need anything else from settings
       // yet.
-      const [accRes, rateRes, settingsRes] = await Promise.all([
-        api.listAccounts(), api.listFxRates(), api.getSettings(),
+      const [accRes, rateRes, settingsRes, scheduleResult] = await Promise.all([
+        api.listAccounts(),
+        api.listFxRates(),
+        api.getSettings(),
+        api.getCronSchedule().then(
+          (data) => ({ ok: true, data }),
+          (err) => ({ ok: false, error: err }),
+        ),
       ]);
       setAccounts(accRes.accounts);
       applyRates(rateRes);
+      if (scheduleResult.ok) {
+        setCronSchedule(scheduleResult.data);
+        setScheduleLoadError(null);
+      } else {
+        setScheduleLoadError(scheduleResult.error?.message || t('common.loadFailed'));
+      }
       // The key may be missing entirely (a fresh database) — then the threshold is unset, 0.
       // An unusable value is reduced to the same thing, not shown as NaN:
       // settings are key/value with no types in the schema, and PUT validates only what
@@ -1233,12 +1425,73 @@ export default function Data({
     setThresholdMinor(minor);
   });
 
+  const handleToggleFxAutoUpdate = (checked) => serialize(async () => {
+    setRateError(null);
+    setTogglingFxAuto(true);
+    try {
+      await api.putSetting('fx_auto_update', checked ? '1' : '0');
+      setFxAutoUpdate((prev) => ({ ...prev, enabled: checked }));
+      setCronSchedule((prev) => ({ ...prev, fx_auto_update_enabled: checked }));
+      await refreshRates();
+    } catch (err) {
+      setRateError(err.message || t('common.actionFailed'));
+    } finally {
+      setTogglingFxAuto(false);
+    }
+  });
+
+  const handleCronScheduleUpdated = useCallback((updated) => {
+    setCronSchedule(updated);
+    setScheduleLoadError(null);
+    setFxAutoUpdate((prev) => ({
+      ...prev,
+      schedule_hour: updated.fx_auto_update_hour,
+      schedule_timezone: updated.timezone,
+      schedule_time: formatCronHour(updated.fx_auto_update_hour),
+      schedule_utc: formatUtcEquivalentForHour(updated.timezone, updated.fx_auto_update_hour),
+    }));
+  }, []);
+
+  const handleRefreshRatesNow = async () => {
+    if (refreshingRates) return;
+    setRateError(null);
+    setFxRefreshNotice(null);
+    setRefreshingRates(true);
+    try {
+      const res = await api.refreshFxRates();
+      applyRates(res);
+      const updatedCount = Array.isArray(res.updated) ? res.updated.length : 0;
+      const skippedCodes = Array.isArray(res.skipped) ? res.skipped.map((s) => s.code) : [];
+      if (skippedCodes.length > 0) {
+        setFxRefreshNotice(
+          t('data.rates.refreshPartial', { count: updatedCount, skipped: skippedCodes.join(', ') }),
+        );
+      } else if (updatedCount === 0) {
+        setFxRefreshNotice(t('data.rates.refreshNoTargets'));
+      } else {
+        setFxRefreshNotice(t('data.rates.refreshSuccess', { count: updatedCount }));
+      }
+    } catch (err) {
+      if (err.code === 'RATE_LIMITED' && Number(err.params?.retry_after_seconds) > 0) {
+        setRateError(
+          t('data.rates.refreshCooldown', { seconds: Math.ceil(Number(err.params.retry_after_seconds)) }),
+        );
+      } else {
+        setRateError(err.message || t('common.actionFailed'));
+      }
+    } finally {
+      setRefreshingRates(false);
+    }
+  };
+
   const handleSaveRate = async (code, rateStr) => {
+    setFxRefreshNotice(null);
     await api.putFxRate(code, rateStr);
     await refreshRates();
   };
 
   const handleCreateRate = async (code, rateStr) => {
+    setFxRefreshNotice(null);
     const seq = rateFormSeq.current;
     await api.putFxRate(code, rateStr);
     await refreshRates();
@@ -1251,6 +1504,7 @@ export default function Data({
   const handleDeleteRate = (rate) => {
     if (!window.confirm(t('data.rates.deleteConfirm', { code: rate.code }))) return;
     return runRateAction(async () => {
+      setFxRefreshNotice(null);
       await api.deleteFxRate(rate.code);
       await refreshRates();
     });
@@ -1340,6 +1594,7 @@ export default function Data({
     plannedOpen: Boolean(dataFilters.plannedOpen) || Boolean(search.trim()),
     recurringOpen: Boolean(dataFilters.recurringOpen) || Boolean(search.trim()),
     ratesOpen: Boolean(dataFilters.ratesOpen) || Boolean(search.trim()),
+    rulesOpen: Boolean(dataFilters.rulesOpen),
   };
 
   return (
@@ -1364,6 +1619,7 @@ export default function Data({
         visibleRates={visibleRates}
         missingRates={missingRates}
         baseCurrency={baseCurrency}
+        fxAnchorCode={runtimeConfig.fx_anchor_currency ?? getFxAnchorCurrency()}
         rateError={rateError}
         newRateCode={newRateCode}
         openRateForm={openRateForm}
@@ -1371,6 +1627,13 @@ export default function Data({
         handleCreateRate={handleCreateRate}
         handleSaveRate={handleSaveRate}
         handleDeleteRate={handleDeleteRate}
+        fxAutoUpdate={fxAutoUpdate}
+        cronSchedule={cronSchedule}
+        togglingFxAuto={togglingFxAuto}
+        handleToggleFxAutoUpdate={handleToggleFxAutoUpdate}
+        refreshingRates={refreshingRates}
+        handleRefreshRatesNow={handleRefreshRatesNow}
+        fxRefreshNotice={fxRefreshNotice}
         actionError={actionError}
         showNewAccount={showNewAccount}
         setShowNewAccount={setShowNewAccount}
@@ -1385,6 +1648,12 @@ export default function Data({
         handleDeleteAccount={handleDeleteAccount}
         thresholdMinor={thresholdMinor}
         handleSaveThreshold={handleSaveThreshold}
+      />
+      <CronScheduleSection
+        schedule={cronSchedule}
+        loadError={scheduleLoadError}
+        demoMode={demoMode}
+        onScheduleUpdated={handleCronScheduleUpdated}
       />
       <StatementImportSection accounts={accounts} />
       <BackupSection />

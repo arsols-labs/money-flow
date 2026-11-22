@@ -40,6 +40,9 @@
   "rules": [
     { "type": "Text", "globs": ["migrations/*.sql", "scripts/*.sql"], "fallthrough": true }
   ],
+  "triggers": {
+    "crons": ["0 * * * *"]
+  },
   "vars": {
     "APP_DOMAIN": "localhost"
   },

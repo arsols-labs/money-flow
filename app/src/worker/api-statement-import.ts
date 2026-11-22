@@ -3,12 +3,11 @@ import type { Env } from './types';
 import { ValidationError, fail, failCaught } from './api-error';
 import { BodyTooLargeError, readLimitedJson } from './limited-body';
 import { acceptStatementUpload, readUploadRequestBody } from './statement-uploads';
-import { presetJson, STATEMENT_PRESETS } from '../shared/statement-import/presets';
-import { templateAsPreset } from '../shared/statement-import/templates';
-import { listStatementTemplates } from './statement-templates';
+import { presetJson } from '../shared/statement-import/presets';
+import { loadStatementRuleConfig } from './rules-store';
 import { decodeStatementBytes, isPdfBytes } from '../shared/statement-import/parse';
 import { parseStatementDate } from '../shared/statement-import/amounts';
-import { normalizeIso4217CurrencyCode } from '../shared/currency';
+import { normalizeCurrencyCodeSyntax } from '../shared/currency';
 import { isSafeMinor } from '../shared/money';
 import {
   IMPORT_UNDO_PHRASE,
@@ -160,7 +159,7 @@ function optionsFrom(value: unknown): Partial<CsvParseOptions> | null {
     options.hasHeader = flag;
   }
   if (raw.default_currency !== undefined || raw.defaultCurrency !== undefined) {
-    const code = normalizeIso4217CurrencyCode(raw.default_currency ?? raw.defaultCurrency);
+    const code = normalizeCurrencyCodeSyntax(raw.default_currency ?? raw.defaultCurrency);
     if (!code) throw new ValidationError('INVALID_CURRENCY');
     options.defaultCurrency = code;
   }
@@ -312,7 +311,7 @@ function commitRow(value: unknown, index: number): CommitRowInput {
   }
   const suppliedCurrency = raw.currency;
   const currencyBlank = suppliedCurrency === undefined || suppliedCurrency === null || String(suppliedCurrency).trim() === '';
-  const currency = currencyBlank ? '' : normalizeIso4217CurrencyCode(suppliedCurrency);
+  const currency = currencyBlank ? '' : normalizeCurrencyCodeSyntax(suppliedCurrency);
   if (!currencyBlank && !currency) throw new ValidationError('INVALID_CURRENCY');
   const kind = raw.kind;
   if (kind !== 'expense' && kind !== 'income') throw new ValidationError('INVALID_KIND', { values: 'expense, income' });
@@ -379,16 +378,9 @@ function parseId(value: string): number | null {
 }
 
 statementImportApi.get('/statement-imports/presets', async (c) => {
-  const stored = await listStatementTemplates(c.env.DB);
-  const userPresets = stored.flatMap((row) => {
-    const preset = templateAsPreset(row.document);
-    return preset ? [presetJson(preset, 'user')] : [];
-  });
+  const { presets } = await loadStatementRuleConfig(c.env.DB);
   return c.json({
-    presets: [
-      ...STATEMENT_PRESETS.map((preset) => presetJson(preset, 'builtin')),
-      ...userPresets,
-    ],
+    presets: presets.map((preset) => presetJson(preset, 'd1')),
     limits: LIMITS,
   });
 });

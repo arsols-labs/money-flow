@@ -5,6 +5,7 @@ import { createSessionCookie } from '../src/worker/auth';
 import type { Env } from '../src/worker/types';
 import { createReceiptGroup } from '../src/worker/receipt-groups';
 import { expectErrorCode } from './api-error-helpers';
+import { seedAllTestRules } from './seed-test-rules';
 
 let cookie: string;
 
@@ -23,12 +24,15 @@ beforeEach(async () => {
     env.DB.prepare('DELETE FROM transfers'),
     env.DB.prepare('DELETE FROM accounts'),
     env.DB.prepare('DELETE FROM fx_rates'),
+    env.DB.prepare('DELETE FROM rule_entries'),
+    env.DB.prepare('DELETE FROM rule_sets'),
     env.DB.prepare(`DELETE FROM settings WHERE key = 'purchase_orders_epoch'`),
     env.DB.prepare(
       `INSERT INTO settings (key, value) VALUES ('base_currency', 'USD'), ('low_balance_threshold_minor', '100000')
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     ),
   ]);
+  await seedAllTestRules(env.DB);
 });
 
 async function api(method: string, path: string, body?: unknown): Promise<Response> {

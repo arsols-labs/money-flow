@@ -41,7 +41,7 @@ describe('dataLayout logic & persistence', () => {
   it('loads default configuration on empty storage', () => {
     const config = loadDataConfig();
     expect(config).toEqual(DEFAULT_DATA_CONFIG);
-    expect(config.length).toBe(7);
+    expect(config.length).toBe(8);
     expect(config.every((b: BlockItem) => b.visible)).toBe(true);
     expect(config.every((b: BlockItem) => b.column === 'full')).toBe(true);
   });
@@ -55,6 +55,7 @@ describe('dataLayout logic & persistence', () => {
       { id: 'recurring', visible: true, column: 'full' },
       { id: 'rates', visible: true, column: 'full' },
       { id: 'forecast', visible: false, column: 'full' },
+      { id: 'rules', visible: true, column: 'full' },
     ];
     saveDataConfig(custom);
     expect(store[DATA_STORAGE_KEY]).toBeDefined();
@@ -83,13 +84,14 @@ describe('dataLayout logic & persistence', () => {
     expect(loaded.some((b: BlockItem) => b.id === 'obsolete_data_block')).toBe(false);
     expect(loaded.some((b: BlockItem) => b.id === 'audit')).toBe(false);
     // missing blocks added from defaults
-    expect(loaded.length).toBe(7);
+    expect(loaded.length).toBe(8);
     expect(loaded.map((b: BlockItem) => b.id)).toContain('receipts');
     expect(loaded.map((b: BlockItem) => b.id)).toContain('accounts');
     expect(loaded.map((b: BlockItem) => b.id)).toContain('planned');
     expect(loaded.map((b: BlockItem) => b.id)).toContain('recurring');
     expect(loaded.map((b: BlockItem) => b.id)).toContain('rates');
     expect(loaded.map((b: BlockItem) => b.id)).toContain('forecast');
+    expect(loaded.map((b: BlockItem) => b.id)).toContain('rules');
   });
 
   it('validates column setting against allowedColumns', () => {
@@ -168,6 +170,7 @@ describe('dataLayout logic & persistence', () => {
     expect(resolveDataBlockColumn({ id: 'planned', column: 'auto', visible: true })).toBe('full');
     expect(resolveDataBlockColumn({ id: 'rates', column: 'auto', visible: true })).toBe('full');
     expect(resolveDataBlockColumn({ id: 'forecast', column: 'auto', visible: true })).toBe('full');
+    expect(resolveDataBlockColumn({ id: 'rules', column: 'auto', visible: true })).toBe('full');
   });
 
   describe('filters and section expansion persistence', () => {
@@ -181,6 +184,7 @@ describe('dataLayout logic & persistence', () => {
       expect(filters.plannedOpen).toBe(false);
       expect(filters.recurringOpen).toBe(false);
       expect(filters.ratesOpen).toBe(false);
+      expect(filters.rulesOpen).toBe(false);
       expect(filters.operationsLimit).toBe(10);
     });
 
@@ -192,6 +196,7 @@ describe('dataLayout logic & persistence', () => {
       expect(filters.operationsOpen).toBe(false);
       expect(filters.plannedOpen).toBe(false);
       expect(filters.recurringOpen).toBe(false);
+      expect(filters.rulesOpen).toBe(false);
     });
 
     it('saves and reloads filters with section collapse states', () => {
@@ -203,6 +208,7 @@ describe('dataLayout logic & persistence', () => {
         plannedOpen: false,
         recurringOpen: true,
         ratesOpen: false,
+        rulesOpen: true,
         archivedAccountsOpen: true,
         donePlannedOpen: true,
         pausedRecurringOpen: true,

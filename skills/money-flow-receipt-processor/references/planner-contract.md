@@ -47,8 +47,11 @@ larger batches require owner-guided splitting rather than an oversized plan.
 
 The command emits JSON with validation errors, warnings, resolved account,
 normalized line amounts, stable UUID idempotency keys, duplicate state keys,
-and zero-or-one exact reconciliation candidate per line. It returns exit code 2
-when planning is unsafe.
+zero-or-one exact reconciliation candidate per line, and
+`auto_skip_recurring_candidates` (active `auto_skip_overdue` rules whose
+category, account, currency, and open period `[next_due_date, next_occurrence)`
+match booked receipt lines so post-booking reconciliation can skip that
+period). It returns exit code 2 when planning is unsafe.
 
 When the receipt's non-empty `fiscal_receipt_id` exactly matches an entry in
 `known_fiscal_receipt_ids`, the planner returns unsafe and emits no line routes.
@@ -66,16 +69,23 @@ live state immediately before a write and apply the rules in
 
 ## Post-booking recurring planner
 
-`scripts/recurring_reconcile.py plan input.json` handles only already-booked
-evidence and analytical/discrete recurring advancement. Its input contains:
+`scripts/recurring_reconcile.py plan input.json` handles already-booked
+receipt evidence across analytical rules, discrete rules, and category-matched
+optional `auto_skip_overdue` recurring rules. Its input contains:
 
 - `run_date`;
 - live `recurring_items`, `operations`, and `recurring_fulfillments` reads;
 - explicit `policies` (`analytical_daily` or `discrete_quantity`);
 - verified receipt `evidence` with `source_id`, `receipt_index`,
-  `recurring_item_id`, `occurrence_date`, and exact `operation_ids`;
+  `recurring_item_id`, `occurrence_date`, and exact `operation_ids` (for
+  explicit `policies`);
+- optional `booked_receipts` (`source_id`, `receipt_index`, `occurrence_date`,
+  `operation_ids`) for automatic category matching against active
+  `auto_skip_overdue` expense rules not listed in `policies`;
 - for a discrete item, `explicit_quantity`;
-- host-owned `recurring_evidence_skips` and optional provider `readbacks`.
+- host-owned `recurring_evidence_skips` and optional provider `readbacks`
+  (supply `observed_active` when `expected_active` is present so `end_date`
+  deactivation is verified too).
 
 The helper emits ordered MCP actions with stable idempotency keys, exact
 occurrence dates, expected next due dates, and pending checkpoint keys. It
