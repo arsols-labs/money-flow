@@ -1,16 +1,14 @@
 // Pure client helpers for the "Pulse" screen — kept apart from the components
 // so the formulas (especially the warning color and the port from v1) are visible and
 // checkable by eye without layout around them.
-import { fractionDigits } from './money';
+import { tryFractionDigits } from './money';
 
 /**
- * Minor units into a number for recharts. Division is acceptable here for the same
- * reason as in money.js:formatMinor — this is ONLY display
- * (the chart, the labels), not storage or recalculation: balances are orders of magnitude below
- * MAX_SAFE_INTEGER, so precision is not lost.
+ * Minor units into a number for recharts.
  */
 export function toMajor(minor, currency) {
-  return minor / 10 ** fractionDigits(currency);
+  const digits = tryFractionDigits(currency);
+  return digits === null ? minor : minor / 10 ** digits;
 }
 
 /**
@@ -208,28 +206,7 @@ export function forecastYDomain(points, extraKeys = []) {
   return [min - pad, top + pad];
 }
 
-// Line palette by country. v1 kept RUS/USA/SRB hardcoded in CSS variables
-// (--rus/--usa/--srb) — in v2 country is an arbitrary string (v2 removed
-// the tie to three countries), so a color is assigned by index from the shared
-// palette, while familiar codes keep their usual color so the chart does not
-// "move" for anyone already used to the v1 shades.
-// `token` goes into SVG (so the shade follows the theme, as in v1); `hex` is the same
-// value as a literal, and it is needed not for drawing but so the palette below can
-// AVOID these colors: its first three shades are exactly these three, so
-// an unfamiliar country at index 0 got exactly the USA color — two lines on
-// the chart became indistinguishable. `var(--usa)` cannot be compared with a literal,
-// hence the second column. It can drift only together with an edit of the token
-// in styles.css, and the worst result then is that an unfamiliar country takes
-// a shade that has become free again.
-const KNOWN_COUNTRY_COLORS = {
-  Global: { token: 'var(--overall)', hex: '#9AA3B5' },
-  RUS: { token: 'var(--rus)', hex: '#D98757' },
-  USA: { token: 'var(--usa)', hex: '#5B8FC7' },
-  SRB: { token: 'var(--srb)', hex: '#6FBF8B' },
-};
-
-// A palette readable in both themes (the same principles as --safe/--warning/
-// --danger in styles.css: medium saturation, not pure primary colors).
+// Line palette assigned dynamically by country order (no hardcoded country names).
 const COUNTRY_PALETTE = [
   '#5B8FC7', // blue
   '#D98757', // orange
@@ -242,24 +219,12 @@ const COUNTRY_PALETTE = [
 
 /**
  * Line colors for the WHOLE country list at once, not one by one.
- *
- * One by one was impossible: an unfamiliar country's color depends on which colors
- * familiar neighbors have already taken, and a call with one argument does not know that.
- * Returns an object `{ [country]: color }`; the order of the input list sets
- * the order in which colors are handed out, so the color is stable while the set of countries is unchanged.
  */
 export function countryColors(countries) {
-  const taken = new Set(countries.map((c) => KNOWN_COUNTRY_COLORS[c]?.hex).filter(Boolean));
-  const free = COUNTRY_PALETTE.filter((color) => !taken.has(color));
-  // All seven shades are taken by familiar countries — theoretically impossible
-  // (there are only three familiar ones), but an empty color list would leave a country with no line,
-  // while repeating a shade at least shows it.
-  const pool = free.length > 0 ? free : COUNTRY_PALETTE;
-
   const colors = {};
   let next = 0;
   for (const c of countries) {
-    colors[c] = KNOWN_COUNTRY_COLORS[c]?.token ?? pool[next++ % pool.length];
+    colors[c] = COUNTRY_PALETTE[next++ % COUNTRY_PALETTE.length];
   }
   return colors;
 }

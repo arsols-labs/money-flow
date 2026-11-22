@@ -1,4 +1,9 @@
-import { normalizeIso4217CurrencyCode } from '../currency';
+import {
+  getRuntimeCurrencyCatalog,
+  MissingCurrencyConfigError,
+  normalizeCurrencyCodeSyntax,
+  type CurrencyCatalog,
+} from '../currency';
 import {
   assertRowBudget,
   kindFromSignedAmount,
@@ -47,7 +52,10 @@ function statementSections(text: string): string[] {
   return sections.length > 0 ? sections : [text];
 }
 
-export function parseOfx(text: string): ParsedStatement[] {
+export function parseOfx(
+  text: string,
+  currencyCatalog: CurrencyCatalog = getRuntimeCurrencyCatalog(),
+): ParsedStatement[] {
   const source = text.replace(/^\uFEFF/, '');
   if (!/<OFX|<STMTTRN/i.test(source)) {
     throw new StatementParseError('OFX document was not recognized');
@@ -55,7 +63,7 @@ export function parseOfx(text: string): ParsedStatement[] {
   const statements: ParsedStatement[] = [];
   let total = 0;
   for (const section of statementSections(source)) {
-    const currency = normalizeIso4217CurrencyCode(tagValue(section, 'CURDEF') ?? '');
+    const currency = normalizeCurrencyCodeSyntax(tagValue(section, 'CURDEF') ?? '');
     const accountRef = tagValue(section, 'ACCTID');
     const rows: StatementRow[] = [];
     const warnings: string[] = [];
@@ -63,10 +71,10 @@ export function parseOfx(text: string): ParsedStatement[] {
     blocks.forEach((block, index) => {
       const sourceIndex = index + 1;
       try {
-        if (!currency) throw new StatementParseError('OFX currency is missing or not ISO 4217');
+        if (!currency) throw new StatementParseError('OFX currency is missing or invalid');
         const rawAmount = tagValue(block, 'TRNAMT');
         if (!rawAmount) throw new StatementParseError('TRNAMT is missing');
-        let amountMinor = parseMajorToMinor(rawAmount, '.', currency);
+        let amountMinor = parseMajorToMinor(rawAmount, '.', currency, currencyCatalog);
         const trnType = (tagValue(block, 'TRNTYPE') ?? '').toUpperCase();
         if (DEBIT_TYPES.has(trnType) && amountMinor > 0) amountMinor = -amountMinor;
         if (CREDIT_TYPES.has(trnType) && amountMinor < 0) amountMinor = -amountMinor;
@@ -97,7 +105,7 @@ export function parseOfx(text: string): ParsedStatement[] {
         total += 1;
         assertRowBudget(total);
       } catch (error) {
-        if (error instanceof StatementLimitError) throw error;
+        if (error instanceof StatementLimitError || error instanceof MissingCurrencyConfigError) throw error;
         const detail = error instanceof Error ? error.message : 'invalid transaction';
         warnings.push(`transaction ${sourceIndex} skipped: ${detail}`);
       }

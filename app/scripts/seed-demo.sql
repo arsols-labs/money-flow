@@ -14,6 +14,703 @@ WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed')
   AND (SELECT COUNT(*) FROM accounts) = 0
   AND (SELECT COUNT(*) FROM operations) = 0;
 
+INSERT INTO settings (key, value)
+SELECT 'base_currency', 'USD'
+WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (SELECT 1 FROM settings WHERE key = 'base_currency');
+
+INSERT INTO rule_sets (
+  domain, scope_country, scope_locale, set_key, version, state,
+  effective_from, effective_to, priority, allow_shared_fallback,
+  label, description, provenance_source, provenance_actor,
+  revision, activated_at, created_at, updated_at
+)
+SELECT
+  'currency_standards',
+  'SHARED',
+  '',
+  'demo-currencies',
+  1,
+  'active',
+  NULL,
+  NULL,
+  100,
+  1,
+  'Demo currency standards',
+  NULL,
+  'import',
+  'seed-demo',
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_sets
+    WHERE domain = 'currency_standards'
+      AND scope_country = 'SHARED'
+      AND scope_locale = ''
+      AND set_key = 'demo-currencies'
+      AND version = 1
+  );
+
+INSERT INTO rule_entries (
+  rule_set_id, entry_key, match_type, match_field, pattern,
+  priority, enabled, payload_json, meta_json, revision, created_at, updated_at
+)
+SELECT
+  rs.id,
+  'USD',
+  'exact',
+  'code',
+  'USD',
+  10,
+  1,
+  '{"code":"USD","minor_digits":2,"symbol":"$","is_fx_anchor":true}',
+  NULL,
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM rule_sets rs
+WHERE rs.domain = 'currency_standards'
+  AND rs.scope_country = 'SHARED'
+  AND rs.scope_locale = ''
+  AND rs.set_key = 'demo-currencies'
+  AND rs.version = 1
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_entries re
+    WHERE re.rule_set_id = rs.id AND re.entry_key = 'USD'
+  );
+
+INSERT INTO rule_entries (
+  rule_set_id, entry_key, match_type, match_field, pattern,
+  priority, enabled, payload_json, meta_json, revision, created_at, updated_at
+)
+SELECT
+  rs.id,
+  'EUR',
+  'exact',
+  'code',
+  'EUR',
+  20,
+  1,
+  '{"code":"EUR","minor_digits":2,"symbol":"€","is_fx_anchor":false}',
+  NULL,
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM rule_sets rs
+WHERE rs.domain = 'currency_standards'
+  AND rs.scope_country = 'SHARED'
+  AND rs.scope_locale = ''
+  AND rs.set_key = 'demo-currencies'
+  AND rs.version = 1
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_entries re
+    WHERE re.rule_set_id = rs.id AND re.entry_key = 'EUR'
+  );
+
+INSERT INTO rule_entries (
+  rule_set_id, entry_key, match_type, match_field, pattern,
+  priority, enabled, payload_json, meta_json, revision, created_at, updated_at
+)
+SELECT
+  rs.id,
+  'GBP',
+  'exact',
+  'code',
+  'GBP',
+  30,
+  1,
+  '{"code":"GBP","minor_digits":2,"symbol":"£","is_fx_anchor":false}',
+  NULL,
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM rule_sets rs
+WHERE rs.domain = 'currency_standards'
+  AND rs.scope_country = 'SHARED'
+  AND rs.scope_locale = ''
+  AND rs.set_key = 'demo-currencies'
+  AND rs.version = 1
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_entries re
+    WHERE re.rule_set_id = rs.id AND re.entry_key = 'GBP'
+  );
+
+INSERT INTO rule_entries (
+  rule_set_id, entry_key, match_type, match_field, pattern,
+  priority, enabled, payload_json, meta_json, revision, created_at, updated_at
+)
+SELECT
+  rs.id,
+  'CAD',
+  'exact',
+  'code',
+  'CAD',
+  40,
+  1,
+  '{"code":"CAD","minor_digits":2,"symbol":"CA$","is_fx_anchor":false}',
+  NULL,
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM rule_sets rs
+WHERE rs.domain = 'currency_standards'
+  AND rs.scope_country = 'SHARED'
+  AND rs.scope_locale = ''
+  AND rs.set_key = 'demo-currencies'
+  AND rs.version = 1
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_entries re
+    WHERE re.rule_set_id = rs.id AND re.entry_key = 'CAD'
+  );
+
+INSERT INTO rule_sets (
+  domain, scope_country, scope_locale, set_key, version, state,
+  effective_from, effective_to, priority, allow_shared_fallback,
+  label, description, provenance_source, provenance_actor,
+  revision, activated_at, created_at, updated_at
+)
+SELECT
+  'fiscal_formats',
+  'SHARED',
+  '',
+  'demo-fiscal',
+  1,
+  'active',
+  NULL,
+  NULL,
+  100,
+  1,
+  'Demo fiscal format',
+  NULL,
+  'import',
+  'seed-demo',
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_sets
+    WHERE domain = 'fiscal_formats'
+      AND scope_country = 'SHARED'
+      AND scope_locale = ''
+      AND set_key = 'demo-fiscal'
+      AND version = 1
+  );
+
+INSERT INTO rule_entries (
+  rule_set_id, entry_key, match_type, match_field, pattern,
+  priority, enabled, payload_json, meta_json, revision, created_at, updated_at
+)
+SELECT
+  rs.id,
+  'demo-fiscal',
+  'url_host',
+  'url',
+  'example.com',
+  10,
+  1,
+  '{"id":"demo-fiscal","label":"Demo Fiscal URL","canonical_scheme":"https","canonical_host":"example.com","allowed_hosts":["example.com"],"canonical_path":"/receipts/","pfr_in_text_pattern":"(DEMO-FISCAL-[0-9]+)","pfr_canonical_uppercase":true,"default_currency":"USD"}',
+  NULL,
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM rule_sets rs
+WHERE rs.domain = 'fiscal_formats'
+  AND rs.scope_country = 'SHARED'
+  AND rs.scope_locale = ''
+  AND rs.set_key = 'demo-fiscal'
+  AND rs.version = 1
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_entries re
+    WHERE re.rule_set_id = rs.id AND re.entry_key = 'demo-fiscal'
+  );
+
+INSERT INTO rule_sets (
+  domain, scope_country, scope_locale, set_key, version, state,
+  effective_from, effective_to, priority, allow_shared_fallback,
+  label, description, provenance_source, provenance_actor,
+  revision, activated_at, created_at, updated_at
+)
+SELECT
+  'delivery_services',
+  'SHARED',
+  '',
+  'demo-delivery-services',
+  1,
+  'active',
+  NULL,
+  NULL,
+  100,
+  1,
+  'Demo delivery services',
+  NULL,
+  'import',
+  'seed-demo',
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_sets
+    WHERE domain = 'delivery_services'
+      AND scope_country = 'SHARED'
+      AND scope_locale = ''
+      AND set_key = 'demo-delivery-services'
+      AND version = 1
+  );
+
+INSERT INTO rule_entries (
+  rule_set_id, entry_key, match_type, match_field, pattern,
+  priority, enabled, payload_json, meta_json, revision, created_at, updated_at
+)
+SELECT
+  rs.id,
+  'wolt',
+  'tokens',
+  'store',
+  'Wolt',
+  10,
+  1,
+  '{"label":"Wolt"}',
+  NULL,
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM rule_sets rs
+WHERE rs.domain = 'delivery_services'
+  AND rs.scope_country = 'SHARED'
+  AND rs.scope_locale = ''
+  AND rs.set_key = 'demo-delivery-services'
+  AND rs.version = 1
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_entries re
+    WHERE re.rule_set_id = rs.id AND re.entry_key = 'wolt'
+  );
+
+INSERT INTO rule_sets (
+  domain, scope_country, scope_locale, set_key, version, state,
+  effective_from, effective_to, priority, allow_shared_fallback,
+  label, description, provenance_source, provenance_actor,
+  revision, activated_at, created_at, updated_at
+)
+SELECT
+  'venue_suffixes',
+  'SHARED',
+  '',
+  'demo-venue-suffixes',
+  1,
+  'active',
+  NULL,
+  NULL,
+  100,
+  1,
+  'Demo venue suffixes',
+  NULL,
+  'import',
+  'seed-demo',
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_sets
+    WHERE domain = 'venue_suffixes'
+      AND scope_country = 'SHARED'
+      AND scope_locale = ''
+      AND set_key = 'demo-venue-suffixes'
+      AND version = 1
+  );
+
+INSERT INTO rule_entries (
+  rule_set_id, entry_key, match_type, match_field, pattern,
+  priority, enabled, payload_json, meta_json, revision, created_at, updated_at
+)
+SELECT
+  rs.id,
+  'food',
+  'suffix',
+  'store',
+  'Food',
+  10,
+  1,
+  '{"label":"Food","trim_result":true}',
+  NULL,
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM rule_sets rs
+WHERE rs.domain = 'venue_suffixes'
+  AND rs.scope_country = 'SHARED'
+  AND rs.scope_locale = ''
+  AND rs.set_key = 'demo-venue-suffixes'
+  AND rs.version = 1
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_entries re
+    WHERE re.rule_set_id = rs.id AND re.entry_key = 'food'
+  );
+
+INSERT INTO rule_entries (
+  rule_set_id, entry_key, match_type, match_field, pattern,
+  priority, enabled, payload_json, meta_json, revision, created_at, updated_at
+)
+SELECT
+  rs.id,
+  'bar',
+  'suffix',
+  'store',
+  'Bar',
+  20,
+  1,
+  '{"label":"Bar","trim_result":true}',
+  NULL,
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM rule_sets rs
+WHERE rs.domain = 'venue_suffixes'
+  AND rs.scope_country = 'SHARED'
+  AND rs.scope_locale = ''
+  AND rs.set_key = 'demo-venue-suffixes'
+  AND rs.version = 1
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_entries re
+    WHERE re.rule_set_id = rs.id AND re.entry_key = 'bar'
+  );
+
+INSERT INTO rule_sets (
+  domain, scope_country, scope_locale, set_key, version, state,
+  effective_from, effective_to, priority, allow_shared_fallback,
+  label, description, provenance_source, provenance_actor,
+  revision, activated_at, created_at, updated_at
+)
+SELECT
+  'merchant_aliases',
+  'SHARED',
+  '',
+  'demo-merchant-aliases',
+  1,
+  'active',
+  NULL,
+  NULL,
+  100,
+  1,
+  'Demo merchant aliases',
+  NULL,
+  'import',
+  'seed-demo',
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_sets
+    WHERE domain = 'merchant_aliases'
+      AND scope_country = 'SHARED'
+      AND scope_locale = ''
+      AND set_key = 'demo-merchant-aliases'
+      AND version = 1
+  );
+
+INSERT INTO rule_entries (
+  rule_set_id, entry_key, match_type, match_field, pattern,
+  priority, enabled, payload_json, meta_json, revision, created_at, updated_at
+)
+SELECT
+  rs.id,
+  'harbor-cafe',
+  'contains',
+  'merchant',
+  'Harbor Cafe',
+  10,
+  1,
+  '{"target_merchant":"Harbor Cafe"}',
+  NULL,
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM rule_sets rs
+WHERE rs.domain = 'merchant_aliases'
+  AND rs.scope_country = 'SHARED'
+  AND rs.scope_locale = ''
+  AND rs.set_key = 'demo-merchant-aliases'
+  AND rs.version = 1
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_entries re
+    WHERE re.rule_set_id = rs.id AND re.entry_key = 'harbor-cafe'
+  );
+
+INSERT INTO rule_sets (
+  domain, scope_country, scope_locale, set_key, version, state,
+  effective_from, effective_to, priority, allow_shared_fallback,
+  label, description, provenance_source, provenance_actor,
+  revision, activated_at, created_at, updated_at
+)
+SELECT
+  'order_hints',
+  'SHARED',
+  '',
+  'demo-order-hints',
+  1,
+  'active',
+  NULL,
+  NULL,
+  100,
+  1,
+  'Demo order hints',
+  NULL,
+  'import',
+  'seed-demo',
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_sets
+    WHERE domain = 'order_hints'
+      AND scope_country = 'SHARED'
+      AND scope_locale = ''
+      AND set_key = 'demo-order-hints'
+      AND version = 1
+  );
+
+INSERT INTO rule_entries (
+  rule_set_id, entry_key, match_type, match_field, pattern,
+  priority, enabled, payload_json, meta_json, revision, created_at, updated_at
+)
+SELECT
+  rs.id,
+  'order-hash',
+  'regex_safe',
+  'any',
+  'ORDER\s*#([A-Z0-9-]{4,32})',
+  10,
+  1,
+  '{"label":"Order #","token_group":1,"uppercase":true}',
+  NULL,
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM rule_sets rs
+WHERE rs.domain = 'order_hints'
+  AND rs.scope_country = 'SHARED'
+  AND rs.scope_locale = ''
+  AND rs.set_key = 'demo-order-hints'
+  AND rs.version = 1
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_entries re
+    WHERE re.rule_set_id = rs.id AND re.entry_key = 'order-hash'
+  );
+
+INSERT INTO rule_sets (
+  domain, scope_country, scope_locale, set_key, version, state,
+  effective_from, effective_to, priority, allow_shared_fallback,
+  label, description, provenance_source, provenance_actor,
+  revision, activated_at, created_at, updated_at
+)
+SELECT
+  'category_rules',
+  'SHARED',
+  '',
+  'demo-category-rules',
+  1,
+  'active',
+  NULL,
+  NULL,
+  100,
+  1,
+  'Demo category rules',
+  NULL,
+  'import',
+  'seed-demo',
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_sets
+    WHERE domain = 'category_rules'
+      AND scope_country = 'SHARED'
+      AND scope_locale = ''
+      AND set_key = 'demo-category-rules'
+      AND version = 1
+  );
+
+INSERT INTO rule_entries (
+  rule_set_id, entry_key, match_type, match_field, pattern,
+  priority, enabled, payload_json, meta_json, revision, created_at, updated_at
+)
+SELECT
+  rs.id,
+  'coffee',
+  'contains',
+  'merchant',
+  'Cafe',
+  10,
+  1,
+  '{"category":"Dining","subcategory":null}',
+  NULL,
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM rule_sets rs
+WHERE rs.domain = 'category_rules'
+  AND rs.scope_country = 'SHARED'
+  AND rs.scope_locale = ''
+  AND rs.set_key = 'demo-category-rules'
+  AND rs.version = 1
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_entries re
+    WHERE re.rule_set_id = rs.id AND re.entry_key = 'coffee'
+  );
+
+INSERT INTO rule_sets (
+  domain, scope_country, scope_locale, set_key, version, state,
+  effective_from, effective_to, priority, allow_shared_fallback,
+  label, description, provenance_source, provenance_actor,
+  revision, activated_at, created_at, updated_at
+)
+SELECT
+  'statement_templates',
+  'US',
+  '',
+  'demo-statement-templates',
+  1,
+  'active',
+  NULL,
+  NULL,
+  100,
+  1,
+  'Demo statement templates',
+  NULL,
+  'import',
+  'seed-demo',
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_sets
+    WHERE domain = 'statement_templates'
+      AND scope_country = 'US'
+      AND scope_locale = ''
+      AND set_key = 'demo-statement-templates'
+      AND version = 1
+  );
+
+INSERT INTO rule_entries (
+  rule_set_id, entry_key, match_type, match_field, pattern,
+  priority, enabled, payload_json, meta_json, revision, created_at, updated_at
+)
+SELECT
+  rs.id,
+  'demo-csv',
+  'template',
+  'any',
+  'demo-csv',
+  10,
+  1,
+  '{"schemaVersion":1,"id":"demo-csv","label":"Example Bank CSV","format":"csv","csv":{"mapping":{"date":"Date","description":"Description","amount":"Amount"},"options":{"delimiter":",","decimalSeparator":".","dateFormat":"YYYY-MM-DD","encoding":"utf-8","hasHeader":true,"defaultCurrency":"USD"}}}',
+  NULL,
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM rule_sets rs
+WHERE rs.domain = 'statement_templates'
+  AND rs.scope_country = 'US'
+  AND rs.scope_locale = ''
+  AND rs.set_key = 'demo-statement-templates'
+  AND rs.version = 1
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_entries re
+    WHERE re.rule_set_id = rs.id AND re.entry_key = 'demo-csv'
+  );
+
+INSERT INTO rule_sets (
+  domain, scope_country, scope_locale, set_key, version, state,
+  effective_from, effective_to, priority, allow_shared_fallback,
+  label, description, provenance_source, provenance_actor,
+  revision, activated_at, created_at, updated_at
+)
+SELECT
+  'pdf_layouts',
+  'US',
+  '',
+  'demo-pdf-layouts',
+  1,
+  'active',
+  NULL,
+  NULL,
+  100,
+  1,
+  'Demo PDF layouts',
+  NULL,
+  'import',
+  'seed-demo',
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_sets
+    WHERE domain = 'pdf_layouts'
+      AND scope_country = 'US'
+      AND scope_locale = ''
+      AND set_key = 'demo-pdf-layouts'
+      AND version = 1
+  );
+
+INSERT INTO rule_entries (
+  rule_set_id, entry_key, match_type, match_field, pattern,
+  priority, enabled, payload_json, meta_json, revision, created_at, updated_at
+)
+SELECT
+  rs.id,
+  'demo-pdf',
+  'layout',
+  'text',
+  'demo-pdf',
+  10,
+  1,
+  '{"id":"demo-pdf","label":"Example Bank Statement PDF","template_id":"demo-csv","currency_code":"USD","decimal_separator":".","date_format":"YYYY-MM-DD","detect":{"include_all":["Example Bank","Statement Summary"]},"row_mode":"single_line_regex","row_start_pattern":"^(\\d{4}-\\d{2}-\\d{2})\\s+(.+?)\\s+(-?[0-9]+\\.[0-9]{2})$","date_group":1,"description_group":2,"amount_group":3}',
+  NULL,
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM rule_sets rs
+WHERE rs.domain = 'pdf_layouts'
+  AND rs.scope_country = 'US'
+  AND rs.scope_locale = ''
+  AND rs.set_key = 'demo-pdf-layouts'
+  AND rs.version = 1
+  AND EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_entries re
+    WHERE re.rule_set_id = rs.id AND re.entry_key = 'demo-pdf'
+  );
+
 INSERT INTO fx_rates (code, rate_e9, updated_at)
 SELECT 'EUR', 1080000000, strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
 WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'setup_demo_seed' AND value = '1')

@@ -19,6 +19,7 @@ import {
 import { ANALYTICS_MAX_JSON_BYTES, BodyTooLargeError, readLimitedJson } from '../src/worker/limited-body';
 import { expandRecurringRule } from '../src/worker/forecast/recurrence';
 import type { Env } from '../src/worker/types';
+import { seedAllTestRules } from './seed-test-rules';
 
 const TEST_ORIGIN = 'https://auth.example.com';
 
@@ -72,7 +73,10 @@ describe('security hardening', () => {
       env.DB.prepare('DELETE FROM recurring_items'),
       env.DB.prepare('DELETE FROM planned_items'),
       env.DB.prepare('DELETE FROM accounts'),
+      env.DB.prepare('DELETE FROM rule_entries'),
+      env.DB.prepare('DELETE FROM rule_sets'),
     ]);
+    await seedAllTestRules(env.DB);
   });
 
   describe('1. write-only MCP mutation results hide pre-existing data', () => {

@@ -4,6 +4,7 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import app from '../src/worker/index';
 import { createSessionCookie } from '../src/worker/auth';
 import type { Env } from '../src/worker/types';
+import { seedAllTestRules } from './seed-test-rules';
 
 let cookie: string;
 
@@ -20,7 +21,11 @@ beforeEach(async () => {
     env.DB.prepare('DELETE FROM receipts'),
     env.DB.prepare('DELETE FROM fx_rates'),
     env.DB.prepare('DELETE FROM accounts'),
+    env.DB.prepare('DELETE FROM rule_entries'),
+    env.DB.prepare('DELETE FROM rule_sets'),
+    env.DB.prepare('DELETE FROM recurring_policy_bindings'),
   ]);
+  await seedAllTestRules(env.DB);
   await env.DB.prepare(
     "INSERT INTO settings (key, value) VALUES ('base_currency', 'USD') ON CONFLICT(key) DO UPDATE SET value = 'USD'",
   ).run();

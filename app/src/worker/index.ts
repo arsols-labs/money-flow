@@ -1,4 +1,4 @@
-import { Hono, type Context } from 'hono';
+import { Hono, type Context, type Next } from 'hono';
 import { cors } from 'hono/cors';
 import type { Env } from './types';
 import {
@@ -51,6 +51,7 @@ import { consentSecurityHeaders, workerSecurityHeaders } from './security-header
 import { clearDemoSessionCookie } from './demo-cookie';
 import { DEMO_DISCLAIMER, isDemoMode } from './demo-flag';
 import { maybeDemoFetch } from './demo-request';
+import { dispatchScheduledJobs } from './cron-schedule';
 import { DemoSession } from './demo-session';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -123,29 +124,48 @@ app.use(
   }),
 );
 
-app.use(
-  '/mcp',
-  cors({
-    origin: (origin, c) => {
-      if (!origin) return origin;
-      return isAllowedOrigin(origin, c) ? origin : null;
-    },
-    allowMethods: ['GET', 'POST', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization'],
-  }),
-);
+const MCP_EXPOSE_HEADERS = ['Mcp-Method', 'Mcp-Name', 'Mcp-Session-Id'] as const;
 
-app.use(
-  '/mcp/*',
-  cors({
-    origin: (origin, c) => {
-      if (!origin) return origin;
-      return isAllowedOrigin(origin, c) ? origin : null;
-    },
-    allowMethods: ['GET', 'POST', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization'],
-  }),
-);
+const mcpCorsBase = cors({
+  origin: (origin, c) => {
+    if (!origin) return origin;
+    return isAllowedOrigin(origin, c) ? origin : null;
+  },
+  allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+  allowHeaders: [
+    'Content-Type',
+    'Authorization',
+    'Accept',
+    'Mcp-Protocol-Version',
+    'Mcp-Session-Id',
+    'Mcp-Method',
+    'Mcp-Name',
+  ],
+});
+
+const mcpCorsMiddleware = async (c: Context<{ Bindings: Env }>, next: Next) => {
+  const preflight = await mcpCorsBase(c, next);
+  if (preflight) return preflight;
+  if (c.req.header('Origin') && c.res) {
+    // Merge after OAuthProvider runs so WWW-Authenticate and Retry-After are never overwritten.
+    const existing = (c.res.headers.get('Access-Control-Expose-Headers') ?? '')
+      .split(',')
+      .map((header) => header.trim())
+      .filter(Boolean);
+    const seen = new Set(existing.map((header) => header.toLowerCase()));
+    for (const header of MCP_EXPOSE_HEADERS) {
+      if (!seen.has(header.toLowerCase())) {
+        existing.push(header);
+        seen.add(header.toLowerCase());
+      }
+    }
+    c.res.headers.set('Access-Control-Expose-Headers', existing.join(', '));
+  }
+};
+
+app.use('/mcp', mcpCorsMiddleware);
+
+app.use('/mcp/*', mcpCorsMiddleware);
 
 function validSetupToken(env: Env, token: unknown): boolean {
   if (typeof token !== 'string' || token.length === 0 || !env.SETUP_TOKEN) return false;
@@ -825,5 +845,19 @@ const rawFetch = app.fetch.bind(app);
 app.fetch = ((request: Request, env?: Env, ctx?: ExecutionContext) =>
   maybeDemoFetch(request, env, ctx, rawFetch)) as typeof app.fetch;
 
+export async function handleScheduled(
+  controller: ScheduledController,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<void> {
+  const scheduledMs =
+    typeof controller?.scheduledTime === 'number' && Number.isFinite(controller.scheduledTime)
+      ? controller.scheduledTime
+      : Date.now();
+  ctx.waitUntil(dispatchScheduledJobs(env, { now: new Date(scheduledMs) }));
+}
+
+const worker = Object.assign(app, { scheduled: handleScheduled });
+
 export { app, DemoSession };
-export default app;
+export default worker;

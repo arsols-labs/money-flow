@@ -15,10 +15,11 @@
 // panels inside sections sit exactly under the header using this variable.
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Activity, ChartPie, DatabaseZap, Shield, MoreHorizontal, Check, RefreshCw, SlidersHorizontal, LogOut } from 'lucide-react';
+import { Activity, ChartPie, DatabaseZap, Shield, ShieldAlert, MoreHorizontal, Check, RefreshCw, SlidersHorizontal, LogOut } from 'lucide-react';
 import { ThemeDropdown, LanguageDropdown, BaseCurrencyDropdown, buildCurrencyOptions } from './components';
 import { api } from './api';
-import { useRefresh } from './RefreshContext';
+import { useRefresh, useRefreshNonce } from './RefreshContext';
+import { hasRequiredCurrencyConfig, loadRuntimeConfig, useRuntimeConfig } from './runtimeConfig';
 import { resolveTheme, themePng32Url } from './theme';
 import Analytics from './Analytics';
 import Data from './Data';
@@ -45,8 +46,12 @@ export function tabFromHash(hash) {
  * @param {{ theme: string, setTheme: (theme: string) => void, resolvedTheme?: 'light' | 'dark', demoMode?: boolean }} props
  */
 export default function Shell({ theme, setTheme, resolvedTheme, demoMode = false }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const refresh = useRefresh();
+  const refreshNonce = useRefreshNonce();
+  const runtimeConfig = useRuntimeConfig();
+  const needsCurrencySetup =
+    runtimeConfig.loaded && !runtimeConfig.error && !hasRequiredCurrencyConfig(runtimeConfig);
   const [tab, setTab] = useState(tabFromHash);
   const [baseCurrency, setBaseCurrency] = useState(null);
   const [currencyOptions, setCurrencyOptions] = useState([]);
@@ -62,6 +67,7 @@ export default function Shell({ theme, setTheme, resolvedTheme, demoMode = false
 
   useEffect(() => {
     let cancelled = false;
+    loadRuntimeConfig({ locale: i18n.resolvedLanguage || i18n.language || 'en' });
     Promise.all([api.getSettings(), api.listAccounts()])
       .then(([settings, accRes]) => {
         if (cancelled) return;
@@ -72,7 +78,7 @@ export default function Shell({ theme, setTheme, resolvedTheme, demoMode = false
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, []);
+  }, [refreshNonce, i18n.resolvedLanguage, i18n.language]);
 
   const handleBaseCurrencyChange = (code) => {
     setBaseCurrency(code);
@@ -195,6 +201,7 @@ export default function Shell({ theme, setTheme, resolvedTheme, demoMode = false
                     <SlidersHorizontal size={15} />
                   </button>
                 )}
+
                 {activeTab.key === 'data' && (
                   <button
                     type="button"
@@ -230,10 +237,31 @@ export default function Shell({ theme, setTheme, resolvedTheme, demoMode = false
             </header>
           </div>
 
+          {needsCurrencySetup && (
+            <div className="banner banner--warning" role="status">
+              <ShieldAlert size={16} />
+              <div className="banner-body">
+                <strong>{t('onboarding.bannerTitle')}</strong>{' '}
+                <span>{t('onboarding.bannerBody')}</span>
+              </div>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  if (typeof window !== 'undefined') window.location.hash = '#/data/rules';
+                  setTab('data');
+                }}
+              >
+                {t('onboarding.openSettings')}
+              </button>
+            </div>
+          )}
+
           {activeTab.key === 'data' && (
             <Data
               isCustomizing={dataCustomizing}
               onCustomizingChange={setDataCustomizing}
+              demoMode={demoMode}
             />
           )}
           {activeTab.key === 'pulse' && (

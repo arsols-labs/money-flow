@@ -91,8 +91,13 @@ The interactive script (TTY) will:
    sample transfers, fiscal-receipt fields, and Pulse Warnings examples (an
    already-negative card, an account approaching zero soon, and one that goes
    negative later). Everyday Card at −$640 with a positive household total is
-   expected — the forecast total is the sum of all accounts. No leaves the
-   instance empty after migrate/deploy.
+   expected — the forecast total is the sum of all accounts. No leaves business
+   data empty after migrate/deploy and, when `currency_standards` is empty,
+   writes only one starter currency (`USD`, `minor_digits: 2`,
+   `is_fx_anchor: true`) with a message explaining that this starter can be
+   changed in **Settings** and other currencies are added there (it does not
+   write EUR, GBP, CAD, RSD, shops, banks, statement templates, or fiscal
+   hosts).
 8. Build the SPA and deploy the Worker + assets.
 9. After that first successful code deploy, upload missing Worker secrets
    (`wrangler secret put` deploys immediately, so code must exist first).
@@ -145,7 +150,8 @@ account lists (`whoami`, Workers / D1 / KV) still run so reuse and
 `--delete` plans can match live resources.
 
 `--seed-demo` / `--no-seed-demo` skip the prompt. `--yes` without either flag
-leaves the instance empty (same as `--no-seed-demo`). `SETUP_SEED_DEMO=yes|no`
+leaves business data empty and writes starter `USD` only if
+`currency_standards` is empty (same as `--no-seed-demo`). `SETUP_SEED_DEMO=yes|no`
 does the same when the flags are omitted. `--no-seed-demo` wins over the env
 var. Re-running `--seed-demo` is a no-op when accounts or operations already
 exist.
@@ -158,6 +164,32 @@ hostname (or lets you change them). Worker secrets are left unchanged
 unless they are missing, you confirm rotate on a TTY, or you pass
 `--rotate-secrets`. If you seeded demo data, you can wipe it later from
 **Data → Reset**.
+
+## Updating an existing install
+
+To upgrade an existing self-hosted instance to a new release, run:
+
+```bash
+git pull && cd app && npm run update
+```
+
+To preview the update plan without making any Cloudflare or local file changes:
+
+```bash
+npm run update -- --dry-run
+```
+
+`npm run update` (alias for `npm run setup -- --update`) requires an existing
+`wrangler.local.jsonc` and runs non-interactively:
+
+1. Syncs npm dependencies (`npm ci`, or `npm install` if no lockfile is present; pass `--skip-install` to skip).
+2. Refreshes `wrangler.local.jsonc` with current Worker settings (such as cron triggers and compatibility flags) while keeping your Worker name, domain, D1 database, and KV namespace.
+3. Applies any new forward-only D1 migrations (`wrangler d1 migrations apply --remote`).
+4. Runs idempotent `scripts/starter-currency.sql` (no-op when currencies are already configured; adds starter `USD` only when upgrading from a pre-rules install with empty `currency_standards`).
+5. Rebuilds and redeploys the Worker + assets while leaving `SESSION_SECRET` and `SETUP_TOKEN` unchanged (unless `--rotate-secrets` is passed).
+6. Checks `/mcp` and OAuth discovery health.
+
+Database migrations are additive and forward-only (`0001_initial_schema.sql` plus `0021` onward in public releases); `npm run update` applies new migration files automatically.
 
 ### Delete a setup install
 
@@ -246,7 +278,10 @@ Local config files (gitignored): `wrangler.local.jsonc`, `.setup-state.json`,
 `.dev.vars`. Do not commit them. Do not copy ids from a committed production
 `wrangler.jsonc`.
 
-Redeploy later with `npm run deploy:local` (uses `wrangler.local.jsonc`).
+To update after pulling new commits, run `npm run update` (syncs dependencies,
+refreshes `wrangler.local.jsonc`, and applies new D1 migrations). `npm run
+deploy:local` only rebuilds and redeploys Worker code without updating
+dependencies, config, or D1 migrations.
 
 ## Wrangler configs
 
@@ -281,7 +316,9 @@ Use a real Cloudflare account later (owner or bot). Unit tests do not log in.
    one country (Everyday Checking, Rhine Checking, Sterling Current, Maple
    Everyday, plus savings/card/travel cash), planned and recurring items, and
    enough operations for Analytics charts. If you answered no (the default),
-   create one account and one test operation.
+   confirm `currency_standards` has only starter `USD` (`minor_digits: 2`,
+   `is_fx_anchor: true`), and create one `USD` account and one test operation
+   (or edit/add currencies in **Settings** first).
 9. Open `/mcp` — the MCP endpoint is reachable on the same origin.
 10. Re-run `npm run setup -- --yes` — it reuses the same D1/KV/Worker and redeploys.
     If you lost the secrets, use `--rotate-secrets` (or confirm rotate on a TTY).

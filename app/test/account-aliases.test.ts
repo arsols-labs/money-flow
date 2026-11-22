@@ -7,6 +7,7 @@
 import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import app from '../src/worker/index';
+import { seedTestCurrencyRules } from './seed-test-rules';
 import {
   normalizeAlias,
   resolveOrPend,
@@ -28,7 +29,10 @@ beforeEach(async () => {
     env.DB.prepare('DELETE FROM operations'),
     env.DB.prepare('DELETE FROM planned_items'),
     env.DB.prepare('DELETE FROM accounts'),
+    env.DB.prepare('DELETE FROM rule_entries'),
+    env.DB.prepare('DELETE FROM rule_sets'),
   ]);
+  await seedTestCurrencyRules(env.DB);
 });
 
 async function insertAccount(name = 'Основной'): Promise<number> {

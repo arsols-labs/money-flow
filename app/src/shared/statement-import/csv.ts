@@ -1,4 +1,9 @@
-import { normalizeIso4217CurrencyCode } from '../currency';
+import {
+  getRuntimeCurrencyCatalog,
+  MissingCurrencyConfigError,
+  normalizeCurrencyCodeSyntax,
+  type CurrencyCatalog,
+} from '../currency';
 import {
   assertRowBudget,
   chooseStatementDateFormat,
@@ -92,6 +97,7 @@ export function parseCsvStatement(
   text: string,
   mapping: CsvColumnMapping,
   options: CsvParseOptions,
+  currencyCatalog: CurrencyCatalog = getRuntimeCurrencyCatalog(),
 ): ParsedStatement {
   if (!mapping.date?.trim()) throw new StatementParseError('CSV mapping needs a date column');
   if (!mapping.amount?.trim() && !(mapping.debit?.trim() && mapping.credit?.trim())) {
@@ -166,7 +172,7 @@ export function parseCsvStatement(
   }
   const dateFormat = dateChoice.format;
   if (dateChoice.overridden) warnings.push(`using date format ${dateFormat}`);
-  const currencyFallback = normalizeIso4217CurrencyCode(options.defaultCurrency || '');
+  const currencyFallback = normalizeCurrencyCodeSyntax(options.defaultCurrency || '');
   const deferCurrency = currencyCol < 0 && !currencyFallback;
   for (let index = start; index < table.length; index += 1) {
     const source = table[index]!;
@@ -177,7 +183,7 @@ export function parseCsvStatement(
       const counterparty = counterpartyCol >= 0 ? cellAt(source, counterpartyCol) : '';
       const reference = referenceCol >= 0 ? cellAt(source, referenceCol) : '';
       const currencyText = currencyCol >= 0 ? cellAt(source, currencyCol) : '';
-      const currency = normalizeIso4217CurrencyCode(currencyText || '') || currencyFallback;
+      const currency = normalizeCurrencyCodeSyntax(currencyText || '') || currencyFallback;
       const amountText = amountCol >= 0 ? cellAt(source, amountCol) : '';
       const debitText = debitCol >= 0 ? cellAt(source, debitCol) : '';
       const creditText = creditCol >= 0 ? cellAt(source, creditCol) : '';
@@ -185,28 +191,28 @@ export function parseCsvStatement(
 
       if (amountCol >= 0 && !amountText && options.skipEmptyAmount) {
         if (balanceText && currency) {
-          previousBalance = parseMajorToMinor(balanceText, options.decimalSeparator, currency);
+          previousBalance = parseMajorToMinor(balanceText, options.decimalSeparator, currency, currencyCatalog);
         }
         continue;
       }
-      if (!currency && !deferCurrency) throw new StatementParseError('currency is missing or not an ISO 4217 code');
+      if (!currency && !deferCurrency) throw new StatementParseError('currency is missing or invalid');
 
       let amountMinor = 0;
       let pendingAmount: StatementRow['pendingAmount'];
       if (amountCol >= 0) {
         if (!amountText) throw new StatementParseError('amount is empty');
-        if (currency) amountMinor = parseMajorToMinor(amountText, options.decimalSeparator, currency);
+        if (currency) amountMinor = parseMajorToMinor(amountText, options.decimalSeparator, currency, currencyCatalog);
         else pendingAmount = { text: amountText, mode: 'amount', decimalSeparator: options.decimalSeparator };
       } else if (debitText && creditText) {
         throw new StatementParseError('both debit and credit are filled');
       } else if (debitText) {
         if (currency) {
-          const debit = parseMajorToMinor(debitText, options.decimalSeparator, currency);
+          const debit = parseMajorToMinor(debitText, options.decimalSeparator, currency, currencyCatalog);
           amountMinor = debit > 0 ? -debit : debit;
         } else pendingAmount = { text: debitText, mode: 'debit', decimalSeparator: options.decimalSeparator };
       } else if (creditText) {
         if (currency) {
-          const credit = parseMajorToMinor(creditText, options.decimalSeparator, currency);
+          const credit = parseMajorToMinor(creditText, options.decimalSeparator, currency, currencyCatalog);
           amountMinor = credit < 0 ? -credit : credit;
         } else pendingAmount = { text: creditText, mode: 'credit', decimalSeparator: options.decimalSeparator };
       } else {
@@ -226,7 +232,7 @@ export function parseCsvStatement(
       let balanceMinor: number | null = null;
       let pendingBalanceText: string | undefined;
       if (balanceText && currency) {
-        balanceMinor = parseMajorToMinor(balanceText, options.decimalSeparator, currency);
+        balanceMinor = parseMajorToMinor(balanceText, options.decimalSeparator, currency, currencyCatalog);
         if (
           options.checkRunningBalance
           && previousBalance !== null
@@ -259,7 +265,7 @@ export function parseCsvStatement(
       });
       assertRowBudget(rows.length);
     } catch (error) {
-      if (error instanceof StatementLimitError) throw error;
+      if (error instanceof StatementLimitError || error instanceof MissingCurrencyConfigError) throw error;
       const detail = error instanceof Error ? error.message : 'invalid row';
       warnings.push(`row ${sourceIndex} skipped: ${detail}`);
     }

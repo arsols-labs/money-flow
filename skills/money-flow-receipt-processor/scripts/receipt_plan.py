@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import calendar
 import json
 import re
 import sys
@@ -18,12 +19,58 @@ CANONICAL_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def is_canonical_date(value: Any) -> bool:
+    return _parse_iso_date(value) is not None
+
+
+def _parse_iso_date(value: Any) -> date | None:
     if not isinstance(value, str) or CANONICAL_DATE.fullmatch(value) is None:
-        return False
+        return None
     try:
-        return date.fromisoformat(value).isoformat() == value
+        parsed = date.fromisoformat(value)
+        return parsed if parsed.isoformat() == value else None
     except ValueError:
-        return False
+        return None
+
+
+def _is_true_flag(value: Any) -> bool:
+    return value is True or (isinstance(value, int) and not isinstance(value, bool) and value == 1)
+
+
+def _next_occurrence(rule: dict[str, Any], from_date: date) -> date | None:
+    freq = rule.get("frequency")
+    interval = rule.get("interval_count", 1)
+    if isinstance(interval, bool) or not isinstance(interval, int) or not 1 <= interval <= 365:
+        return None
+    try:
+        if freq == "daily":
+            return from_date + timedelta(days=interval)
+        if freq == "weekly":
+            return from_date + timedelta(days=7 * interval)
+        if freq == "monthly":
+            dom = rule.get("day_of_month")
+            if isinstance(dom, bool) or not isinstance(dom, int) or not 1 <= dom <= 31:
+                return None
+            total = from_date.year * 12 + (from_date.month - 1) + interval
+            year = total // 12
+            month = (total % 12) + 1
+            return date(year, month, min(dom, calendar.monthrange(year, month)[1]))
+        if freq == "yearly":
+            dom = rule.get("day_of_month")
+            moy = rule.get("month_of_year")
+            if (
+                isinstance(dom, bool)
+                or not isinstance(dom, int)
+                or not 1 <= dom <= 31
+                or isinstance(moy, bool)
+                or not isinstance(moy, int)
+                or not 1 <= moy <= 12
+            ):
+                return None
+            year = from_date.year + interval
+            return date(year, moy, min(dom, calendar.monthrange(year, moy)[1]))
+    except (OverflowError, ValueError):
+        return None
+    return None
 
 
 def norm(value: Any) -> str:
@@ -201,7 +248,11 @@ def recurring_candidates(
 ) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for candidate in items:
-        if candidate.get("active") is not True:
+        if not isinstance(candidate, dict) or candidate.get("active") is not True:
+            continue
+        # Optional auto_skip_overdue rules stay ordinary operation_add lines during booking
+        # so the receipt fact is posted normally and the period is skipped post-booking.
+        if _is_true_flag(candidate.get("auto_skip_overdue")):
             continue
         mandatory = (
             candidate.get("account_id") == account_id
@@ -240,6 +291,76 @@ def recurring_candidates(
                 }
             )
     return result
+
+
+def auto_skip_recurring_candidates(
+    lines: list[dict[str, Any]],
+    receipt: dict[str, Any],
+    account_id: int,
+    items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    receipt_date = _parse_iso_date(receipt.get("date"))
+    if receipt_date is None or not isinstance(items, list):
+        return []
+    candidates: list[dict[str, Any]] = []
+    for candidate in items:
+        if not isinstance(candidate, dict) or candidate.get("active") is not True:
+            continue
+        if not _is_true_flag(candidate.get("auto_skip_overdue")):
+            continue
+        rule_id = candidate.get("id")
+        amount_minor = candidate.get("amount_minor")
+        if (
+            isinstance(rule_id, bool)
+            or not isinstance(rule_id, int)
+            or rule_id <= 0
+            or isinstance(amount_minor, bool)
+            or not isinstance(amount_minor, int)
+            or amount_minor >= 0
+        ):
+            continue
+        if (
+            candidate.get("account_id") != account_id
+            or norm(candidate.get("currency")) != norm(receipt.get("currency"))
+        ):
+            continue
+        rule_category = norm(candidate.get("category"))
+        if not rule_category:
+            continue
+        due_date = _parse_iso_date(candidate.get("next_due_date"))
+        if due_date is None:
+            continue
+        raw_end = candidate.get("end_date")
+        end_date: date | None = None
+        if raw_end is not None:
+            end_date = _parse_iso_date(raw_end)
+            if end_date is None or receipt_date > end_date:
+                continue
+        next_occ = _next_occurrence(candidate, due_date)
+        if next_occ is None or next_occ <= due_date:
+            continue
+        if not (due_date <= receipt_date < next_occ):
+            continue
+        line_indices = [
+            idx
+            for idx, line in enumerate(lines)
+            if line.get("route", {}).get("type") == "operation_add"
+            and norm(line.get("category")) == rule_category
+        ]
+        if not line_indices:
+            continue
+        ended = end_date is not None and next_occ > end_date
+        candidates.append(
+            {
+                "recurring_item_id": rule_id,
+                "category": str(candidate.get("category")),
+                "occurrence_date": due_date.isoformat(),
+                "expected_next_due_date": due_date.isoformat() if ended else next_occ.isoformat(),
+                "expected_active": not ended,
+                "line_indices": line_indices,
+            }
+        )
+    return sorted(candidates, key=lambda entry: int(entry["recurring_item_id"]))
 
 
 def plan(payload: dict[str, Any]) -> dict[str, Any]:
@@ -358,6 +479,17 @@ def plan(payload: dict[str, Any]) -> dict[str, Any]:
             )
             output_lines.append(line_out)
 
+    auto_skip_matches = (
+        auto_skip_recurring_candidates(
+            output_lines,
+            receipt,
+            account_id,
+            payload.get("recurring_items") or [],
+        )
+        if not errors and account_id is not None
+        else []
+    )
+
     return {
         "safe": not errors,
         "errors": errors,
@@ -369,6 +501,7 @@ def plan(payload: dict[str, Any]) -> dict[str, Any]:
             "fiscal_receipt_id": receipt.get("fiscal_receipt_id"),
         },
         "lines": output_lines,
+        "auto_skip_recurring_candidates": auto_skip_matches,
     }
 
 

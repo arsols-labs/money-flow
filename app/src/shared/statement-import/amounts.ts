@@ -1,4 +1,4 @@
-import { fractionDigits } from '../currency';
+import { fractionDigits, getRuntimeCurrencyCatalog, type CurrencyCatalog } from '../currency';
 import { SAFE_MINOR_MAX, SAFE_MINOR_MIN } from '../money';
 import {
   STATEMENT_IMPORT_MAX_ROWS,
@@ -167,6 +167,7 @@ export function parseMajorToMinor(
   raw: string,
   decimalSeparator: DecimalSeparator,
   currency: string,
+  currencyCatalog: CurrencyCatalog = getRuntimeCurrencyCatalog(),
 ): number {
   let text = raw.trim().replace(/\u00a0/g, '').replace(/\s+/g, '');
   if (!text) throw new StatementParseError('empty amount');
@@ -175,6 +176,10 @@ export function parseMajorToMinor(
   if (text.startsWith('(') && text.endsWith(')')) {
     negative = true;
     text = text.slice(1, -1);
+  }
+  if (text.endsWith('-') || text.endsWith('−')) {
+    negative = !negative;
+    text = text.slice(0, -1);
   }
   if (text.startsWith('+')) text = text.slice(1);
   if (text.startsWith('-') || text.startsWith('−')) {
@@ -191,7 +196,7 @@ export function parseMajorToMinor(
   if (!/^\d+$/.test(integer) || (fraction !== '' && !/^\d+$/.test(fraction))) {
     throw new StatementParseError(`invalid amount "${raw}"`);
   }
-  const scale = fractionDigits(currency);
+  const scale = fractionDigits(currency, currencyCatalog);
   const padded = fraction.padEnd(scale + 1, '0');
   const kept = padded.slice(0, scale);
   const next = padded[scale] ?? '0';
@@ -205,27 +210,40 @@ export function parseMajorToMinor(
   return Number(minor);
 }
 
-function signedMinor(pending: PendingAmount, currency: string): number {
-  const magnitude = parseMajorToMinor(pending.text, pending.decimalSeparator, currency);
+function signedMinor(
+  pending: PendingAmount,
+  currency: string,
+  currencyCatalog: CurrencyCatalog = getRuntimeCurrencyCatalog(),
+): number {
+  const magnitude = parseMajorToMinor(pending.text, pending.decimalSeparator, currency, currencyCatalog);
   if (pending.mode === 'debit') return magnitude > 0 ? -magnitude : magnitude;
   if (pending.mode === 'credit') return magnitude < 0 ? -magnitude : magnitude;
   return magnitude;
 }
 
 /** Fill an empty currency from the target account and scale amounts to that currency. */
-export function materializeAccountCurrency(statement: ParsedStatement, currency: string): void {
+export function materializeAccountCurrency(
+  statement: ParsedStatement,
+  currency: string,
+  currencyCatalog: CurrencyCatalog = getRuntimeCurrencyCatalog(),
+): void {
   let previous: number | null = null;
   const kept: StatementRow[] = [];
   for (const row of statement.rows) {
     if (!row.currency && row.pendingAmount) {
-      const amountMinor = signedMinor(row.pendingAmount, currency);
+      const amountMinor = signedMinor(row.pendingAmount, currency, currencyCatalog);
       if (amountMinor === 0) continue;
       row.amountMinor = amountMinor;
       row.kind = kindFromSignedAmount(amountMinor);
       row.currency = currency;
       row.currencyFromAccount = true;
       if (row.pendingBalanceText) {
-        row.balanceMinor = parseMajorToMinor(row.pendingBalanceText, row.pendingAmount.decimalSeparator, currency);
+        row.balanceMinor = parseMajorToMinor(
+          row.pendingBalanceText,
+          row.pendingAmount.decimalSeparator,
+          currency,
+          currencyCatalog,
+        );
         if (
           statement.checkRunningBalance
           && previous !== null

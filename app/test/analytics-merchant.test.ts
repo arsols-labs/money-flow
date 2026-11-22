@@ -1,6 +1,70 @@
-// Merchant labels in Analytics. Synthetic store strings only: no receipt rows.
+// Merchant labels in Analytics. Synthetic store strings and D1 rule fixtures only.
 import { describe, expect, it } from 'vitest';
-import { MERCHANT_RULES, normMerchant } from '../src/worker/analytics';
+import type { MerchantAliasPayload, ResolvedRuleEntry } from '../src/shared/rules/types';
+import { normMerchant } from '../src/worker/analytics';
+
+function aliasRule(
+  id: number,
+  pattern: string,
+  target_merchant: string,
+  match_type: 'tokens' | 'exact' | 'prefix' | 'contains' = 'tokens',
+): ResolvedRuleEntry<MerchantAliasPayload> {
+  return {
+    set: {
+      id: 1,
+      domain: 'merchant_aliases',
+      scope_country: 'SHARED',
+      scope_locale: '',
+      set_key: 'test-merchants',
+      version: 1,
+      state: 'active',
+      effective_from: null,
+      effective_to: null,
+      priority: 100,
+      allow_shared_fallback: 1,
+      label: 'Test Merchants',
+      description: null,
+      provenance_source: 'api',
+      provenance_actor: null,
+      revision: 1,
+      activated_at: '2026-01-01T00:00:00Z',
+      retired_at: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    },
+    entry: {
+      id,
+      rule_set_id: 1,
+      entry_key: `rule_${id}`,
+      match_type,
+      match_field: 'merchant',
+      pattern,
+      priority: id * 10,
+      enabled: 1,
+      payload_json: JSON.stringify({ target_merchant }),
+      meta_json: null,
+      revision: 1,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    },
+    specificity: 1,
+    payload: { target_merchant },
+  };
+}
+
+const SAMPLE_RULES: ReadonlyArray<readonly [string, string]> = [
+  ['UBER', 'Uber'],
+  ['DR.MAX', 'Dr. Max'],
+  ['DR. MAX', 'Dr. Max'],
+  ['DR.MAXI', 'Maxi'],
+  ['DR. MAXI', 'Maxi'],
+  ['POSTA SRBIJE', 'Pošta Srbije'],
+  ['ПОШТА СРБИЈЕ', 'Pošta Srbije'],
+  ['ПОШТА', 'Pošta Srbije'],
+  ['MAXI', 'Maxi'],
+];
+
+const RESOLVED_SAMPLE_RULES = SAMPLE_RULES.map(([pattern, target], idx) => aliasRule(idx + 1, pattern, target));
 
 const CASES: readonly [string, string][] = [
   ['GUBERNIJA', 'GUBERNIJA'],
@@ -24,21 +88,18 @@ const CASES: readonly [string, string][] = [
   ['dr. max pharmacy', 'Dr. Max'],
   ['DR.MAX PHARMACY', 'Dr. Max'],
   ['A.B. DR.MAX', 'Dr. Max'],
-  // The dot in DR.MAX is literal. A letter glued on the right is not that needle;
-  // MAXI then matches on its own boundary.
   ['DRXMAX', 'DRXMAX'],
   ['DR.MAXI', 'Maxi'],
   ['DR. MAXI', 'Maxi'],
   ['PINEAPPLE', 'PINEAPPLE'],
   ['ХПОШТА', 'ХПОШТА'],
-  // `_` and `-` are not Unicode letters or digits, so they are boundaries.
   ['UBER_TRIP', 'Uber'],
   ['UBER-TRIP', 'Uber'],
   ['UBER1', 'UBER1'],
   ['1UBER', '1UBER'],
 ];
 
-const STORE_SHAPES: readonly [string, string, string][] = MERCHANT_RULES.flatMap(
+const STORE_SHAPES: readonly [string, string, string][] = SAMPLE_RULES.flatMap(
   ([needle, canon]) => [
     ['alone', needle, canon],
     ['lower case', needle.toLowerCase(), canon],
@@ -50,24 +111,26 @@ const STORE_SHAPES: readonly [string, string, string][] = MERCHANT_RULES.flatMap
 );
 
 describe('normMerchant', () => {
-  it.each(CASES)('maps %j to %j', (raw, expected) => {
-    expect(normMerchant(raw)).toBe(expected);
+  it.each(CASES)('maps %j to %j when rules are configured', (raw, expected) => {
+    expect(normMerchant(raw, RESOLVED_SAMPLE_RULES)).toBe(expected);
   });
 
   it.each(STORE_SHAPES)('%s %j maps to %j', (_shape, raw, canon) => {
-    expect(normMerchant(raw)).toBe(canon);
+    expect(normMerchant(raw, RESOLVED_SAMPLE_RULES)).toBe(canon);
   });
 
-  it.each(MERCHANT_RULES)('does not match %j glued inside letters', (needle, canon) => {
-    expect(normMerchant(`Q${needle}Z`)).not.toBe(canon);
+  it.each(SAMPLE_RULES)('does not match %j glued inside letters', (needle, canon) => {
+    expect(normMerchant(`Q${needle}Z`, RESOLVED_SAMPLE_RULES)).not.toBe(canon);
   });
 
-  it('keeps the unmatched comma cut and 28-character truncation', () => {
-    expect(normMerchant('LOCAL KIOSK, BRANCH 2')).toBe('LOCAL KIOSK');
-    expect(normMerchant('Z'.repeat(40))).toBe(`${'Z'.repeat(27)}…`);
-    expect(normMerchant(null)).toBe('—');
-    expect(normMerchant(undefined)).toBe('—');
-    expect(normMerchant('')).toBe('—');
-    expect(normMerchant('   ')).toBe('—');
+  it('returns the exact stored value untouched on no-match or empty D1 rules', () => {
+    expect(normMerchant('LOCAL KIOSK, BRANCH 2', RESOLVED_SAMPLE_RULES)).toBe('LOCAL KIOSK, BRANCH 2');
+    expect(normMerchant('  LOCAL KIOSK  ', RESOLVED_SAMPLE_RULES)).toBe('  LOCAL KIOSK  ');
+    expect(normMerchant('Z'.repeat(40), RESOLVED_SAMPLE_RULES)).toBe('Z'.repeat(40));
+    expect(normMerchant('UBER EATS', [])).toBe('UBER EATS');
+    expect(normMerchant('', RESOLVED_SAMPLE_RULES)).toBe('');
+    expect(normMerchant('   ', RESOLVED_SAMPLE_RULES)).toBe('   ');
+    expect(normMerchant(null, RESOLVED_SAMPLE_RULES)).toBeNull();
+    expect(normMerchant(undefined, RESOLVED_SAMPLE_RULES)).toBeNull();
   });
 });

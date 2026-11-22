@@ -19,7 +19,8 @@ Stop typing expenses by hand. In the AI chat you already use:
 - Group several receipts into one order
 - “When do I run out?” → forward cash runway from live structured data
 - “What’s on the accounts?” → multicurrency / multi-asset summary
-- Update FX / add a transfer → same ledger as the UI
+- Update FX / add a transfer — or enable automatic daily FX refresh via Worker Cron (configurable local hour and IANA timezone)
+- Configure country-scoped business rules, currencies, statement templates, and optional recurring overdue auto-skip in Settings or over MCP
 - Schedule an agent to watch runway and notify you on Slack, Telegram, WhatsApp, …
 
 Three starter skills ship today (**FX updater**, **receipt processor**, **bank statement import**). Add any skill you invent — Money Flow stays the structured backend; agents bring the workflow. MCP works without special skills; skills extend complex and repeated workflows.
@@ -62,11 +63,23 @@ npm run setup -- --delete my-worker --yes
 | `--yes` / `-y` | Non-interactive. Fails closed if deps are missing (`npm install`) or Wrangler is not logged in (`npx wrangler login`). |
 | `--dry-run` | Plan only: no Cloudflare writes, no deploy, no secret upload, no seed. Still may list account resources read-only. |
 | `--hostname-mode workers-dev \| custom` | Hosting mode; `custom` needs `--hostname`. |
-| `--seed-demo` / `--no-seed-demo` | Optional stranger-safe English showcase seed (default: empty instance). |
+| `--seed-demo` / `--no-seed-demo` | Optional stranger-safe English showcase seed (default: empty ledger with starter `USD` currency, editable in Settings). |
 | `--rotate-secrets` | Replace `SESSION_SECRET` and `SETUP_TOKEN` and print the new values once. |
+| `--update` | Non-interactive upgrade (`npm run update`): sync deps, refresh `wrangler.local.jsonc` settings, apply D1 migrations, build & deploy, and keep existing secrets. |
+| `--skip-install` | Skip `npm ci` / `npm install` when updating (requires local Wrangler already installed). |
 | `--delete [worker]` | Tear down **one** self-hosted install (that Worker + owned D1/KV + matching gitignored local config). Live TTY types the Worker name to confirm; `--dry-run` prints the plan and exits 0; `--yes` is for CI. |
 
 Re-running setup is safe: existing D1/KV/Worker names are reused. Seeded demo data can be wiped later from the app (Data → Reset).
+
+### Updating an existing install
+
+To upgrade an existing self-hosted instance to a new release, run:
+
+```bash
+git pull && cd app && npm run update
+```
+
+Or preview the plan first with `npm run update -- --dry-run`. It syncs dependencies, refreshes `wrangler.local.jsonc` settings (keeping your Worker, domain, D1, KV, and secrets), applies additive forward-only D1 migrations, and redeploys. See [app/README.md](./app/README.md#updating-an-existing-install) for the full step list.
 
 ### How to connect
 

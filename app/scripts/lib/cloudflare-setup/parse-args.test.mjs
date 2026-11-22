@@ -82,6 +82,17 @@ describe('parseArgs', () => {
     assert.equal(parseArgs(['--non-interactive']).nonInteractive, true);
   });
 
+  it('parses --update and --skip-install and rejects incompatible flags', () => {
+    const args = parseArgs(['--update', '--skip-install']);
+    assert.equal(args.update, true);
+    assert.equal(args.skipInstall, true);
+    assert.throws(() => parseArgs(['--update', '--delete']), /Cannot combine --update with --delete/);
+    assert.throws(() => parseArgs(['--update', '--seed-demo']), /Cannot combine --update with --seed-demo/);
+    for (const flag of ['--name', '--hostname-mode', '--hostname', '--d1-name', '--kv-name', '--account-subdomain']) {
+      assert.throws(() => parseArgs(['--update', flag, 'val']), /Cannot override .* with --update/);
+    }
+  });
+
   it('records unknown tokens', () => {
     const args = parseArgs(['--wat', 'positional']);
     assert.deepEqual(args.unknown, ['--wat', 'positional']);
@@ -95,6 +106,9 @@ describe('parseArgs', () => {
   it('prints help text that names npm run setup and does not say coming soon', () => {
     const help = formatHelp();
     assert.match(help, /npm run setup/);
+    assert.match(help, /npm run update/);
+    assert.match(help, /--update/);
+    assert.match(help, /--skip-install/);
     assert.match(help, /--seed-demo/);
     assert.match(help, /--no-seed-demo/);
     assert.match(help, /--rotate-secrets/);

@@ -8,6 +8,8 @@
 // with the forecast).
 import type { Converter } from './forecast/convert';
 import { minorBigIntToNumber } from '../shared/money';
+import { matchPattern } from '../shared/rules/matcher';
+import type { MerchantAliasPayload, ResolvedRuleEntry } from '../shared/rules/types';
 import { ValidationError } from './api-error';
 
 export const ANALYTICS_MAX_Q_LEN = 200;
@@ -66,55 +68,25 @@ export function normalizeAnalyticsFilters(body: Record<string, unknown>): {
   };
 }
 
-export const MERCHANT_RULES: [string, string][] = [
-  ['AMAZON', 'Amazon'],
-  ['APPLE', 'Apple'],
-  ['GOOGLE', 'Google'],
-  ['UBER', 'Uber'],
-  ['NETFLIX', 'Netflix'],
-  ['SPOTIFY', 'Spotify'],
-  ['STARBUCKS', 'Starbucks'],
-  ['MAXI', 'Maxi'],
-  ['DELHAIZE', 'Maxi'],
-  ['CORNER CAFE', 'Corner Cafe'],
-  ['DR.MAX', 'Dr. Max'],
-  ['DR. MAX', 'Dr. Max'],
-  ['SAMPLE PHARMACY', 'Sample Pharmacy'],
-  ['LILLY', 'Lilly'],
-  ['IDEA', 'Idea'],
-  ['POŠTA', 'Pošta Srbije'],
-  ['POSTA SRBIJE', 'Pošta Srbije'],
-  ['ПОШТА', 'Pošta Srbije'],
-  ['SAMPLE CLINIC', 'Sample Clinic'],
-  ['SAMPLE TOY SHOP', 'Sample Toy Shop'],
-  ['SAMPLE GRILL', 'Sample Grill'],
-  ['SAMPLE WATER STORE', 'Sample Water Store'],
-  ['SAMPLE TRADING', 'Sample Trading'],
-];
-
-// A needle matches only when no Unicode letter or digit is glued to either end.
-// `includes` labeled GUBERNIJA as Uber. ASCII `\b` is not enough: it ignores
-// non-ASCII letters, so a Cyrillic post-office needle would stop matching.
-// Patterns are compiled once.
-function escapeMerchantNeedle(needle: string): string {
-  return needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-const COMPILED_MERCHANT_RULES: readonly [RegExp, string][] = MERCHANT_RULES.map(
-  ([needle, canon]) => [
-    new RegExp(`(?<![\\p{L}\\p{N}])${escapeMerchantNeedle(needle)}(?![\\p{L}\\p{N}])`, 'u'),
-    canon,
-  ],
-);
-
-export function normMerchant(raw: string | null | undefined): string {
-  if (!raw) return '—';
-  const upper = String(raw).toUpperCase();
-  for (const [pattern, canon] of COMPILED_MERCHANT_RULES) {
-    if (pattern.test(upper)) return canon;
+/**
+ * Normalizes a stored merchant/store label using active D1 `merchant_aliases` rules.
+ * When no rule matches, returns the exact stored value (`null` when missing,
+ * exact string including empty `""` or whitespace when present).
+ */
+export function normMerchant(
+  raw: string | null | undefined,
+  merchantRules: ReadonlyArray<ResolvedRuleEntry<MerchantAliasPayload>> = [],
+): string | null {
+  if (raw === null || raw === undefined) return null;
+  for (const rule of merchantRules) {
+    if (!rule.entry.pattern || !rule.entry.match_type) continue;
+    if (matchPattern(rule.entry.match_type, rule.entry.pattern, raw, {
+      caseSensitive: rule.payload.case_sensitive,
+    })) {
+      return rule.payload.target_merchant;
+    }
   }
-  const cleaned = String(raw).split(',')[0].replace(/\s+/g, ' ').trim();
-  return cleaned.length > 28 ? cleaned.slice(0, 27) + '…' : cleaned || '—';
+  return raw;
 }
 
 export interface OperationWithAccount {
@@ -195,7 +167,7 @@ export interface AnalyticsReceipt {
   id: string;
   date: string;
   store: string | null;
-  merchant: string;
+  merchant: string | null;
   account_name: string;
   account_currency: string;
   receipt_total_minor: number;
@@ -283,8 +255,20 @@ export function buildAnalytics(params: {
   missingRates: Set<string>;
   filters: AnalyticsFilterInput;
   recurringRules?: RecurringRuleRow[];
+  merchantRules?: ReadonlyArray<ResolvedRuleEntry<MerchantAliasPayload>>;
+  sortLocale?: string | null;
 }): AnalyticsResult {
-  const { operations, converter, baseCurrency, missingRates, filters, recurringRules } = params;
+  const {
+    operations,
+    converter,
+    baseCurrency,
+    missingRates,
+    filters,
+    recurringRules,
+    merchantRules = [],
+    sortLocale,
+  } = params;
+  const compareLocale = sortLocale || undefined;
 
   // 1. Compute the available filter options from ALL operations of the period (before the cats/merchants/etc filters)
   const catCounts = new Map<string, number>();
@@ -296,8 +280,8 @@ export function buildAnalytics(params: {
     if (op.category) {
       catCounts.set(op.category, (catCounts.get(op.category) ?? 0) + 1);
     }
-    const m = normMerchant(op.store);
-    if (m && m !== '—') {
+    const m = normMerchant(op.store, merchantRules);
+    if (m !== null && m.length > 0) {
       merchantCounts.set(m, (merchantCounts.get(m) ?? 0) + 1);
     }
     if (op.account_name) accountsSet.add(op.account_name);
@@ -306,13 +290,13 @@ export function buildAnalytics(params: {
 
   const categoriesOptions: AnalyticsFilterOption[] = Array.from(catCounts.entries())
     .map(([label, count]) => ({ label, count }))
-    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'ru'));
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, compareLocale));
 
   const merchantsOptions: AnalyticsFilterOption[] = Array.from(merchantCounts.entries())
     .map(([label, count]) => ({ label, count }))
-    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'ru'));
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, compareLocale));
 
-  const accounts = Array.from(accountsSet).sort((a, b) => a.localeCompare(b, 'ru'));
+  const accounts = Array.from(accountsSet).sort((a, b) => a.localeCompare(b, compareLocale));
   const currencies = Array.from(currenciesSet).sort();
 
   // 2. Apply filters
@@ -324,11 +308,15 @@ export function buildAnalytics(params: {
 
   const filteredOps = operations.filter((op) => {
     if (selectedCats && (!op.category || !selectedCats.has(op.category))) return false;
-    if (selectedMerchants && !selectedMerchants.has(normMerchant(op.store))) return false;
+    if (selectedMerchants) {
+      const m = normMerchant(op.store, merchantRules);
+      if (m === null || !selectedMerchants.has(m)) return false;
+    }
     if (selectedAccounts && !selectedAccounts.has(op.account_name)) return false;
     if (selectedCurrencies && !selectedCurrencies.has(op.account_currency)) return false;
     if (tokens.length) {
-      const hay = `${op.item} ${op.store ?? ''} ${normMerchant(op.store)} ${op.category ?? ''} ${op.subcategory ?? ''} ${op.id} ${op.account_name}`.toLowerCase();
+      const m = normMerchant(op.store, merchantRules) ?? '';
+      const hay = `${op.item} ${op.store ?? ''} ${m} ${op.category ?? ''} ${op.subcategory ?? ''} ${op.id} ${op.account_name}`.toLowerCase();
       if (!tokens.every((t) => hay.includes(t))) return false;
     }
     return true;
@@ -396,18 +384,19 @@ export function buildAnalytics(params: {
     // Add to the receipt group
     let rGroup = receiptsMap.get(rKey);
     if (!rGroup) {
-      rGroup = {
+      const created: ReceiptGroupBuilder = {
         id: rKey,
         date: op.date,
         store: op.store,
-        merchant: normMerchant(op.store),
+        merchant: normMerchant(op.store, merchantRules) ?? '',
         account_name: op.account_name,
         account_currency: op.account_currency,
         receipt_total_minor: 0n,
         receipt_total_base_minor: 0n,
         lines: [],
       };
-      receiptsMap.set(rKey, rGroup);
+      rGroup = created;
+      receiptsMap.set(rKey, created);
     }
     rGroup.receipt_total_minor += absAmount;
     rGroup.receipt_total_base_minor += converted;
@@ -466,8 +455,8 @@ export function buildAnalytics(params: {
       }
 
       // Merchants
-      const mName = normMerchant(op.store);
-      if (mName && mName !== '—') {
+      const mName = normMerchant(op.store, merchantRules);
+      if (mName !== null && mName.length > 0) {
         const curM = merchantBreakdown.get(mName) ?? { value: 0n, count: 0, receipts: new Set() };
         curM.value += converted;
         curM.count += 1;
@@ -525,8 +514,8 @@ export function buildAnalytics(params: {
         subBreakdown.set(subKey, curSub);
       }
 
-      const mName = normMerchant(op.store);
-      if (mName && mName !== '—') {
+      const mName = normMerchant(op.store, merchantRules);
+      if (mName !== null && mName.length > 0) {
         const curM = merchantBreakdown.get(mName) ?? { value: 0n, count: 0, receipts: new Set() };
         curM.value -= converted;
         curM.receipts.add(rKey);

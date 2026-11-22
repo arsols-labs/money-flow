@@ -2,7 +2,7 @@
 // operations, accounts, balances, or the duplicate-expense tables.
 
 import { ValidationError } from './api-error';
-import { normalizeIso4217CurrencyCode } from '../shared/currency';
+import { normalizeCurrencyCodeSyntax } from '../shared/currency';
 import { canonicalizePfr } from '../shared/fiscal-receipts';
 import { pfrMembershipKey } from '../shared/receipt-groups';
 import {
@@ -99,7 +99,7 @@ function parseTotal(body: Record<string, unknown>): Pick<
   if (typeof minorRaw !== 'number' || !Number.isSafeInteger(minorRaw) || minorRaw < 0) {
     throw new ValidationError('ORDER_FIELD_INVALID', { field: 'order_total_minor' });
   }
-  const currency = normalizeIso4217CurrencyCode(currencyRaw);
+  const currency = normalizeCurrencyCodeSyntax(currencyRaw);
   if (!currency) throw new ValidationError('ORDER_FIELD_INVALID', { field: 'order_total_currency' });
   if (typeof sourceRaw !== 'string' || !SOURCE_SET.has(sourceRaw)) {
     throw new ValidationError('ORDER_FIELD_INVALID', { field: 'order_total_source' });
@@ -216,7 +216,7 @@ export function parseComponentWrite(body: unknown): ComponentWrite {
   if (typeof record.expected_amount_minor !== 'number' || !Number.isSafeInteger(record.expected_amount_minor) || record.expected_amount_minor === 0) {
     throw new ValidationError('ORDER_FIELD_INVALID', { field: 'expected_amount_minor' });
   }
-  const currency = normalizeIso4217CurrencyCode(record.expected_currency);
+  const currency = normalizeCurrencyCodeSyntax(record.expected_currency);
   if (!currency) throw new ValidationError('ORDER_FIELD_INVALID', { field: 'expected_currency' });
   return {
     component_type: record.component_type as ComponentType,
@@ -722,7 +722,7 @@ export function parseComponentPatch(body: unknown, current: StoredComponent): Co
     amount = record.expected_amount_minor;
   }
   if ('expected_currency' in record) {
-    const next = normalizeIso4217CurrencyCode(record.expected_currency);
+    const next = normalizeCurrencyCodeSyntax(record.expected_currency);
     if (!next) throw new ValidationError('ORDER_FIELD_INVALID', { field: 'expected_currency' });
     currency = next;
   }

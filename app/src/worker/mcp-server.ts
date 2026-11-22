@@ -7,6 +7,7 @@ import { BodyTooLargeError, MCP_MAX_JSON_BYTES, readLimitedText } from './limite
 import { getPulseHtml } from './mcp-pulse-ui';
 import { getAnalyticsHtml } from './mcp-analytics-ui';
 import { getWriteConfirmHtml } from './mcp-write-confirm-ui';
+import { MCP_DOCS_INDEX_URI, MCP_DOCUMENTATION_RESOURCES, readMcpDocumentation } from './mcp-documentation';
 import { nextOccurrence, type RecurringRule } from './forecast/recurrence';
 import { parseHttpUrl, RECEIPT_URL_MAX_LENGTH } from '../shared/http-url';
 import { FISCAL_RECEIPT_ID_MAX_LENGTH, canonicalizePfr } from '../shared/fiscal-receipts';
@@ -31,6 +32,27 @@ import {
 } from './mcp-statement';
 import { ValidationError } from './api-error';
 import { apiErrorBody } from '../shared/api-errors';
+import {
+  FX_AUTO_UPDATE_SETTING_KEY,
+  parseBooleanSettingFlag,
+  requireFxCatalogAndTargets,
+} from './fx-auto-update';
+import {
+  loadCronScheduleConfig,
+  validateCronSchedulePatch,
+  type CronSchedulePatch,
+} from './cron-schedule';
+import {
+  CRON_DEFAULT_HOUR,
+  CRON_DEFAULT_TIMEZONE,
+  CRON_TIMEZONE_SETTING_KEY,
+  FX_AUTO_UPDATE_HOUR_SETTING_KEY,
+  RECURRING_AUTO_SKIP_HOUR_SETTING_KEY,
+  formatCronHour,
+  isReservedCronSettingKey,
+  normalizeCronHour,
+  normalizeCronTimezone,
+} from '../shared/cron-schedule';
 import { PURCHASE_ORDERS_EPOCH_KEY } from '../shared/purchase-orders';
 import {
   PURCHASE_NO_AUTO_CONFIRM,
@@ -48,6 +70,20 @@ import {
   receiptGroupWriteRequest,
   validateReceiptGroupWrite,
 } from './mcp-receipt-groups';
+import {
+  RULES_NO_AUTO_CONFIRM,
+  RULES_READ_TOOLS,
+  RULES_WRITE_TOOLS,
+  rulesReadSpec,
+  rulesToolDefinitions,
+  rulesWriteRequest,
+  validateRulesWrite,
+} from './mcp-rules';
+import {
+  loadAnalyticalSkipOnlyRecurringIds,
+  loadCurrencyCatalog,
+  loadWidgetLocaleBundle,
+} from './rules-store';
 
 const mcpApp = new Hono<{ Bindings: Env }>();
 
@@ -64,10 +100,12 @@ const READ_TOOLS = new Set([
   'account_resolve',
   'pending_accounts_list',
   'settings_get',
+  'cron_schedule_get',
   'backup_export',
   ...STATEMENT_READ_TOOL_NAMES,
   ...PURCHASE_READ_TOOLS,
   ...RECEIPT_GROUP_READ_TOOLS,
+  ...RULES_READ_TOOLS,
 ]);
 
 const WRITE_TOOLS = new Set([
@@ -89,6 +127,7 @@ const WRITE_TOOLS = new Set([
   'transfer_add',
   'fx_rate_set',
   'fx_rate_delete',
+  'fx_rates_refresh',
   'data_reset',
   'account_add',
   'account_update',
@@ -99,10 +138,12 @@ const WRITE_TOOLS = new Set([
   'transfer_update',
   'transfer_delete',
   'setting_set',
+  'cron_schedule_set',
   'backup_import',
   ...STATEMENT_WRITE_TOOL_NAMES,
   ...PURCHASE_WRITE_TOOLS,
   ...RECEIPT_GROUP_WRITE_TOOLS,
+  ...RULES_WRITE_TOOLS,
 ]);
 
 /**
@@ -123,6 +164,7 @@ const NO_AUTO_CONFIRM_TOOL_NAMES = [
   ...STATEMENT_NO_AUTO_CONFIRM,
   ...PURCHASE_NO_AUTO_CONFIRM,
   ...RECEIPT_GROUP_NO_AUTO_CONFIRM,
+  ...RULES_NO_AUTO_CONFIRM,
 ] as const;
 const NO_AUTO_CONFIRM_TOOLS = new Set<string>(NO_AUTO_CONFIRM_TOOL_NAMES);
 
@@ -134,7 +176,14 @@ const NO_AUTO_CONFIRM_DESCRIPTION =
   `auto_confirm is not accepted for ${NO_AUTO_CONFIRM_TOOL_NAMES.join(', ')}, and for setting_set when the key is base_currency; a human confirmation is always required. `;
 
 /** Keys accepted by PUT /api/v2/settings/:key (kept in sync with SETTINGS_WRITABLE_KEYS in api.ts). */
-const SETTING_SET_KEYS = ['base_currency', 'low_balance_threshold_minor'] as const;
+const SETTING_SET_KEYS = [
+  'base_currency',
+  'low_balance_threshold_minor',
+  FX_AUTO_UPDATE_SETTING_KEY,
+  CRON_TIMEZONE_SETTING_KEY,
+  FX_AUTO_UPDATE_HOUR_SETTING_KEY,
+  RECURRING_AUTO_SKIP_HOUR_SETTING_KEY,
+] as const;
 
 /** Maximum size (UTF-8 bytes of the JSON document) that backup_export returns inline: 512 KiB. */
 export const BACKUP_EXPORT_MAX_BYTES = 512 * 1024;
@@ -195,11 +244,51 @@ const PLANNED_UPDATE_FIELDS = ['date', 'title', 'amount_minor', 'currency', 'acc
 const RECURRING_UPDATE_FIELDS = [
   'title', 'amount_minor', 'currency', 'account_id', 'category', 'frequency',
   'interval_count', 'day_of_month', 'month_of_year', 'next_due_date', 'end_date', 'active',
+  'auto_skip_overdue', 'auto_skip_after_days',
 ] as const;
 const RECURRING_ADD_FIELD_SET = new Set([
   'title', 'amount_minor', 'account_id', 'frequency', 'next_due_date', 'currency', 'category',
-  'interval_count', 'day_of_month', 'month_of_year', 'end_date', 'active', 'idempotency_key', 'requestState',
+  'interval_count', 'day_of_month', 'month_of_year', 'end_date', 'active',
+  'auto_skip_overdue', 'auto_skip_after_days', 'idempotency_key', 'requestState',
 ]);
+
+function buildRecurringConfirmationSnapshot(
+  type: 'recurring_item' | 'recurring_close' | 'recurring_skip' | 'recurring_fulfill' | 'recurring_cancel',
+  existing: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    type,
+    id: existing.id,
+    revision: existing.revision,
+    title: existing.title,
+    amount_minor: existing.amount_minor,
+    currency: existing.currency,
+    account_id: existing.account_id,
+    category: existing.category,
+    frequency: existing.frequency,
+    interval_count: existing.interval_count,
+    day_of_month: existing.day_of_month,
+    month_of_year: existing.month_of_year,
+    next_due_date: existing.next_due_date,
+    end_date: existing.end_date,
+    active: existing.active,
+    auto_skip_overdue: existing.auto_skip_overdue,
+    auto_skip_after_days: existing.auto_skip_after_days,
+  };
+}
+
+function validateRecurringAutoSkipArgs(args: Record<string, unknown>): string | null {
+  if ('auto_skip_overdue' in args && typeof args.auto_skip_overdue !== 'boolean') {
+    return 'auto_skip_overdue must be a boolean';
+  }
+  if ('auto_skip_after_days' in args) {
+    const days = args.auto_skip_after_days;
+    if (typeof days !== 'number' || !Number.isInteger(days) || days < 1 || days > 365) {
+      return 'auto_skip_after_days must be an integer from 1 to 365';
+    }
+  }
+  return null;
+}
 
 const OPERATION_UPDATE_FIELDS = ['date', 'account_id', 'kind', 'store', 'item', 'category', 'subcategory', 'amount_minor', 'comment', 'receipt_url', 'fiscal_receipt_id'] as const;
 const OPERATION_UPDATE_FIELD_SET = new Set<string>(OPERATION_UPDATE_FIELDS);
@@ -599,22 +688,29 @@ const TOOLS = [
   },
   {
     name: 'fx_rates_list',
-    description: 'Get saved exchange rates.',
+    description: 'Lists configured foreign-exchange rates relative to the workspace anchor currency.',
     inputSchema: { type: 'object', properties: {} },
     outputSchema: {
       type: 'object',
       properties: {
+        base_currency: { type: 'string' },
+        fx_anchor_currency: { type: 'string' },
         rates: {
           type: 'array',
           items: { type: 'object' }
         },
+        missing: {
+          type: 'array',
+          items: { type: 'string' }
+        },
+        auto_update: { type: 'object' },
         error: { type: 'string' }
       }
     }
   },
   {
     name: 'planned_items_list',
-    description: 'Get planned items.',
+    description: 'Lists one-off planned income or expense expectations and their completion and fulfillment links.',
     inputSchema: { type: 'object', properties: {} },
     outputSchema: {
       type: 'object',
@@ -629,7 +725,7 @@ const TOOLS = [
   },
   {
     name: 'recurring_items_list',
-    description: 'Get recurring items.',
+    description: 'Lists recurring income or expense schedules with frequency, next due date, end date, and active state.',
     inputSchema: { type: 'object', properties: {} },
     outputSchema: {
       type: 'object',
@@ -680,9 +776,7 @@ const TOOLS = [
       properties: {
         days: {
           type: 'number',
-          description: 'Forecast horizon in days. If omitted, the user default setting is used.',
-          // @ts-ignore
-          'x-mcp-header': true
+          description: 'Forecast horizon in days. If omitted, the user default setting is used.'
         }
       }
     },
@@ -995,6 +1089,8 @@ const TOOLS = [
         month_of_year: { type: ['number', 'null'], description: 'Month anchor for yearly' },
         end_date: { type: ['string', 'null'], description: 'Last period date or null' },
         active: { type: 'boolean', description: 'Whether the rule is active; default true' },
+        auto_skip_overdue: { type: 'boolean', description: 'Automatically skip overdue periods via daily cron without posting operations; default false' },
+        auto_skip_after_days: { type: 'number', description: 'Days after due date before auto-skip advances the period (1..365); default 1' },
         idempotency_key: { type: 'string', description: 'Unique idempotency key' },
         requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION },
       },
@@ -1013,6 +1109,8 @@ const TOOLS = [
         title: { type: 'string' }, amount_minor: { type: 'number' }, currency: { type: 'string' }, account_id: { type: 'number' }, category: { type: ['string', 'null'] },
         frequency: { type: 'string', enum: ['daily', 'weekly', 'monthly', 'yearly'] }, interval_count: { type: 'number' }, day_of_month: { type: ['number', 'null'] }, month_of_year: { type: ['number', 'null'] },
         next_due_date: { type: 'string' }, end_date: { type: ['string', 'null'] }, active: { type: 'boolean' },
+        auto_skip_overdue: { type: 'boolean', description: 'Automatically skip overdue periods via daily cron without posting operations' },
+        auto_skip_after_days: { type: 'number', description: 'Days after due date before auto-skip advances the period (1..365)' },
         idempotency_key: { type: 'string', description: 'Unique idempotency key' }, requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION },
       },
       required: ['recurring_item_id', 'idempotency_key'],
@@ -1053,7 +1151,7 @@ const TOOLS = [
       properties: {
         recurring_item_id: { type: 'number' },
         period_due_date: { type: 'string', description: 'Exact current occurrence YYYY-MM-DD' },
-        operation_ids: { type: 'array', minItems: 1, maxItems: 100, uniqueItems: true, items: { type: 'number' } },
+        operation_ids: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'number' } },
         evidence_quantity: { type: 'number', description: 'Explicitly proven number of units for the amount check. Does not advance extra occurrences; default 1, maximum 100' },
         idempotency_key: { type: 'string' },
         requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION },
@@ -1121,7 +1219,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        code: { type: 'string', description: 'Currency code (for example USD, EUR, RUB)' },
+        code: { type: 'string', description: 'Configured 3-letter currency code' },
         rate: { type: 'number', description: 'Exchange rate against the target currency' },
         idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
         requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
@@ -1143,7 +1241,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        code: { type: 'string', description: 'Currency code to delete (for example USD, EUR, RUB)' },
+        code: { type: 'string', description: 'Configured 3-letter currency code to delete' },
         idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
         requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
       },
@@ -1153,6 +1251,43 @@ const TOOLS = [
       type: 'object',
       properties: {
         success: { type: 'boolean' },
+        ...WRITE_OUTPUT_COMMON
+      }
+    },
+    _meta: { ui: WRITE_TOOL_UI }
+  },
+  {
+    name: 'fx_rates_refresh',
+    description: 'Fetch latest exchange rates for configured in-use and tracked currencies from ExchangeRate-API (no API key required) relative to the workspace FX anchor currency and update stored FX rates. Subject to a 60-second cooldown. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
+        requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
+      },
+      required: ['idempotency_key']
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        anchor_currency: { type: 'string' },
+        base_currency: { type: 'string' },
+        fx_anchor_currency: { type: 'string' },
+        provider: { type: 'string' },
+        provider_name: { type: 'string' },
+        provider_url: { type: 'string' },
+        provider_updated_at: { type: 'string' },
+        trigger: { type: 'string' },
+        updated: { type: 'array', items: { type: 'object' } },
+        skipped: { type: 'array', items: { type: 'object' } },
+        updated_at: { type: 'string' },
+        rates: { type: 'array', items: { type: 'object' } },
+        missing: { type: 'array', items: { type: 'string' } },
+        auto_update: { type: 'object' },
+        success: { type: 'boolean' },
+        updated_count: { type: 'number' },
+        skipped_count: { type: 'number' },
         ...WRITE_OUTPUT_COMMON
       }
     },
@@ -1216,7 +1351,7 @@ const TOOLS = [
       additionalProperties: false,
       properties: {
         name: { type: 'string', description: 'Account name' },
-        currency: { type: 'string', description: 'ISO-4217 currency code, for example EUR' },
+        currency: { type: 'string', description: 'Configured 3-letter currency code' },
         owner: { type: 'string', description: 'Account owner' },
         country: { type: 'string', description: 'Country of the account' },
         bank: { type: 'string', description: 'Bank (optional)' },
@@ -1371,9 +1506,46 @@ const TOOLS = [
   },
   {
     name: 'settings_get',
-    description: 'Read all app settings (for example base_currency and low_balance_threshold_minor). Uses GET /settings.',
+    description: 'Read all app settings (for example base_currency, low_balance_threshold_minor, fx_auto_update, cron_timezone, fx_auto_update_hour, and recurring_auto_skip_hour). Uses GET /settings.',
     inputSchema: { type: 'object', properties: {} },
     outputSchema: { type: 'object', properties: { settings: { type: 'object' }, error: { type: 'string' } } }
+  },
+  {
+    name: 'cron_schedule_get',
+    description: 'Read the background Worker cron schedule configuration (IANA timezone, target local hours 0..23 for FX refresh and recurring auto-skip, and last local execution dates). Uses GET /cron-schedule.',
+    inputSchema: { type: 'object', properties: {} },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        timezone: { type: 'string' },
+        fx_auto_update_hour: { type: 'integer' },
+        recurring_auto_skip_hour: { type: 'integer' },
+        fx_auto_update_enabled: { type: 'boolean' },
+        demo_mode: { type: 'boolean' },
+        jobs: {
+          type: 'object',
+          properties: {
+            fx_refresh: {
+              type: 'object',
+              properties: {
+                hour: { type: 'integer' },
+                time: { type: 'string' },
+                last_run_local_date: { type: ['string', 'null'] }
+              }
+            },
+            recurring_auto_skip: {
+              type: 'object',
+              properties: {
+                hour: { type: 'integer' },
+                time: { type: 'string' },
+                last_run_local_date: { type: ['string', 'null'] }
+              }
+            }
+          }
+        },
+        error: { type: 'string' }
+      }
+    }
   },
   {
     name: 'backup_export',
@@ -1400,7 +1572,7 @@ const TOOLS = [
   },
   {
     name: 'setting_set',
-    description: 'Change one app setting through the standard PUT /settings/:key. Accepted keys: base_currency (ISO-4217 code) and low_balance_threshold_minor (integer >= 0). The preview shows the old and new value. Changing base_currency recalculates all conversions and reports, so auto_confirm is refused for that key. ' + NO_AUTO_CONFIRM_DESCRIPTION + 'Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    description: 'Change one app setting through the standard PUT /settings/:key. Accepted keys: base_currency (configured 3-letter currency code), low_balance_threshold_minor (integer >= 0), fx_auto_update ("1"/"0" or boolean to enable/disable daily auto-refresh), cron_timezone (canonical IANA timezone such as UTC, Europe/Belgrade, or America/New_York), fx_auto_update_hour (integer 0..23), and recurring_auto_skip_hour (integer 0..23). The preview shows the old and new value. Changing base_currency recalculates all conversions and reports, so auto_confirm is refused for that key. ' + NO_AUTO_CONFIRM_DESCRIPTION + 'Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -1413,6 +1585,35 @@ const TOOLS = [
       required: ['key', 'value', 'idempotency_key']
     },
     outputSchema: { type: 'object', properties: { settings: { type: 'object' }, ...WRITE_OUTPUT_COMMON } },
+    _meta: { ui: WRITE_TOOL_UI }
+  },
+  {
+    name: 'cron_schedule_set',
+    description: 'Update the background Worker cron schedule timezone (canonical IANA timezone such as UTC, Europe/Belgrade, or America/New_York) and/or target local hours (integer 0..23) for fx_auto_update_hour and recurring_auto_skip_hour through PUT /cron-schedule. At least one schedule field is required. Requires scope "write" and confirmation (MRTR).' + WRITE_TOOL_MRTR_NOTE,
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        timezone: { type: 'string', description: 'IANA timezone (for example UTC, Europe/Belgrade, or America/New_York)' },
+        fx_auto_update_hour: { type: 'integer', minimum: 0, maximum: 23, description: 'Local execution hour 0..23 for automatic FX refresh' },
+        recurring_auto_skip_hour: { type: 'integer', minimum: 0, maximum: 23, description: 'Local execution hour 0..23 for overdue recurring auto-skip' },
+        idempotency_key: { type: 'string', description: 'Unique client-generated idempotency key (UUID)' },
+        requestState: { type: 'string', description: REQUEST_STATE_DESCRIPTION }
+      },
+      required: ['idempotency_key']
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        timezone: { type: 'string' },
+        fx_auto_update_hour: { type: 'integer' },
+        recurring_auto_skip_hour: { type: 'integer' },
+        fx_auto_update_enabled: { type: 'boolean' },
+        demo_mode: { type: 'boolean' },
+        jobs: { type: 'object' },
+        ...WRITE_OUTPUT_COMMON
+      }
+    },
     _meta: { ui: WRITE_TOOL_UI }
   },
   {
@@ -1455,12 +1656,16 @@ const TOOLS = [
     mrtr: WRITE_TOOL_MRTR_NOTE,
     noAutoConfirm: NO_AUTO_CONFIRM_DESCRIPTION,
   }),
+  ...rulesToolDefinitions({
+    mrtr: WRITE_TOOL_MRTR_NOTE,
+    noAutoConfirm: NO_AUTO_CONFIRM_DESCRIPTION,
+  }),
 ];
 
 for (const tool of TOOLS) {
   if (READ_TOOLS.has(tool.name)) {
     (tool as any).annotations = { ...READ_TOOL_ANNOTATIONS };
-  } else if (['fx_rate_delete', 'operation_delete', 'planned_item_delete', 'recurring_item_delete', 'recurring_item_cancel_period_fulfillment', 'data_reset', 'account_delete', 'account_alias_delete', 'transfer_delete', 'backup_import', ...STATEMENT_NO_AUTO_CONFIRM, ...PURCHASE_NO_AUTO_CONFIRM, ...RECEIPT_GROUP_NO_AUTO_CONFIRM].includes(tool.name)) {
+  } else if (['fx_rate_delete', 'operation_delete', 'planned_item_delete', 'recurring_item_delete', 'recurring_item_cancel_period_fulfillment', 'data_reset', 'account_delete', 'account_alias_delete', 'transfer_delete', 'backup_import', ...STATEMENT_NO_AUTO_CONFIRM, ...PURCHASE_NO_AUTO_CONFIRM, ...RECEIPT_GROUP_NO_AUTO_CONFIRM, ...RULES_NO_AUTO_CONFIRM].includes(tool.name)) {
     (tool as any).annotations = { ...WRITE_DELETE_ANNOTATIONS };
   } else if (WRITE_TOOLS.has(tool.name)) {
     (tool as any).annotations = { ...WRITE_TOOL_ANNOTATIONS };
@@ -1560,6 +1765,12 @@ function redactWriteOnlyMutationResult(
   if (name === 'fx_rate_set' || name === 'fx_rate_delete') {
     redacted.code = confirmedArgs.code ?? written.code ?? null;
   }
+  if (name === 'fx_rates_refresh') {
+    redacted.anchor_currency = written.anchor_currency ?? null;
+    redacted.provider = written.provider ?? null;
+    redacted.updated_count = Array.isArray(written.updated) ? written.updated.length : 0;
+    redacted.skipped_count = Array.isArray(written.skipped) ? written.skipped.length : 0;
+  }
   if (name === 'operation_delete') {
     redacted.operation_id = firstId(confirmedArgs.operation_id, written.operation_id);
   }
@@ -1571,6 +1782,15 @@ function redactWriteOnlyMutationResult(
   }
   if (name === 'account_alias_delete') redacted.alias_id = firstId(confirmedArgs.alias_id);
   if (name === 'transfer_update' || name === 'transfer_delete') redacted.transfer_id = firstId(confirmedArgs.transfer_id);
+  if (name === 'cron_schedule_set') {
+    if (confirmedArgs.timezone !== undefined) redacted.timezone = confirmedArgs.timezone;
+    if (confirmedArgs.fx_auto_update_hour !== undefined) {
+      redacted.fx_auto_update_hour = confirmedArgs.fx_auto_update_hour;
+    }
+    if (confirmedArgs.recurring_auto_skip_hour !== undefined) {
+      redacted.recurring_auto_skip_hour = confirmedArgs.recurring_auto_skip_hour;
+    }
+  }
   return redacted;
 }
 
@@ -1660,6 +1880,10 @@ async function validateWriteArgs(
 
   if ((RECEIPT_GROUP_WRITE_TOOLS as readonly string[]).includes(name)) {
     return validateReceiptGroupWrite(name, args, idempotencyKey);
+  }
+
+  if ((RULES_WRITE_TOOLS as readonly string[]).includes(name)) {
+    return validateRulesWrite(name, args, idempotencyKey);
   }
 
   if (STATEMENT_MUTATION_TOOLS.has(name)) {
@@ -2031,6 +2255,10 @@ async function validateWriteArgs(
     if (Object.keys(patchArgs).length === 0) {
       return { error: `Pass at least one field to change: ${fields.join(', ')}` };
     }
+    if (name === 'recurring_item_update') {
+      const autoSkipError = validateRecurringAutoSkipArgs(args);
+      if (autoSkipError) return { error: autoSkipError };
+    }
     let confirmationSnapshot: Record<string, unknown> | undefined;
     if (db) {
       const table = name === 'planned_item_update' ? 'planned_items' : 'recurring_items';
@@ -2050,23 +2278,7 @@ async function validateWriteArgs(
           done: existing.done,
         };
       } else {
-        confirmationSnapshot = {
-          type: 'recurring_item',
-          id: existing.id,
-          revision: existing.revision,
-          title: existing.title,
-          amount_minor: existing.amount_minor,
-          currency: existing.currency,
-          account_id: existing.account_id,
-          category: existing.category,
-          frequency: existing.frequency,
-          interval_count: existing.interval_count,
-          day_of_month: existing.day_of_month,
-          month_of_year: existing.month_of_year,
-          next_due_date: existing.next_due_date,
-          end_date: existing.end_date,
-          active: existing.active,
-        };
+        confirmationSnapshot = buildRecurringConfirmationSnapshot('recurring_item', existing);
       }
     }
     return {
@@ -2095,15 +2307,7 @@ async function validateWriteArgs(
             currency: existing.currency, account_id: existing.account_id,
             category: existing.category, done: existing.done,
           }
-        : {
-            type: 'recurring_item', id: existing.id, revision: existing.revision,
-            title: existing.title, amount_minor: existing.amount_minor,
-            currency: existing.currency, account_id: existing.account_id,
-            category: existing.category, frequency: existing.frequency,
-            interval_count: existing.interval_count, day_of_month: existing.day_of_month,
-            month_of_year: existing.month_of_year, next_due_date: existing.next_due_date,
-            end_date: existing.end_date, active: existing.active,
-          };
+        : buildRecurringConfirmationSnapshot('recurring_item', existing);
     }
     return {
       description: `Confirm deletion of ID ${rawId}`,
@@ -2133,18 +2337,12 @@ async function validateWriteArgs(
     const existing = await db.prepare('SELECT * FROM recurring_items WHERE id = ?')
       .bind(recurringItemId).first<Record<string, unknown>>();
     if (!existing) return { error: 'Recurring rule not found' };
-    if (isAnalyticalSkipOnlyRecurringId(recurringItemId)) {
+    const analyticalSkipIds = await loadAnalyticalSkipOnlyRecurringIds(db);
+    if (isAnalyticalSkipOnlyRecurringId(recurringItemId, analyticalSkipIds)) {
       return { error: `Analytical rule ID ${recurringItemId} only accepts skip_period` };
     }
     if (existing.active !== 1) return { error: 'Recurring rule is inactive' };
-    const confirmationSnapshot = {
-      type: 'recurring_fulfill', id: existing.id, revision: existing.revision,
-      title: existing.title, amount_minor: existing.amount_minor, currency: existing.currency,
-      account_id: existing.account_id, category: existing.category, frequency: existing.frequency,
-      interval_count: existing.interval_count, day_of_month: existing.day_of_month,
-      month_of_year: existing.month_of_year, next_due_date: existing.next_due_date,
-      end_date: existing.end_date, active: existing.active,
-    };
+    const confirmationSnapshot = buildRecurringConfirmationSnapshot('recurring_fulfill', existing);
     const sortedIds = [...operationIds].sort((a, b) => a - b);
     return {
       description: `Confirm fulfilling one recurring occurrence ${periodDueDate} of rule ID ${recurringItemId} with existing operations [${sortedIds.join(', ')}]. The explicit unit count ${evidenceQuantity} is used only for the amount check; this call does not advance extra occurrences. No new operations are created and the balance does not change.`,
@@ -2179,23 +2377,7 @@ async function validateWriteArgs(
       'SELECT outcome FROM recurring_period_fulfillments WHERE recurring_item_id = ? AND period_due_date = ?',
     ).bind(recurringItemId, periodDueDate).first<{ outcome: string }>();
     if (!fulfillment) return { error: 'Period fulfillment not found' };
-    const confirmationSnapshot = {
-      type: 'recurring_cancel',
-      id: existing.id,
-      revision: existing.revision,
-      title: existing.title,
-      amount_minor: existing.amount_minor,
-      currency: existing.currency,
-      account_id: existing.account_id,
-      category: existing.category,
-      frequency: existing.frequency,
-      interval_count: existing.interval_count,
-      day_of_month: existing.day_of_month,
-      month_of_year: existing.month_of_year,
-      next_due_date: existing.next_due_date,
-      end_date: existing.end_date,
-      active: existing.active,
-    };
+    const confirmationSnapshot = buildRecurringConfirmationSnapshot('recurring_cancel', existing);
     return {
       description: `Confirm undoing the fulfillment of period ${periodDueDate} (${fulfillment.outcome}) of recurring rule ID ${recurringItemId}. Linked operations and balances do not change; the period is reopened.`,
       confirmedArgs: {
@@ -2217,23 +2399,7 @@ async function validateWriteArgs(
     const existing = await db.prepare('SELECT * FROM recurring_items WHERE id = ?').bind(rawId).first<Record<string, unknown>>();
     if (!existing) return { error: 'Recurring rule not found' };
     if (existing.active !== 1) return { error: 'Recurring rule is inactive' };
-    const confirmationSnapshot = {
-      type: 'recurring_skip',
-      id: existing.id,
-      revision: existing.revision,
-      title: existing.title,
-      amount_minor: existing.amount_minor,
-      currency: existing.currency,
-      account_id: existing.account_id,
-      category: existing.category,
-      frequency: existing.frequency,
-      interval_count: existing.interval_count,
-      day_of_month: existing.day_of_month,
-      month_of_year: existing.month_of_year,
-      next_due_date: existing.next_due_date,
-      end_date: existing.end_date,
-      active: existing.active,
-    };
+    const confirmationSnapshot = buildRecurringConfirmationSnapshot('recurring_skip', existing);
     return {
       description: `Confirm skipping period ${existing.next_due_date} for recurring rule ID ${rawId} without creating an operation or changing the balance`,
       confirmedArgs: { recurring_item_id: rawId, idempotency_key: idempotencyKey },
@@ -2250,13 +2416,16 @@ async function validateWriteArgs(
     if (typeof account_id !== 'number' || !Number.isInteger(account_id) || account_id <= 0) return { error: 'Invalid account_id' };
     if (!['daily', 'weekly', 'monthly', 'yearly'].includes(frequency)) return { error: 'frequency must be one of: daily, weekly, monthly, yearly' };
     if (typeof next_due_date !== 'string' || !isIsoDate(next_due_date)) return { error: 'Invalid next_due_date (expected format YYYY-MM-DD)' };
+    const autoSkipError = validateRecurringAutoSkipArgs(args);
+    if (autoSkipError) return { error: autoSkipError };
     return {
       description: `Confirm creating the recurring rule "${title.trim()}": ${amount_minor} on account ID ${account_id}, ${frequency}, next period ${next_due_date}. This is a rule, not a planned item and not a debit fact.`,
       confirmedArgs: {
         title: title.trim(), amount_minor, account_id, frequency, next_due_date,
         currency: args.currency, category: args.category, interval_count: args.interval_count,
         day_of_month: args.day_of_month, month_of_year: args.month_of_year, end_date: args.end_date,
-        active: args.active, idempotency_key: idempotencyKey,
+        active: args.active, auto_skip_overdue: args.auto_skip_overdue, auto_skip_after_days: args.auto_skip_after_days,
+        idempotency_key: idempotencyKey,
       },
     };
   }
@@ -2272,7 +2441,8 @@ async function validateWriteArgs(
       .bind(recurringItemId)
       .first<Record<string, unknown>>();
     if (!existing) return { error: 'Recurring rule not found' };
-    if (isAnalyticalSkipOnlyRecurringId(recurringItemId)) {
+    const analyticalSkipIds = await loadAnalyticalSkipOnlyRecurringIds(db);
+    if (isAnalyticalSkipOnlyRecurringId(recurringItemId, analyticalSkipIds)) {
       return { error: `Analytical rule ID ${recurringItemId} only accepts skip_period` };
     }
     if (existing.active !== 1) return { error: 'Recurring rule is inactive' };
@@ -2303,23 +2473,7 @@ async function validateWriteArgs(
           idempotency_key: idempotencyKey,
         }
       : null;
-    const confirmationSnapshot = {
-      type: 'recurring_close',
-      id: existing.id,
-      revision: existing.revision,
-      title: existing.title,
-      amount_minor: existing.amount_minor,
-      currency: existing.currency,
-      account_id: existing.account_id,
-      category: existing.category,
-      frequency: existing.frequency,
-      interval_count: existing.interval_count,
-      day_of_month: existing.day_of_month,
-      month_of_year: existing.month_of_year,
-      next_due_date: existing.next_due_date,
-      end_date: existing.end_date,
-      active: existing.active,
-    };
+    const confirmationSnapshot = buildRecurringConfirmationSnapshot('recurring_close', existing);
     return {
       description: `Confirm closing the period of recurring rule ID ${recurringItemId}: a fact of ${confirmedClose.amount_minor} will be created on account ID ${confirmedClose.account_id} for ${confirmedClose.date} and the next period will be advanced.`,
       confirmedArgs: writeOnlyCloseArgs ?? { recurring_item_id: recurringItemId, ...confirmedClose, idempotency_key: idempotencyKey },
@@ -2330,24 +2484,59 @@ async function validateWriteArgs(
   if (name === 'fx_rate_set') {
     const { code, rate } = args;
     if (typeof code !== 'string' || !/^[a-zA-Z]{3}$/.test(code)) {
-      return { error: 'The currency code must be exactly three Latin letters (ISO-4217), for example USD' };
+      return { error: 'The currency code must be three uppercase Latin letters' };
+    }
+    const upper = code.toUpperCase();
+    if (db) {
+      const catalog = await loadCurrencyCatalog(db);
+      if (catalog.entries.size === 0 || !catalog.fxAnchorCode) {
+        return { error: 'MISSING_CONFIGURATION: currency_standards and an FX anchor must be configured in D1 before setting FX rates' };
+      }
+      if (!catalog.entries.has(upper)) {
+        return { error: `MISSING_CONFIGURATION: currency ${upper} is not configured in D1 currency_standards` };
+      }
+      if (upper === catalog.fxAnchorCode) {
+        return { error: `Cannot set an FX rate for the FX anchor currency ${upper}` };
+      }
     }
     if (typeof rate !== 'number' || rate <= 0) {
       return { error: 'The exchange rate (rate) must be a positive number' };
     }
-    const description = `Confirm setting the rate for ${code.toUpperCase()}: ${rate}`;
-    const confirmedArgs = { code: code.toUpperCase(), rate, idempotency_key: idempotencyKey };
+    const description = `Confirm setting the rate for ${upper}: ${rate}`;
+    const confirmedArgs = { code: upper, rate, idempotency_key: idempotencyKey };
     return { description, confirmedArgs };
   }
 
   if (name === 'fx_rate_delete') {
     const { code } = args;
     if (typeof code !== 'string' || !/^[a-zA-Z]{3}$/.test(code)) {
-      return { error: 'The currency code must be exactly three Latin letters (ISO-4217), for example USD' };
+      return { error: 'The currency code must be three uppercase Latin letters' };
     }
     const description = `Confirm deleting the rate for ${code.toUpperCase()}`;
     const confirmedArgs = { code: code.toUpperCase(), idempotency_key: idempotencyKey };
     return { description, confirmedArgs };
+  }
+
+  if (name === 'fx_rates_refresh') {
+    const rejected = Object.keys(args).filter((key) => !['idempotency_key', 'requestState'].includes(key));
+    if (rejected.length > 0) {
+      return { error: `Fields not allowed for fx_rates_refresh: ${rejected.join(', ')}. Allowed fields: idempotency_key, requestState` };
+    }
+    let description = 'Confirm refreshing FX rates from ExchangeRate-API';
+    if (db) {
+      try {
+        const { fxAnchorCode, targetCodes } = await requireFxCatalogAndTargets(db);
+        description = targetCodes.length > 0
+          ? `Confirm refreshing FX rates (${targetCodes.join(', ')}) against ${fxAnchorCode} from ExchangeRate-API`
+          : `Confirm checking FX rates against ${fxAnchorCode} via ExchangeRate-API (no non-anchor currencies to refresh)`;
+      } catch (e) {
+        if (e instanceof ValidationError) {
+          return { error: `MISSING_CONFIGURATION: ${e.params?.detail ?? e.message}` };
+        }
+        throw e;
+      }
+    }
+    return { description, confirmedArgs: { idempotency_key: idempotencyKey } };
   }
 
   if (name === 'data_reset') {
@@ -2499,21 +2688,117 @@ async function validateWriteArgs(
     if (args.key === PURCHASE_ORDERS_EPOCH_KEY) {
       return { error: 'purchase_orders_epoch is reserved and cannot be changed through setting_set' };
     }
+    if (typeof args.key === 'string' && isReservedCronSettingKey(args.key)) {
+      return { error: `${args.key} is reserved and cannot be changed through setting_set` };
+    }
     if (typeof args.key !== 'string' || !(SETTING_SET_KEYS as readonly string[]).includes(args.key)) {
       return { error: `key must be one of: ${SETTING_SET_KEYS.join(', ')}` };
     }
-    if (typeof args.value !== 'string' && typeof args.value !== 'number') {
+    const isAutoUpdateFlag = args.key === FX_AUTO_UPDATE_SETTING_KEY;
+    const isTimezoneKey = args.key === CRON_TIMEZONE_SETTING_KEY;
+    const isHourKey =
+      args.key === FX_AUTO_UPDATE_HOUR_SETTING_KEY || args.key === RECURRING_AUTO_SKIP_HOUR_SETTING_KEY;
+    let normalizedBoolean: '1' | '0' | null = null;
+    let normalizedTimezone: string | null = null;
+    let normalizedHour: number | null = null;
+    if (isAutoUpdateFlag) {
+      normalizedBoolean = parseBooleanSettingFlag(args.value);
+      if (normalizedBoolean === null) {
+        return { error: 'value for fx_auto_update must be 1, 0, "1", "0", or a boolean' };
+      }
+    } else if (isTimezoneKey) {
+      normalizedTimezone = normalizeCronTimezone(args.value);
+      if (normalizedTimezone === null) {
+        return {
+          error: 'value for cron_timezone must be a valid IANA timezone (for example UTC, Europe/Belgrade, or America/New_York)',
+        };
+      }
+    } else if (isHourKey) {
+      normalizedHour = normalizeCronHour(args.value);
+      if (normalizedHour === null) {
+        return { error: `value for ${args.key} must be an integer hour from 0 to 23` };
+      }
+    } else if (typeof args.value !== 'string' && typeof args.value !== 'number') {
       return { error: 'value is required and must be a string or a number' };
     }
     const current = db
       ? await db.prepare('SELECT value FROM settings WHERE key = ?').bind(args.key).first<{ value: string }>()
       : null;
-    const oldValue = current?.value ?? '(not set)';
-    const newValue = args.key === 'base_currency' && typeof args.value === 'string' ? args.value.trim().toUpperCase() : String(args.value);
+    const oldValue =
+      current?.value ??
+      (isAutoUpdateFlag
+        ? '0'
+        : isTimezoneKey
+          ? CRON_DEFAULT_TIMEZONE
+          : isHourKey
+            ? String(CRON_DEFAULT_HOUR)
+            : '(not set)');
+    const newValue = isAutoUpdateFlag
+      ? normalizedBoolean!
+      : isTimezoneKey
+        ? normalizedTimezone!
+        : isHourKey
+          ? String(normalizedHour!)
+          : args.key === 'base_currency' && typeof args.value === 'string'
+            ? args.value.trim().toUpperCase()
+            : String(args.value);
     const description = args.key === 'base_currency'
       ? `Confirm changing the base currency from ${oldValue} to ${newValue}. WARNING: all conversions and reports (balances in the base currency, forecast, analytics) will be recalculated in ${newValue}. Stored amounts and exchange rates are not changed.`
       : `Confirm changing ${args.key} from ${oldValue} to ${newValue}`;
     return { description, confirmedArgs: { key: args.key, value: args.value, idempotency_key: idempotencyKey } };
+  }
+
+  if (name === 'cron_schedule_set') {
+    const rejected = Object.keys(args).filter(
+      (key) =>
+        !['timezone', 'fx_auto_update_hour', 'recurring_auto_skip_hour', 'idempotency_key', 'requestState'].includes(
+          key,
+        ),
+    );
+    if (rejected.length > 0) {
+      return {
+        error: `Fields not allowed for cron_schedule_set: ${rejected.join(', ')}. Allowed fields: timezone, fx_auto_update_hour, recurring_auto_skip_hour, idempotency_key, requestState`,
+      };
+    }
+    const { idempotency_key: _ignoredIdem, requestState: _ignoredReqState, ...scheduleFields } = args;
+    let patch: CronSchedulePatch;
+    try {
+      patch = validateCronSchedulePatch(scheduleFields);
+    } catch (e) {
+      if (e instanceof ValidationError) {
+        if (e.code === 'NO_PATCH_FIELDS') {
+          return {
+            error: 'Provide at least one field to update: timezone, fx_auto_update_hour, or recurring_auto_skip_hour',
+          };
+        }
+        return { error: e.message };
+      }
+      throw e;
+    }
+
+    const current = db && hasReadScope ? await loadCronScheduleConfig(db) : null;
+    const changes: string[] = [];
+    if (patch.timezone !== undefined) {
+      changes.push(current ? `timezone ${current.timezone} -> ${patch.timezone}` : `timezone ${patch.timezone}`);
+    }
+    if (patch.fx_auto_update_hour !== undefined) {
+      changes.push(
+        current
+          ? `fx_auto_update_hour ${formatCronHour(current.fxAutoUpdateHour)} -> ${formatCronHour(patch.fx_auto_update_hour)}`
+          : `fx_auto_update_hour ${formatCronHour(patch.fx_auto_update_hour)}`,
+      );
+    }
+    if (patch.recurring_auto_skip_hour !== undefined) {
+      changes.push(
+        current
+          ? `recurring_auto_skip_hour ${formatCronHour(current.recurringAutoSkipHour)} -> ${formatCronHour(patch.recurring_auto_skip_hour)}`
+          : `recurring_auto_skip_hour ${formatCronHour(patch.recurring_auto_skip_hour)}`,
+      );
+    }
+    return {
+      description: `Confirm updating cron schedule: ${changes.join(', ')}`,
+      confirmedArgs: { ...patch, idempotency_key: idempotencyKey },
+    };
   }
 
   if (name === 'backup_import') {
@@ -2574,7 +2859,8 @@ async function confirmationSnapshotStillCurrent(
   ) {
     const row = await db.prepare(
       `SELECT id, revision, title, amount_minor, currency, account_id, category, frequency,
-              interval_count, day_of_month, month_of_year, next_due_date, end_date, active
+              interval_count, day_of_month, month_of_year, next_due_date, end_date, active,
+              auto_skip_overdue, auto_skip_after_days
        FROM recurring_items WHERE id = ?`,
     ).bind(snapshot.id).first<Record<string, unknown>>();
     if (!row) return false;
@@ -2583,7 +2869,39 @@ async function confirmationSnapshotStillCurrent(
   return false;
 }
 
-mcpApp.get('/mcp', (c) => c.json({ status: 'ok', message: 'MCP API endpoint' }));
+mcpApp.get('/mcp', (c) => {
+  const accept = (c.req.header('Accept') || '').toLowerCase();
+  if (accept.includes('text/event-stream')) {
+    return new Response('Method Not Allowed', {
+      status: 405,
+      headers: { Allow: 'POST, OPTIONS' },
+    });
+  }
+  return c.json({ status: 'ok', message: 'MCP API endpoint' });
+});
+
+mcpApp.delete('/mcp', () => new Response('Method Not Allowed', {
+  status: 405,
+  headers: { Allow: 'POST, OPTIONS' },
+}));
+
+export const MCP_SERVER_TITLE = 'Money Flow';
+
+export const MCP_SERVER_DESCRIPTION =
+  `Personal and family multi-currency financial ledger MCP server. Manages accounts and balances, income/expense/refund operations, own-account transfers, fiscal receipt QR/URL booking, planned and recurring items, cash-flow forecasts, spending analytics, bank statement imports and templates, multi-component purchase orders, manual receipt groups, and D1-backed country-scoped business rules. Every command in tools/list includes its own detailed description, inputSchema, annotations, and outputSchema (where defined); complete group-by-group workflows and payload references are available via resources/list and resources/read under ${MCP_DOCS_INDEX_URI}.`;
+
+export const MCP_SERVER_INSTRUCTIONS = [
+  'Money Flow is the personal and family multi-currency financial ledger MCP server. Use it for questions or actions involving accounts and balances, income/expense/refund operations, own-account transfers, fiscal receipt QR/URL booking, planned and recurring items, cash-flow forecasts, spending analytics, bank statement imports and templates, multi-component purchase orders, manual receipt groups, workspace settings/backups, and D1-backed country-scoped business rules.',
+  '',
+  'Command discovery & documentation:',
+  '- Every individual MCP command in tools/list already carries its own detailed description, inputSchema, annotations, and outputSchema (where defined) and can be inspected separately.',
+  `- Use resources/list and resources/read under ${MCP_DOCS_INDEX_URI} (start at ${MCP_DOCS_INDEX_URI}) for complete group-by-group workflow rules, confirmation policies, and nested payload references.`,
+  '',
+  'Core invariants:',
+  '- Minor units: pass integer amount_minor in the account currency (negative for expenses, positive for income/refunds; transfers use positive debit/credit magnitudes). Check configured minor_digits via config_runtime_get rather than assuming 2 decimals.',
+  '- Read before write: discover real IDs and current state first (for example accounts_list, account_resolve, operations_list, settings_get, config_runtime_get). Never invent account IDs, currency precision, or rule payloads.',
+  `- Two-step write confirmation (MRTR): writes require explicit human confirmation. Start without requestState and with a fresh idempotency_key (and pass auto_confirm=false for fx_rate_set); normal writes return resultType="input_required" with written=false and a requestState token. Present the exact change to the user, then repeat the exact arguments and idempotency_key with that requestState to execute (resultType="complete", written=true), and read back affected records. Do not use auto_confirm=true to bypass human confirmation (see ${MCP_DOCS_INDEX_URI} for upload-slot and dry-run details).`,
+].join('\n');
 
 const MCP_PROTOCOL_VERSIONS = ['2026-07-28', '2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'] as const;
 const MCP_PROTOCOL_DEFAULT = '2026-07-28';
@@ -2593,6 +2911,128 @@ function negotiateMcpProtocolVersion(requested: unknown): string {
     return requested;
   }
   return MCP_PROTOCOL_DEFAULT;
+}
+
+const UNSUPPORTED_SCHEMA_KEYWORDS = new Set([
+  'anyOf',
+  'oneOf',
+  'allOf',
+  'not',
+  '$schema',
+  'uniqueItems',
+]);
+
+const PRESERVED_LITERAL_KEYS = new Set(['default', 'examples', 'enum']);
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNullSchemaBranch(branch: unknown): boolean {
+  if (!isPlainRecord(branch)) return false;
+  if (branch.type === 'null') return true;
+  if (Array.isArray(branch.type) && branch.type.every((entry) => entry === 'null')) return true;
+  if ('const' in branch && branch.const === null) return true;
+  return false;
+}
+
+function pickNonNullBranch(branches: unknown[]): Record<string, unknown> {
+  const match = branches.find(
+    (branch): branch is Record<string, unknown> => isPlainRecord(branch) && !isNullSchemaBranch(branch),
+  );
+  return match ?? { type: 'string' };
+}
+
+function mergeRequiredFields(baseRequired: unknown, extraRequired: unknown): string[] | undefined {
+  const merged: string[] = [];
+  for (const list of [baseRequired, extraRequired]) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (typeof item === 'string' && !merged.includes(item)) merged.push(item);
+    }
+  }
+  return merged.length > 0 ? merged : undefined;
+}
+
+function mergeAllOfBranches(branches: unknown[]): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  const mergedProperties: Record<string, unknown> = {};
+  const mergedRequired: string[] = [];
+
+  for (const branch of branches) {
+    const clean = sanitizeJsonSchema(branch);
+    if (!isPlainRecord(clean)) continue;
+    for (const [k, v] of Object.entries(clean)) {
+      if (k === 'properties' && isPlainRecord(v)) {
+        Object.assign(mergedProperties, v);
+      } else if (k === 'required' && Array.isArray(v)) {
+        for (const req of v) {
+          if (typeof req === 'string' && !mergedRequired.includes(req)) mergedRequired.push(req);
+        }
+      } else {
+        merged[k] = v;
+      }
+    }
+  }
+
+  if (Object.keys(mergedProperties).length > 0) merged.properties = mergedProperties;
+  if (mergedRequired.length > 0) merged.required = mergedRequired;
+  return merged;
+}
+
+/**
+ * Normalizes JSON Schema objects in `tools/list` for strict client parsers
+ * (e.g., scalar `type` instead of `['string', 'null']`, collapsed unions,
+ * stripped unsupported keywords, and explicit `items` on arrays).
+ */
+export function sanitizeJsonSchema(schema: unknown): any {
+  if (typeof schema !== 'object' || schema === null) return schema;
+  if (Array.isArray(schema)) return schema.map(sanitizeJsonSchema);
+
+  const raw = schema as Record<string, unknown>;
+  let base: Record<string, unknown> = {};
+
+  const unionBranches = Array.isArray(raw.anyOf)
+    ? raw.anyOf
+    : Array.isArray(raw.oneOf)
+      ? raw.oneOf
+      : null;
+  if (unionBranches) {
+    const chosen = sanitizeJsonSchema(pickNonNullBranch(unionBranches));
+    if (isPlainRecord(chosen)) base = { ...chosen };
+  } else if (Array.isArray(raw.allOf)) {
+    base = mergeAllOfBranches(raw.allOf);
+  }
+
+  const result: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(raw)) {
+    if (UNSUPPORTED_SCHEMA_KEYWORDS.has(key) || key.startsWith('x-')) continue;
+    if (PRESERVED_LITERAL_KEYS.has(key)) {
+      result[key] = structuredClone(value);
+    } else if (key === 'type' && Array.isArray(value)) {
+      const nonNullType = value.find((v) => v !== 'null');
+      result.type = typeof nonNullType === 'string' && nonNullType.length > 0 ? nonNullType : 'string';
+    } else if (key === 'required' && Array.isArray(value)) {
+      const combined = mergeRequiredFields(base.required, value);
+      if (combined) result.required = combined;
+    } else if (key === 'properties' && isPlainRecord(value)) {
+      const sanitizedProps: Record<string, unknown> = isPlainRecord(result.properties)
+        ? { ...result.properties }
+        : {};
+      for (const [propName, propSchema] of Object.entries(value)) {
+        sanitizedProps[propName] = sanitizeJsonSchema(propSchema);
+      }
+      result.properties = sanitizedProps;
+    } else {
+      result[key] = sanitizeJsonSchema(value);
+    }
+  }
+
+  if (result.type === 'array' && !isPlainRecord(result.items)) {
+    result.items = { type: 'object' };
+  }
+
+  return result;
 }
 
 mcpApp.post('/mcp', async (c) => {
@@ -2659,14 +3099,17 @@ mcpApp.post('/mcp', async (c) => {
         },
         serverInfo: {
           name: 'money-flow',
+          title: MCP_SERVER_TITLE,
           version: '0.1.0',
+          description: MCP_SERVER_DESCRIPTION,
         },
+        instructions: MCP_SERVER_INSTRUCTIONS,
       },
     });
   }
 
-  if (method === 'notifications/initialized') {
-    return new Response(null, { status: 204 });
+  if (method === 'notifications/initialized' || (method.startsWith('notifications/') && body?.id === undefined)) {
+    return c.body(null, 204);
   }
 
   if (method === 'ping') {
@@ -2703,7 +3146,7 @@ mcpApp.post('/mcp', async (c) => {
         error: { code: -32001, message: 'Insufficient permissions. "read" or "write" scope required.' }
       });
     }
-    const resources: any[] = [];
+    const resources: any[] = [...MCP_DOCUMENTATION_RESOURCES];
     if (hasReadScope) {
       resources.push(
         {
@@ -2763,6 +3206,19 @@ mcpApp.post('/mcp', async (c) => {
     if (uri) {
       c.header('Mcp-Name', uri);
     }
+    const documentation = uri ? readMcpDocumentation(uri) : undefined;
+    if (documentation !== undefined) {
+      if (!hasReadScope && !hasWriteScope) {
+        return c.json({
+          jsonrpc: '2.0', id,
+          error: { code: -32001, message: 'Insufficient permissions. "read" or "write" scope required.' },
+        });
+      }
+      return c.json({
+        jsonrpc: '2.0', id,
+        result: { contents: [{ uri, mimeType: 'text/markdown', text: documentation }] },
+      });
+    }
     if (uri === 'ui://write-confirm') {
       if (!hasWriteScope) {
         return c.json({
@@ -2771,6 +3227,7 @@ mcpApp.post('/mcp', async (c) => {
           error: { code: -32001, message: 'Insufficient permissions. "write" scope required.' }
         });
       }
+      const widgetBundle = await loadWidgetLocaleBundle(c.env.DB);
       return c.json({
         jsonrpc: '2.0',
         id,
@@ -2779,7 +3236,7 @@ mcpApp.post('/mcp', async (c) => {
             {
               uri: 'ui://write-confirm',
               mimeType: 'text/html;profile=mcp-app',
-              text: getWriteConfirmHtml(),
+              text: getWriteConfirmHtml(widgetBundle),
               _meta: {
                 ui: {
                   prefersBorder: true
@@ -2798,6 +3255,7 @@ mcpApp.post('/mcp', async (c) => {
       });
     }
     if (uri === 'ui://pulse') {
+      const widgetBundle = await loadWidgetLocaleBundle(c.env.DB);
       return c.json({
         jsonrpc: '2.0',
         id,
@@ -2806,7 +3264,7 @@ mcpApp.post('/mcp', async (c) => {
             {
               uri: 'ui://pulse',
               mimeType: 'text/html;profile=mcp-app',
-              text: getPulseHtml(),
+              text: getPulseHtml(widgetBundle),
               _meta: {
                 ui: {
                   prefersBorder: true,
@@ -2821,6 +3279,7 @@ mcpApp.post('/mcp', async (c) => {
       });
     }
     if (uri === 'ui://analytics') {
+      const widgetBundle = await loadWidgetLocaleBundle(c.env.DB);
       return c.json({
         jsonrpc: '2.0',
         id,
@@ -2829,7 +3288,7 @@ mcpApp.post('/mcp', async (c) => {
             {
               uri: 'ui://analytics',
               mimeType: 'text/html;profile=mcp-app',
-              text: getAnalyticsHtml(),
+              text: getAnalyticsHtml(widgetBundle),
               _meta: {
                 ui: {
                   prefersBorder: true,
@@ -2851,35 +3310,26 @@ mcpApp.post('/mcp', async (c) => {
   }
 
   if (method === 'tools/list') {
-    function sanitizeJsonSchema(schema: any): any {
-      if (typeof schema !== 'object' || schema === null) return schema;
-      if (Array.isArray(schema)) return schema.map(sanitizeJsonSchema);
-
-      const result: any = {};
-      for (const [key, value] of Object.entries(schema)) {
-        if (key === 'type' && Array.isArray(value)) {
-          const nonNullType = value.find((v: any) => v !== 'null');
-          result[key] = nonNullType || 'string';
-        } else {
-          result[key] = sanitizeJsonSchema(value);
-        }
-      }
-      return result;
-    }
-
     const availableTools = TOOLS.filter((tool) => {
       if (READ_TOOLS.has(tool.name) && hasReadScope) return true;
       if (WRITE_TOOLS.has(tool.name) && hasWriteScope) return true;
       return false;
     }).map((tool) => {
-      let sanitizedSchema = sanitizeJsonSchema(tool.inputSchema);
+      const sanitizedInput = sanitizeJsonSchema(tool.inputSchema);
+      const sanitizedOutput = 'outputSchema' in tool && tool.outputSchema
+        ? sanitizeJsonSchema(tool.outputSchema)
+        : undefined;
+      const baseTool = sanitizedOutput !== undefined
+        ? { ...tool, outputSchema: sanitizedOutput }
+        : { ...tool };
+
       if (WRITE_TOOLS.has(tool.name) && !NO_AUTO_CONFIRM_TOOLS.has(tool.name) && tool.name !== 'statement_import_upload_create') {
         return {
-          ...tool,
+          ...baseTool,
           inputSchema: {
-            ...sanitizedSchema,
+            ...sanitizedInput,
             properties: {
-              ...sanitizedSchema.properties,
+              ...sanitizedInput.properties,
               auto_confirm: {
                 type: 'boolean',
                 description: 'Optional flag for background agents. If true, the operation runs immediately without a confirmation request (MRTR).'
@@ -2889,8 +3339,8 @@ mcpApp.post('/mcp', async (c) => {
         };
       }
       return {
-        ...tool,
-        inputSchema: sanitizedSchema
+        ...baseTool,
+        inputSchema: sanitizedInput
       };
     });
     return c.json({
@@ -3018,6 +3468,18 @@ mcpApp.post('/mcp', async (c) => {
       let reqBody: any = undefined;
       const reqUrl = new URL(c.req.url);
 
+      if ((RULES_READ_TOOLS as readonly string[]).includes(name)) {
+        const spec = rulesReadSpec(name, args);
+        if (spec.error) {
+          const errMsg = `Error executing tool: ${spec.error}`;
+          await recordToolAudit(c.env.DB, clientId, name, 'error', errMsg);
+          return c.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: errMsg }], isError: true, structuredContent: { error: errMsg } } });
+        }
+        path = spec.path!;
+        httpMethod = spec.method!;
+        reqBody = spec.body;
+      }
+
       switch (name) {
         case 'accounts_list':
           path = '/accounts';
@@ -3065,6 +3527,9 @@ mcpApp.post('/mcp', async (c) => {
           break;
         case 'settings_get':
           path = '/settings';
+          break;
+        case 'cron_schedule_get':
+          path = '/cron-schedule';
           break;
         case 'backup_export':
           if (args.compat !== undefined && args.compat !== 'v2.35') {
@@ -3584,10 +4049,13 @@ mcpApp.post('/mcp', async (c) => {
 
       const purchaseRequest = purchaseOrderWriteRequest(name, state.confirmedArgs, reqUrl.origin, subHeaders);
       const receiptGroupRequest = receiptGroupWriteRequest(name, state.confirmedArgs, reqUrl.origin, subHeaders);
+      const rulesRequest = rulesWriteRequest(name, state.confirmedArgs, reqUrl.origin, subHeaders);
       if (purchaseRequest) {
         subReq = purchaseRequest;
       } else if (receiptGroupRequest) {
         subReq = receiptGroupRequest;
+      } else if (rulesRequest) {
+        subReq = rulesRequest;
       } else if (name === 'operation_add') {
         subReq = new Request(new URL('/operations', reqUrl.origin).toString(), {
           method: 'POST',
@@ -3712,6 +4180,11 @@ mcpApp.post('/mcp', async (c) => {
           method: 'DELETE',
           headers: subHeaders
         });
+      } else if (name === 'fx_rates_refresh') {
+        subReq = new Request(new URL('/fx-rates/refresh', reqUrl.origin).toString(), {
+          method: 'POST',
+          headers: subHeaders
+        });
       } else if (name === 'account_add') {
         const { idempotency_key: _ignoredIdempotencyKey, ...createArgs } = state.confirmedArgs;
         subReq = new Request(new URL('/accounts', reqUrl.origin).toString(), {
@@ -3759,6 +4232,11 @@ mcpApp.post('/mcp', async (c) => {
       } else if (name === 'setting_set') {
         subReq = new Request(new URL(`/settings/${encodeURIComponent(state.confirmedArgs.key)}`, reqUrl.origin).toString(), {
           method: 'PUT', headers: subHeaders, body: JSON.stringify({ value: state.confirmedArgs.value }),
+        });
+      } else if (name === 'cron_schedule_set') {
+        const { idempotency_key: _ignoredIdempotencyKey, ...schedulePatch } = state.confirmedArgs;
+        subReq = new Request(new URL('/cron-schedule', reqUrl.origin).toString(), {
+          method: 'PUT', headers: subHeaders, body: JSON.stringify(schedulePatch),
         });
       } else if (name === 'backup_import') {
         subReq = new Request(new URL('/backup/import', reqUrl.origin).toString(), {
@@ -4028,6 +4506,16 @@ mcpApp.post('/mcp', async (c) => {
             throw new Error('Provider read-back failed: closed recurring period does not match the confirmed fact');
           }
           data = { recurring_item: recurringItem, operation };
+        } else if (name === 'cron_schedule_set') {
+          const readBack = await providerGet('/cron-schedule');
+          if (
+            (state.confirmedArgs.timezone !== undefined && readBack.timezone !== state.confirmedArgs.timezone)
+            || (state.confirmedArgs.fx_auto_update_hour !== undefined && readBack.fx_auto_update_hour !== state.confirmedArgs.fx_auto_update_hour)
+            || (state.confirmedArgs.recurring_auto_skip_hour !== undefined && readBack.recurring_auto_skip_hour !== state.confirmedArgs.recurring_auto_skip_hour)
+          ) {
+            throw new Error('Provider read-back failed: cron schedule was not saved');
+          }
+          data = readBack;
         } else if (name === 'recurring_item_cancel_period_fulfillment') {
           const recurringItemId = state.confirmedArgs.recurring_item_id;
           const periodDueDate = state.confirmedArgs.period_due_date;

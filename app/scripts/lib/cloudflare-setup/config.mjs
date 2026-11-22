@@ -2,6 +2,7 @@ import {
   ASSETS_CONFIG,
   COMPATIBILITY_DATE,
   COMPATIBILITY_FLAGS,
+  DEFAULT_CRON_TRIGGERS,
   RATE_LIMIT_BINDINGS,
 } from './constants.mjs';
 import {
@@ -108,6 +109,7 @@ export function buildLocalWranglerConfig(input) {
     },
     migrations: [{ tag: 'v1-demo-session', new_sqlite_classes: ['DemoSession'] }],
     rules: [{ type: 'Text', globs: ['migrations/*.sql', 'scripts/*.sql'], fallthrough: true }],
+    triggers: { crons: [...DEFAULT_CRON_TRIGGERS] },
     vars: {
       APP_DOMAIN: input.appDomain,
     },

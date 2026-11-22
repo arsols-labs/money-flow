@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import mcpApp from '../src/worker/mcp-server';
 import type { Env } from '../src/worker/types';
 import { normalizeAlias } from '../src/worker/account-aliases';
+import { seedAllTestRules } from './seed-test-rules';
 
 const typedEnv = env as unknown as Env;
 const clientId = 'client-mcp-account-test';
@@ -71,7 +72,10 @@ beforeEach(async () => {
     env.DB.prepare('DELETE FROM pending_account_strings'),
     env.DB.prepare('DELETE FROM accounts'),
     env.DB.prepare('DELETE FROM oauth_clients'),
+    env.DB.prepare('DELETE FROM rule_entries'),
+    env.DB.prepare('DELETE FROM rule_sets'),
   ]);
+  await seedAllTestRules(env.DB);
   await env.DB.prepare(`INSERT INTO oauth_clients (id, name, created_at) VALUES (?, 'Account Test Client', datetime('now'))`)
     .bind(clientId).run();
 });

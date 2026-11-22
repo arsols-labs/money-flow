@@ -53,13 +53,15 @@ atomic compare-and-set/lock. If the host cannot prevent overlapping updates,
 disable online enrichment for unattended runs; last-writer-wins breaker state
 is not safe enough.
 
-For recurring reconciliation, read live recurring items, operations, and
-fulfillment history before every plan. Execute proposed actions in order and
-read back after each one. Persist an evidence-skip marker only after the helper
-accepts read-back with the expected next due date, unchanged operation count,
-and unchanged account balances. A current empty analytical day remains open;
-only an overdue empty day of an explicitly configured analytical rule is
-skipped without receipt evidence.
+For recurring reconciliation, read live recurring items, operations,
+fulfillment history, and `recurring_policies_list` before every plan. Execute
+proposed actions in order and read back after each one. Persist an evidence-skip
+marker only after the helper accepts read-back with the expected next due date,
+expected `active` state (when applicable), unchanged operation count, and
+unchanged account balances. A current empty analytical day remains open; only an
+overdue empty day of an explicitly configured analytical rule is skipped without
+receipt evidence (empty overdue periods on `auto_skip_overdue` rules are left to
+the daily Worker Cron).
 
 ## Quotas and incidents
 

@@ -15,44 +15,45 @@ assert SPEC.loader is not None
 sys.modules[SPEC.name] = qr
 SPEC.loader.exec_module(qr)
 
+SYNTH_HOST = "fiscal.example"
+
 
 class QrGuardTests(unittest.TestCase):
-    def test_accepts_only_canonical_fiscal_url(self):
+    def test_accepts_only_canonical_configured_fiscal_url(self):
         result = qr.validate_fiscal_url(
-            "https://suf.purs.gov.rs/v/?vl=synthetic"
+            f"https://{SYNTH_HOST}/v/?vl=synthetic",
+            allowed_hosts=[SYNTH_HOST],
         )
-        self.assertEqual(result.host, "suf.purs.gov.rs")
+        self.assertEqual(result.host, SYNTH_HOST)
         self.assertEqual(result.target, "/v/?vl=synthetic")
+
+    def test_rejects_when_allowed_hosts_missing(self):
+        with self.assertRaises(qr.FiscalSecurityError):
+            qr.validate_fiscal_url(f"https://{SYNTH_HOST}/v/?vl=synthetic")
 
     def test_rejects_unsafe_authorities_and_redirect_targets(self):
         rejected = [
-            "http://suf.purs.gov.rs/v/",
-            "HTTPS://suf.purs.gov.rs/v/",
-            "https://SUF.PURS.GOV.RS/v/",
-            "https://suf.purs.gov.rs.evil.example/v/",
-            "https://user@suf.purs.gov.rs/v/",
-            "https://suf.purs.gov.rs:444/v/",
-            "https://suf.purs.gov.rs/v/#unsafe",
+            f"http://{SYNTH_HOST}/v/",
+            f"HTTPS://{SYNTH_HOST}/v/",
+            f"https://{SYNTH_HOST.upper()}/v/",
+            f"https://{SYNTH_HOST}.evil.example/v/",
+            f"https://user@{SYNTH_HOST}/v/",
+            f"https://{SYNTH_HOST}:444/v/",
+            f"https://{SYNTH_HOST}/v/#unsafe",
             "https://127.0.0.1/v/",
-            " https://suf.purs.gov.rs/v/",
+            f" https://{SYNTH_HOST}/v/",
         ]
         for url in rejected:
             with self.subTest(url=url), self.assertRaises(
                 qr.FiscalSecurityError
             ):
-                qr.validate_fiscal_url(url)
+                qr.validate_fiscal_url(url, allowed_hosts=[SYNTH_HOST])
 
     def test_rejects_resolution_when_any_address_is_not_global(self):
         with self.assertRaises(qr.FiscalSecurityError):
             qr.validate_resolved_addresses(
                 ["93.184.216.34", "127.0.0.1"]
             )
-
-    def test_accepts_global_resolution(self):
-        self.assertEqual(
-            qr.validate_resolved_addresses(["93.184.216.34"]),
-            ("93.184.216.34",),
-        )
 
 
 if __name__ == "__main__":

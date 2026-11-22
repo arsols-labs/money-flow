@@ -527,11 +527,15 @@
       },
       "rates": {
         "title": "Wechselkurse",
-        "description": "Manuelle Kurse zur Basiswährung"
+        "description": "Manuelle oder täglich automatische Wechselkurse zur Basiswährung"
       },
       "forecast": {
         "title": "Prognose",
         "description": "Schwelle für niedrigen Saldo in der Basiswährung"
+      },
+      "rules": {
+        "title": "Regeln & Referenzkonfiguration",
+        "description": "Währungen, Formate, Vorlagen, Aliase und Geschäftsregeln"
       }
     },
     "allSectionsHidden": "Alle Bereiche sind in den Einstellungen ausgeblendet.",
@@ -557,7 +561,7 @@
       "fieldAccountNumber": "Kontonummer",
       "placeholderAccountNumber": "IBAN, letzte 4 Stellen oder Wallet…",
       "fieldOwner": "Inhaber*",
-      "placeholderOwner": "Alex, Familie, Firma…",
+      "placeholderOwner": "Privat, Familie, Firma…",
       "fieldCountry": "Land*",
       "placeholderCountry": "Global (oder US, DE, RS, GB, ES, FR, CY, GE, AE, TR, KZ, AM, TH…)",
       "fieldStartingBalance": "Startsaldo",
@@ -600,14 +604,29 @@
       "staleSuffix": " · Kurs ist veraltet",
       "deleteAria": "Kurs {{code}} löschen",
       "addShort": "Kurs",
-      "manualHint": "Kurse werden manuell erfasst — in v2.0 kein Autoupdate.",
+      "autoUpdateToggle": "Kurse täglich automatisch aktualisieren ({{time}} {{timezone}})",
+      "autoUpdateHintPrefix": "Optionales tägliches Update nutzt kostenlose Kurse ohne API-Schlüssel über",
+      "autoUpdateHintSuffix": ". Jeder Kurs lässt sich weiterhin manuell eintragen oder anpassen.",
+      "refreshNow": "Jetzt aktualisieren",
+      "refreshing": "Aktualisiere…",
+      "refreshSuccess": "{{count}} Wechselkurs(e) aktualisiert.",
+      "refreshPartial": "{{count}} Kurs(e) aktualisiert; nicht unterstützt: {{skipped}}.",
+      "refreshNoTargets": "Keine Fremdwährungen zum Aktualisieren vorhanden.",
+      "refreshCooldown": "Bitte {{seconds}} s warten, bevor die Kurse erneut aktualisiert werden.",
+      "lastRefresh": "Letzte Aktualisierung: {{when}} · {{status}}",
+      "refreshStatus": {
+        "ok": "OK",
+        "partial": "Teilweise",
+        "error": "Fehler"
+      },
       "noBase": "Keine Basiswährung gesetzt — nichts, worin umgerechnet werden kann.",
       "missingRate_one": "Währung ohne Kurs: {{codes}}. Beträge darin lassen sich nicht nach {{base}} umrechnen.",
       "missingRate_other": "Währungen ohne Kurs: {{codes}}. Beträge darin lassen sich nicht nach {{base}} umrechnen.",
       "addForCode": "Kurs {{code}} anlegen",
       "empty": "Noch keine Kurse",
       "add": "Kurs anlegen",
-      "deleteConfirm": "Kurs {{code}} löschen?"
+      "deleteConfirm": "Kurs {{code}} löschen?",
+      "changeSchedule": "Zeitplan ändern"
     },
     "forecast": {
       "thresholdNegative": "Schwelle darf nicht negativ sein",
@@ -1013,7 +1032,15 @@
       "pause": "Pausieren",
       "resume": "Fortsetzen",
       "until": " · bis {{date}}",
-      "deleteConfirm": "Wiederkehrenden Eintrag „{{title}}“ löschen? Das lässt sich nicht rückgängig machen."
+      "deleteConfirm": "Wiederkehrenden Eintrag „{{title}}“ löschen? Das lässt sich nicht rückgängig machen.",
+      "autoSkipLabel": "Optional (bei Überfälligkeit automatisch verschieben)",
+      "autoSkipInfoAria": "Wie die automatische Verschiebung funktioniert",
+      "autoSkipInfoText": "Für optionale laufende Ausgaben (z. B. Lebensmittel oder tägliche Ausgaben), die nicht immer stattfinden. Überschreitet eine fällige Buchung die angegebene Anzahl an Tagen, überspringt der tägliche Hintergrundjob den Zeitraum ohne Buchung oder Saldenänderung. Für Abos mit Zahlungsbestätigung deaktiviert lassen.",
+      "fieldAutoSkipAfterDays": "Verschieben nach (Tage überfällig)",
+      "autoSkipAfterDaysHint": "Ganze Zahl 1–365 (Standard: 1 Tag nach Fälligkeit).",
+      "autoSkipAfterDaysRange": "Die Verzögerung muss eine ganze Zahl zwischen 1 und 365 Tagen sein",
+      "autoSkipMeta": "Auto-Sprung +{{days}}T",
+      "autoSkipScheduleHint": "Geplante tägliche Prüfung: {{time}} {{timezone}}."
     },
     "orders": {
       "provider": "Anbieter",
@@ -1100,6 +1127,21 @@
         "missing": "Dieses Dokument wurde nicht mehr gefunden",
         "ambiguous": "Dieser Schlüssel passt zu mehr als einem Dokument"
       }
+    },
+    "schedule": {
+      "title": "Hintergrund-Zeitplan",
+      "hint": "Zeitzone und tägliche Ausführungsstunde für die automatische Kursaktualisierung und das automatische Überspringen überfälliger wiederkehrender Regeln (höchstens einmal pro lokalem Kalendertag).",
+      "demoNotice": "Demo-Modus: Die Hintergrundausführung per Cron ist in der Demo deaktiviert; Zeitplanänderungen bleiben jedoch für Ihre aktuelle Demo-Sitzung gespeichert.",
+      "timezoneLabel": "Zeitzone (IANA)",
+      "timezoneHint": "Wählen oder geben Sie eine kanonische IANA-Zeitzone wie UTC, Europe/Belgrade oder America/New_York ein.",
+      "useBrowserTimezone": "Browser-Zeitzone verwenden",
+      "fxHourLabel": "Stunde für Wechselkurs-Aktualisierung",
+      "recurringHourLabel": "Stunde für automatisches Überspringen",
+      "lastRunFx": "Letzter Wechselkurs-Cron-Lauf (lokales Datum): {{date}}",
+      "lastRunRecurring": "Letzter Auto-Skip-Cron-Lauf (lokales Datum): {{date}}",
+      "neverRan": "noch nicht",
+      "save": "Zeitplan speichern",
+      "saved": "Zeitplan gespeichert: {{timezone}} · Kurse {{fxTime}} · Wiederkehrend {{recurringTime}}."
     }
   },
   "access": {
@@ -1236,7 +1278,7 @@
     "ALIAS_ALREADY_BOUND": "Dieser Alias ist bereits an ein Konto gebunden",
     "ALIAS_NOT_FOUND": "Alias an diesem Konto nicht gefunden",
     "PENDING_ACCOUNT_RESOLVED": "Unbekanntes Konto ist bereits verarbeitet oder existiert nicht",
-    "CURRENCY_CODE_INVALID": "Währungscode muss genau drei lateinische Buchstaben sein (ISO 4217), zum Beispiel USD",
+    "CURRENCY_CODE_INVALID": "Währungscode muss genau drei lateinische Buchstaben sein , zum Beispiel XXX",
     "BASE_CURRENCY_RATE_FORBIDDEN": "Ein USD-Kurs ist nicht nötig: alle Kurse liegen als usd_per_unit vor, daher 1 USD = 1 USD per Definition. Zeile löschen, falls sie schon existiert",
     "RATE_REQUIRED": "Kurs im Feld rate senden",
     "RATE_INVALID": "Ungültiger Wechselkurs \"{{value}}\" — erwartet wird eine nichtnegative Dezimalzahl mit höchstens neun Nachkommastellen, ohne Exponent und ohne Vorzeichen",
@@ -1299,11 +1341,12 @@
     "FIELD_NOT_ZERO": "{{field}} darf nicht null sein — eine Buchung ohne Betrag ist sinnlos",
     "INVALID_ISO_DATE": "{{field}} ist erforderlich und muss eine Zeichenkette YYYY-MM-DD sein",
     "INVALID_CALENDAR_DATE": "{{field}}: Kalenderdatum \"{{value}}\" existiert nicht",
-    "INVALID_CURRENCY": "currency muss genau drei lateinische Buchstaben sein (ISO 4217), zum Beispiel USD",
+    "INVALID_CURRENCY": "currency muss genau drei lateinische Buchstaben sein , zum Beispiel XXX",
     "INVALID_SORT": "sort muss eine ganze Zahl innerhalb ±1 000 000 000 sein",
     "INVALID_KIND": "kind ist erforderlich und muss einer von: {{values}} sein",
     "INVALID_FREQUENCY": "frequency ist erforderlich und muss einer von: {{values}} sein",
     "INVALID_INTERVAL_COUNT": "interval_count muss eine ganze Zahl von 1 bis 365 sein",
+    "INVALID_AUTO_SKIP_AFTER_DAYS": "auto_skip_after_days muss eine ganze Zahl von 1 bis 365 sein",
     "INVALID_RANGE": "{{field}} muss eine ganze Zahl von {{min}} bis {{max}} sein oder weggelassen werden",
     "INVALID_SOURCE": "source muss \"manual\", \"receipt\" oder \"agent\" sein",
     "INVALID_RECEIPT_URL": "receipt_url muss eine http- oder https-URL mit höchstens 4096 Zeichen sein",
@@ -1409,7 +1452,21 @@
     "RECEIPT_NOT_IN_GROUP": "Dieser Beleg ist nicht in dieser Gruppe",
     "RECEIPT_GROUP_FIELD_INVALID": "Feld {{field}} der Beleggruppe ist ungültig",
     "RECEIPT_GROUP_DATE_MISMATCH": "Belege einer neuen Gruppe müssen vom selben Kalendertag stammen",
-    "RECEIPT_GROUP_PLACE_REQUIRED": "Bitte einen Namen eingeben: Der Kaufort lässt sich aus diesen Belegen nicht bestimmen"
+    "RECEIPT_GROUP_PLACE_REQUIRED": "Bitte einen Namen eingeben: Der Kaufort lässt sich aus diesen Belegen nicht bestimmen",
+    "MISSING_CONFIGURATION": "Eine für diese Aktion erforderliche Regel wurde noch nicht hinzugefügt. Öffnen Sie „Regeln & Referenzkonfiguration“ unter „Daten“, um sie hinzuzufügen.",
+    "RULE_SET_NOT_FOUND": "Regelsatz nicht gefunden",
+    "RULE_ENTRY_NOT_FOUND": "Regeleintrag nicht gefunden",
+    "RULE_VALIDATION_FAILED": "Regelprüfung fehlgeschlagen: {{detail}}",
+    "RULE_CONFLICT": "Regelkonflikt: {{detail}}",
+    "RULE_REGEX_UNSAFE": "Unsicheres Regex-Muster: {{detail}}",
+    "RULE_REVISION_CONFLICT": "Regelsatz wurde zwischenzeitlich geändert; neu laden",
+    "REVISION_CONFLICT": "Regelsatz wurde zwischenzeitlich geändert; neu laden",
+    "CONFIRMATION_REQUIRED": "Diese Änderung erfordert eine ausdrückliche menschliche Bestätigung (confirm: true)",
+    "FX_PROVIDER_UNAVAILABLE": "Wechselkurs-Anbieter ist derzeit nicht erreichbar — bestehende Kurse blieben erhalten",
+    "FX_PROVIDER_UNSUPPORTED_ANCHOR": "Ankerwährung {{currency}} wird vom automatischen Kursanbieter nicht unterstützt",
+    "SETTING_BOOLEAN_INVALID": "Wert muss true, false, 1 oder 0 sein",
+    "SETTING_TIMEZONE_INVALID": "Wert muss eine gültige IANA-Zeitzone sein (z. B. UTC, Europe/Belgrade oder America/New_York)",
+    "SETTING_HOUR_INVALID": "Wert muss eine ganze Stunde von 0 bis 23 sein"
   },
   "oauth": {
     "consent": {
@@ -1423,6 +1480,80 @@
       "deny": "Ablehnen",
       "allow": "Zugriff erlauben",
       "submitting": "Bestätige…"
+    }
+  },
+  "missingConfigAction": {
+    "currencyStandards": "Währungsstandards oder die Basiswährung sind noch nicht konfiguriert. Richten Sie sie unter „Daten“ → „Regeln & Referenzkonfiguration“ ein.",
+    "currencyCode": "Die Währung {{currency}} wurde noch nicht hinzugefügt. Fügen Sie sie unter „Währungen“ in „Regeln & Referenzkonfiguration“ hinzu.",
+    "pdfLayouts": "Es wurde noch kein PDF-Kontoauszugslayout hinzugefügt. Fügen Sie ein PDF-Layout in „Regeln & Referenzkonfiguration“ hinzu, um PDF-Auszüge zu importieren.",
+    "statementTemplates": "Es wurde noch keine passende Kontoauszugsvorlage hinzugefügt. Fügen Sie eine Vorlage in „Regeln & Referenzkonfiguration“ hinzu oder nutzen Sie die allgemeine CSV-Zuordnung.",
+    "fiscalFormats": "Für diesen Link wurde noch kein Fiskalbelegformat hinzugefügt. Fügen Sie es in „Regeln & Referenzkonfiguration“ hinzu."
+  },
+  "onboarding": {
+    "bannerTitle": "Währungseinrichtung erforderlich",
+    "bannerBody": "Fügen Sie in „Regeln & Referenzkonfiguration“ mindestens eine Währung und eine Ankerwährung für Wechselkurse hinzu, um Salden und Prognosen zu nutzen.",
+    "openSettings": "Einstellungen öffnen",
+    "actionBlocked": "Für diese Aktion wird eine Regel benötigt, die noch nicht hinzugefügt wurde. Öffnen Sie die Einstellungen, um sie einzurichten.",
+    "missingBaseCurrency": "Basiswährung oder Währungsstandards sind noch nicht konfiguriert."
+  },
+  "rulesSettings": {
+    "title": "Regeln & Referenzkonfiguration",
+    "description": "Länderbezogene, versionierte D1-Regeln, Standards, Vorlagen, PDF-Layouts und wiederkehrende Richtlinien verwalten.",
+    "readinessTitle": "Konfigurationsstatus",
+    "configured": "Konfiguriert",
+    "missing": "Fehlt",
+    "notAddedYet": "Noch nicht hinzugefügt",
+    "epochLabel": "Regel-Epoche {{epoch}}",
+    "domainLabel": "Bereich",
+    "countryLabel": "Land",
+    "localeLabel": "Sprache",
+    "stateLabel": "Status",
+    "searchPlaceholder": "Regeln filtern…",
+    "createSetTitle": "Regelsatz erstellen",
+    "setKeyLabel": "Satz-Schlüssel",
+    "labelField": "Bezeichnung",
+    "effectiveFromLabel": "Gültig ab",
+    "effectiveToLabel": "Gültig bis",
+    "priorityLabel": "Priorität",
+    "allowSharedLabel": "SHARED-Fallback erlauben",
+    "createSetBtn": "Entwurf erstellen",
+    "activate": "Aktivieren",
+    "retire": "Deaktivieren",
+    "clone": "Klonen",
+    "addEntry": "Eintrag hinzufügen",
+    "matchTypeLabel": "Abgleichstyp",
+    "matchFieldLabel": "Feld",
+    "patternLabel": "Muster",
+    "payloadJsonLabel": "Payload-JSON",
+    "saveEntry": "Eintrag speichern",
+    "previewTitle": "Testabgleich",
+    "sampleLabel": "Testeintrag",
+    "samplePlaceholder": "Beispieltext eingeben…",
+    "runPreview": "Prüfen",
+    "bundleTitle": "Regelpaket Export / Import",
+    "exportBundle": "JSON exportieren",
+    "importBundle": "JSON importieren",
+    "importReplaceWarning": "Paket importieren",
+    "replaceExistingLabel": "Vorhandene Regeln ersetzen",
+    "recurringPoliciesTitle": "Wiederkehrende Richtlinien",
+    "recurringItemIdLabel": "ID der wiederkehrenden Regel",
+    "policyTypeLabel": "Richtlinientyp",
+    "addPolicy": "Richtlinie hinzufügen",
+    "noSets": "Keine Regelsätze für aktuelle Filter",
+    "noEntries": "Keine Einträge in diesem Regelsatz",
+    "noPolicies": "Keine wiederkehrenden Richtlinien konfiguriert",
+    "entryKeyLabel": "Eintragsschlüssel",
+    "domains": {
+      "currency_standards": "Währungen",
+      "fiscal_formats": "Fiskalbelegformate",
+      "merchant_aliases": "Händler-Aliase",
+      "delivery_services": "Lieferdienste",
+      "venue_suffixes": "Standort-Suffixe",
+      "order_hints": "Bestellhinweise",
+      "category_rules": "Kategorieregeln",
+      "statement_templates": "Kontoauszugsvorlagen",
+      "pdf_layouts": "PDF-Layouts",
+      "recurring_policies": "Wiederkehrende Richtlinien"
     }
   }
 }

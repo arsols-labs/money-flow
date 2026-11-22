@@ -1,4 +1,8 @@
 import { createExpenseDuplicateIndex, type ExpenseDuplicateCandidate } from '../shared/booking-guards';
+import {
+  MissingCurrencyConfigError,
+  normalizeConfiguredCurrencyCode,
+} from '../shared/currency';
 import { normalizeAlias, resolveAccount } from './account-aliases';
 import { D1_MAX_BOUND_PARAMS } from './backup';
 import { ValidationError } from './api-error';
@@ -13,9 +17,20 @@ import {
   statementRowKey,
 } from '../shared/statement-import/amounts';
 import { parseStatementFile } from '../shared/statement-import/parse';
-import { presetById, type StatementPreset } from '../shared/statement-import/presets';
-import { isBuiltinTemplateId, templateAsPreset } from '../shared/statement-import/templates';
-import { getStatementTemplate } from './statement-templates';
+import type { StatementPreset } from '../shared/statement-import/presets';
+import {
+  bumpRulesEpoch,
+  deleteRuleEntry,
+  ensureActiveSharedRuleSet,
+  loadBookingGuardRules,
+  loadCategoryRulesFromD1,
+  loadCurrencyCatalog,
+  loadRulesSnapshot,
+  loadStatementRuleConfig,
+  upsertRuleEntry,
+} from './rules-store';
+import { statementTemplateUsedStatement } from './statement-templates';
+import type { CategoryRulePayload } from '../shared/rules';
 import {
   STATEMENT_IMPORT_MAX_FILES,
   STATEMENT_IMPORT_MAX_ROWS,
@@ -80,7 +95,7 @@ function compactRef(value: string): string {
 export function statementImportLedgerGuard(db: D1Database, expectedChanges: number): D1PreparedStatement {
   return db.prepare(
     `INSERT INTO accounts (name, owner, country, currency, balance_updated_at)
-     SELECT 'statement-import-guard', 'guard', 'XX', 'USD', 'not-a-timestamp'
+     SELECT 'statement-import-guard', 'guard', 'XX', 'AAA', 'not-a-timestamp'
      WHERE changes() != ?`,
   ).bind(expectedChanges);
 }
@@ -143,11 +158,7 @@ async function resolveImportAccount(
 }
 
 async function loadRules(db: D1Database): Promise<CategoryRule[]> {
-  const { results } = await db.prepare(
-    `SELECT id, pattern, match_field, category, subcategory, priority
-     FROM category_rules ORDER BY priority, id`,
-  ).all<CategoryRule>();
-  return results;
+  return loadCategoryRulesFromD1(db);
 }
 
 async function loadAccounts(db: D1Database): Promise<AccountHit[]> {
@@ -228,15 +239,16 @@ async function expenseWindow(
   return results;
 }
 
-async function presetForFile(db: D1Database, presetId: string | null): Promise<StatementPreset | null> {
+function presetForFile(
+  stmtConfig: Awaited<ReturnType<typeof loadStatementRuleConfig>>,
+  presetId: string | null,
+): StatementPreset | null {
   if (!presetId) return null;
-  const builtin = presetById(presetId);
-  if (builtin) return builtin;
-  const stored = await getStatementTemplate(db, presetId);
-  if (!stored) throw new StatementParseError(`unknown preset "${presetId}"`);
-  const preset = templateAsPreset(stored.document);
-  if (!preset) throw new StatementParseError(`preset ${presetId} cannot be used for import yet`);
-  return preset;
+  const preset = stmtConfig.presets.find((item) => item.id === presetId);
+  if (preset) return preset;
+  const template = stmtConfig.templates.find((item) => item.id === presetId);
+  if (template) throw new StatementParseError(`preset ${presetId} cannot be used for import yet`);
+  throw new StatementParseError(`unknown preset "${presetId}"`);
 }
 
 export async function previewStatementImport(
@@ -247,6 +259,15 @@ export async function previewStatementImport(
   if (files.length > STATEMENT_IMPORT_MAX_FILES) {
     throw new ValidationError('IMPORT_TOO_LARGE', { scope: 'files', limit: STATEMENT_IMPORT_MAX_FILES });
   }
+  const currencyCatalog = await loadCurrencyCatalog(db);
+  if (currencyCatalog.entries.size === 0) {
+    throw new ValidationError('MISSING_CONFIGURATION', {
+      domain: 'currency_standards',
+      detail: 'Currency standards must be configured in D1 before previewing statements',
+    }, 422);
+  }
+  const stmtConfig = await loadStatementRuleConfig(db);
+  const bookingGuardRules = await loadBookingGuardRules(db);
   const accounts = await loadAccounts(db);
   const rules = categoryMode === 'rules' ? await loadRules(db) : [];
   const parsedFiles = [];
@@ -254,7 +275,7 @@ export async function previewStatementImport(
   for (const file of files) {
     let parsed;
     try {
-      const preset = await presetForFile(db, file.presetId);
+      const preset = presetForFile(stmtConfig, file.presetId);
       parsed = await parseStatementFile({
         format: file.format,
         filename: file.filename,
@@ -266,12 +287,28 @@ export async function previewStatementImport(
         mapping: file.mapping,
         options: file.options,
         xlsLayout: file.xlsLayout,
+        pdfLayouts: stmtConfig.pdfLayouts,
+        templates: stmtConfig.templates,
+        currencyCatalog,
       });
     } catch (error) {
+      if (error instanceof MissingCurrencyConfigError) {
+        throw new ValidationError('MISSING_CONFIGURATION', {
+          domain: 'currency_standards',
+          ...(error.currencyCode ? { currency: error.currencyCode } : {}),
+          detail: error.message,
+        }, 422);
+      }
       if (error instanceof StatementLimitError) {
         throw new ValidationError('IMPORT_TOO_LARGE', { scope: 'rows', limit: error.limit });
       }
       if (error instanceof StatementParseError) {
+        if (error.code === 'MISSING_CONFIGURATION') {
+          throw new ValidationError('MISSING_CONFIGURATION', {
+            domain: file.format === 'pdf' ? 'pdf_layouts' : 'statement_templates',
+            detail: error.message,
+          }, 422);
+        }
         if (
           error.code === 'PDF_NO_TEXT_LAYER'
           || error.code === 'PDF_UNKNOWN_LAYOUT'
@@ -292,7 +329,7 @@ export async function previewStatementImport(
       const matched = await resolveImportAccount(db, file.accountId, file.accountHint, statement.accountRef, accounts);
       if (statement.rows.some((row) => !row.currency)) {
         if (!matched.account) throw new ValidationError('IMPORT_CURRENCY_REQUIRED');
-        materializeAccountCurrency(statement, matched.account.currency);
+        materializeAccountCurrency(statement, matched.account.currency, currencyCatalog);
       }
       statements.push({ statement, matched });
     }
@@ -359,13 +396,13 @@ export async function previewStatementImport(
   }
   const expenseIndexByAccount = new Map<number, ReturnType<typeof createExpenseDuplicateIndex>>();
   for (const [accountId, rows] of expenseByAccount) {
-    expenseIndexByAccount.set(accountId, createExpenseDuplicateIndex(rows));
+    expenseIndexByAccount.set(accountId, createExpenseDuplicateIndex(rows, bookingGuardRules));
   }
 
   const seenFingerprints = new Map<string, true>();
   const seenRowKeys = new Map<string, true>();
   const seenBanks = new Map<string, true>();
-  const batchExpenses = createExpenseDuplicateIndex();
+  const batchExpenses = createExpenseDuplicateIndex([], bookingGuardRules);
   let cursor = 0;
 
   const filesJson = parsedFiles.map(({ file, parsed, statements }) => ({
@@ -665,13 +702,31 @@ export async function commitStatementImport(
   if (included.length > STATEMENT_IMPORT_MAX_ROWS) {
     throw new ValidationError('IMPORT_TOO_LARGE', { scope: 'rows', limit: STATEMENT_IMPORT_MAX_ROWS });
   }
+  const currencyCatalog = await loadCurrencyCatalog(db);
+  if (currencyCatalog.entries.size === 0) {
+    throw new ValidationError('MISSING_CONFIGURATION', {
+      domain: 'currency_standards',
+      detail: 'Currency standards must be configured in D1 before committing statements',
+    }, 422);
+  }
+  const bookingGuardRules = await loadBookingGuardRules(db);
   const accounts = await loadAccounts(db);
   const byId = new Map(accounts.map((account) => [account.id, account]));
   for (const row of included) {
-    if (row.currency) continue;
-    const account = byId.get(row.accountId);
-    if (!account) throw new ValidationError('IMPORT_CURRENCY_REQUIRED');
-    row.currency = account.currency;
+    if (!row.currency) {
+      const account = byId.get(row.accountId);
+      if (!account) throw new ValidationError('IMPORT_CURRENCY_REQUIRED');
+      row.currency = account.currency;
+    }
+    const configuredCurrency = normalizeConfiguredCurrencyCode(row.currency, currencyCatalog);
+    if (!configuredCurrency) {
+      throw new ValidationError('MISSING_CONFIGURATION', {
+        domain: 'currency_standards',
+        currency: row.currency,
+        detail: `Currency ${row.currency} is not configured in D1 currency_standards`,
+      }, 422);
+    }
+    row.currency = configuredCurrency;
   }
   for (const [index, row] of included.entries()) {
     const fingerprint = statementFingerprint({
@@ -693,7 +748,7 @@ export async function commitStatementImport(
   const fresh: CommitRowInput[] = [];
   const seen = new Set<string>();
   const seenKeys = new Set<string>();
-  const batchExpenses = createExpenseDuplicateIndex();
+  const batchExpenses = createExpenseDuplicateIndex([], bookingGuardRules);
   for (const row of included) {
     const fingerprint = row.fingerprint!;
     const rowKey = statementRowKey({
@@ -755,7 +810,7 @@ export async function commitStatementImport(
     }
   }
   for (const [accountId, dates] of datesByAccount) {
-    const window = createExpenseDuplicateIndex(await expenseWindow(db, accountId, dates));
+    const window = createExpenseDuplicateIndex(await expenseWindow(db, accountId, dates), bookingGuardRules);
     for (const row of fresh) {
       if (row.accountId !== accountId || row.kind !== 'expense') continue;
       const hit = window.find({
@@ -805,7 +860,7 @@ export async function commitStatementImport(
   const usedTemplateIds = [...new Set(
     parseBatchFiles(input.filesJson)
       .map((file) => file.preset_id)
-      .filter((id): id is string => typeof id === 'string' && id.length > 0 && !isBuiltinTemplateId(id)),
+      .filter((id): id is string => typeof id === 'string' && id.length > 0),
   )];
   const statements: D1PreparedStatement[] = [
     db.prepare(
@@ -840,14 +895,13 @@ export async function commitStatementImport(
     statements.push(insertOperationChunk(db, input.idempotencyKey, fresh.slice(offset, offset + chunkSize)));
   }
   for (const templateId of usedTemplateIds) {
-    statements.push(db.prepare(
-      `UPDATE statement_templates
-       SET used_batch_id = (SELECT id FROM import_batches WHERE idempotency_key = ?)
-       WHERE template_id = ? AND used_batch_id IS NULL`,
-    ).bind(input.idempotencyKey, templateId));
+    statements.push(statementTemplateUsedStatement(db, input.idempotencyKey, templateId));
   }
   try {
     await db.batch(statements);
+    if (usedTemplateIds.length > 0) {
+      await bumpRulesEpoch(db);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
     if (/UNIQUE/i.test(message)) {
@@ -956,10 +1010,34 @@ function ruleJson(row: CategoryRule & { created_at?: string }) {
 }
 
 export async function listCategoryRules(db: D1Database) {
-  const { results } = await db.prepare(
-    'SELECT id, pattern, match_field, category, subcategory, priority, created_at FROM category_rules ORDER BY priority, id',
-  ).all<CategoryRule & { created_at: string }>();
-  return results.map(ruleJson);
+  const snapshot = await loadRulesSnapshot(db);
+  const activeSets = snapshot.sets
+    .filter((set) => set.domain === 'category_rules' && set.state === 'active')
+    .sort((a, b) => a.priority - b.priority || a.id - b.id);
+  const rules: Array<CategoryRule & { created_at: string }> = [];
+  for (const set of activeSets) {
+    for (const entry of snapshot.entriesBySetId.get(set.id) ?? []) {
+      if (entry.enabled !== 1 || !entry.pattern) continue;
+      let payload: CategoryRulePayload;
+      try {
+        payload = JSON.parse(entry.payload_json) as CategoryRulePayload;
+      } catch {
+        continue;
+      }
+      rules.push({
+        id: entry.id,
+        pattern: entry.pattern,
+        match_field: entry.match_field === 'merchant' || entry.match_field === 'description' ? entry.match_field : 'any',
+        match_type: entry.match_type ?? 'contains',
+        category: payload.category,
+        subcategory: payload.subcategory ?? null,
+        priority: entry.priority,
+        created_at: entry.created_at,
+      });
+    }
+  }
+  rules.sort((a, b) => a.priority - b.priority || a.id - b.id);
+  return rules.map(ruleJson);
 }
 
 export async function insertCategoryRule(
@@ -972,12 +1050,43 @@ export async function insertCategoryRule(
     priority: number;
   },
 ) {
-  const row = await db.prepare(
-    `INSERT INTO category_rules (pattern, match_field, category, subcategory, priority, created_at)
-     VALUES (?, ?, ?, ?, ?, ?) RETURNING id, pattern, match_field, category, subcategory, priority, created_at`,
-  ).bind(input.pattern, input.matchField, input.category, input.subcategory, input.priority, nowIso())
-    .first<CategoryRule & { created_at: string }>();
-  return ruleJson(row!);
+  const set = await ensureActiveSharedRuleSet(
+    db,
+    'category_rules',
+    'user-category-rules',
+    'User Category Rules',
+    { source: 'api' },
+  );
+  const entryKey = `cat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const res = await upsertRuleEntry(
+    db,
+    set.id,
+    null,
+    {
+      entry_key: entryKey,
+      match_type: 'contains',
+      match_field: input.matchField,
+      pattern: input.pattern,
+      priority: input.priority,
+      enabled: true,
+      payload: {
+        category: input.category,
+        subcategory: input.subcategory,
+      },
+    },
+    set.revision,
+    { source: 'api' },
+  );
+  return ruleJson({
+    id: res.entry.id,
+    pattern: res.entry.pattern!,
+    match_field: input.matchField,
+    match_type: res.entry.match_type ?? 'contains',
+    category: input.category,
+    subcategory: input.subcategory,
+    priority: res.entry.priority,
+    created_at: res.entry.created_at,
+  });
 }
 
 export async function patchCategoryRule(
@@ -991,29 +1100,61 @@ export async function patchCategoryRule(
     priority?: number;
   },
 ) {
-  const current = await db.prepare(
-    'SELECT id, pattern, match_field, category, subcategory, priority, created_at FROM category_rules WHERE id = ?',
-  ).bind(id).first<CategoryRule & { created_at: string }>();
-  if (!current) throw new ValidationError('CATEGORY_RULE_NOT_FOUND', undefined, 404);
-  const next = {
-    pattern: input.pattern ?? current.pattern,
-    match_field: input.matchField ?? current.match_field,
-    category: input.category ?? current.category,
-    subcategory: input.subcategory === undefined ? current.subcategory : input.subcategory,
-    priority: input.priority ?? current.priority,
-  };
-  if (next.subcategory && !next.category) throw new ValidationError('SUBCATEGORY_REQUIRES_CATEGORY');
-  const row = await db.prepare(
-    `UPDATE category_rules
-     SET pattern = ?, match_field = ?, category = ?, subcategory = ?, priority = ?
-     WHERE id = ?
-     RETURNING id, pattern, match_field, category, subcategory, priority, created_at`,
-  ).bind(next.pattern, next.match_field, next.category, next.subcategory, next.priority, id)
-    .first<CategoryRule & { created_at: string }>();
-  return ruleJson(row!);
+  const snapshot = await loadRulesSnapshot(db);
+  for (const set of snapshot.sets) {
+    if (set.domain !== 'category_rules') continue;
+    const entry = (snapshot.entriesBySetId.get(set.id) ?? []).find((item) => item.id === id);
+    if (!entry) continue;
+    const currentPayload = JSON.parse(entry.payload_json) as CategoryRulePayload;
+    const next = {
+      pattern: input.pattern ?? entry.pattern ?? '',
+      match_field: input.matchField ?? (entry.match_field === 'merchant' || entry.match_field === 'description' ? entry.match_field : 'any'),
+      category: input.category ?? currentPayload.category,
+      subcategory: input.subcategory === undefined ? currentPayload.subcategory : input.subcategory,
+      priority: input.priority ?? entry.priority,
+    };
+    if (next.subcategory && !next.category) throw new ValidationError('SUBCATEGORY_REQUIRES_CATEGORY');
+    const res = await upsertRuleEntry(
+      db,
+      set.id,
+      entry.id,
+      {
+        entry_key: entry.entry_key,
+        match_type: entry.match_type ?? 'contains',
+        match_field: next.match_field,
+        pattern: next.pattern,
+        priority: next.priority,
+        enabled: entry.enabled === 1,
+        payload: {
+          category: next.category,
+          subcategory: next.subcategory,
+        },
+      },
+      set.revision,
+      { source: 'api' },
+    );
+    return ruleJson({
+      id: res.entry.id,
+      pattern: res.entry.pattern!,
+      match_field: next.match_field,
+      match_type: res.entry.match_type ?? 'contains',
+      category: next.category,
+      subcategory: next.subcategory,
+      priority: res.entry.priority,
+      created_at: res.entry.created_at,
+    });
+  }
+  throw new ValidationError('CATEGORY_RULE_NOT_FOUND', undefined, 404);
 }
 
 export async function deleteCategoryRule(db: D1Database, id: number): Promise<boolean> {
-  const result = await db.prepare('DELETE FROM category_rules WHERE id = ?').bind(id).run();
-  return (result.meta.changes ?? 0) > 0;
+  const snapshot = await loadRulesSnapshot(db);
+  for (const set of snapshot.sets) {
+    if (set.domain !== 'category_rules') continue;
+    const entry = (snapshot.entriesBySetId.get(set.id) ?? []).find((item) => item.id === id);
+    if (!entry) continue;
+    await deleteRuleEntry(db, set.id, entry.id, set.revision, { source: 'api' });
+    return true;
+  }
+  return false;
 }

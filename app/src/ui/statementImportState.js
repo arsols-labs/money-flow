@@ -3,7 +3,7 @@
 // This module only shapes requests, row edits, totals, and the idempotency key.
 import { statementFingerprint } from '../shared/statement-import/amounts';
 import { suggestCsvDateFormat } from '../shared/statement-import/csv';
-import { fractionDigits } from '../shared/currency';
+import { tryFractionDigits } from '../shared/currency';
 import { formatTemplateErrors, validateStatementTemplate } from '../shared/statement-import/template-schema';
 import { IMPORT_UNDO_PHRASE } from '../shared/statement-import/types';
 
@@ -13,13 +13,6 @@ export const PRESET_AUTO = 'auto';
 export const PRESET_GENERIC = 'generic';
 
 export const STATEMENT_FILE_EXTENSIONS = ['.csv', '.ofx', '.qfx', '.xml', '.xls', '.pdf'];
-
-const KNOWN_PRESET_FORMAT = {
-  'us-bofa': 'csv',
-  'us-bofa-pdf': 'pdf',
-  'rs-bps': 'xls',
-  'rs-bps-pdf': 'pdf',
-};
 
 export const DEFAULT_MAPPING = {
   date: 'Date',
@@ -81,7 +74,7 @@ function presetFormat(presetId, presets) {
   if (presetId === PRESET_AUTO) return 'auto';
   if (presetId === PRESET_GENERIC) return 'csv';
   const found = (presets || []).find((preset) => preset.id === presetId);
-  return found?.format || KNOWN_PRESET_FORMAT[presetId] || 'auto';
+  return found?.format || 'auto';
 }
 
 export function compactMapping(mapping) {
@@ -300,7 +293,9 @@ export function withStatementAccount(rows, statementKey, accountId, accounts) {
       match: account ? 'explicit' : null,
     };
     if (row.currencyFromAccount && account) {
-      if (fractionDigits(account.currency) === fractionDigits(row.currency)) {
+      const accountDigits = tryFractionDigits(account.currency);
+      const rowDigits = tryFractionDigits(row.currency);
+      if (accountDigits !== null && accountDigits === rowDigits) {
         next.currency = account.currency;
         next.currencyMismatch = false;
       } else {

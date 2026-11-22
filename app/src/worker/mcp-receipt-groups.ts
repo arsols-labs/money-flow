@@ -65,7 +65,7 @@ export function receiptGroupToolDefinitions(notes: { mrtr: string; noAutoConfirm
       outputSchema: {
         type: 'object',
         properties: {
-          groups: { type: 'array' },
+          groups: { type: 'array', items: { type: 'object' } },
           next_cursor: { type: ['number', 'null'] },
           limit: { type: ['number', 'null'] },
           error: { type: 'string' },

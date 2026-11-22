@@ -1,13 +1,23 @@
 import '../src/ui/i18n.js';
-import { describe, it, expect } from 'vitest';
+import { afterAll, beforeAll, describe, it, expect } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { EMPTY_CURRENCY_CATALOG, setRuntimeCurrencyCatalog } from '../src/shared/currency';
+import { installTestRuntimeCurrencies } from './seed-test-rules';
 import DashboardSettingsModal, { applyBlockColumnChange } from '../src/ui/DashboardSettingsModal';
 import { AnalyticsDashboard } from '../src/ui/Analytics';
 import {
   DEFAULT_ANALYTICS_CONFIG,
   ANALYTICS_BLOCK_DEFS,
 } from '../src/ui/analyticsLayout';
+
+beforeAll(() => {
+  installTestRuntimeCurrencies();
+});
+
+afterAll(() => {
+  setRuntimeCurrencyCatalog(EMPTY_CURRENCY_CATALOG);
+});
 
 describe('Analytics customization UI & AnalyticsDashboard', () => {
   const mockConfig = [

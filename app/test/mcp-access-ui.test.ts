@@ -59,6 +59,7 @@ describe('mcpAccessHelper logic & persistence', () => {
       expect(isWriteTool('operation_delete')).toBe(true);
       expect(isWriteTool('transfer_add')).toBe(true);
       expect(isWriteTool('balance_correct')).toBe(true);
+      expect(isWriteTool('fx_rates_refresh')).toBe(true);
       expect(isWriteTool('planned_item_add')).toBe(true);
       expect(isWriteTool('recurring_item_skip_period')).toBe(true);
       expect(isWriteTool('recurring_item_cancel_period_fulfillment')).toBe(true);

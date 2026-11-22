@@ -6,15 +6,22 @@ operation plus completion operation.”
 
 ## Candidate gate
 
-Read open planned items and active recurring rules before writing. Auto-route
-only when exactly one candidate satisfies all mandatory dimensions:
+Read open planned items, active recurring rules, and `recurring_policies_list`
+before writing. Auto-route only when exactly one candidate satisfies all
+mandatory dimensions:
 
 - same account and currency;
 - compatible expense sign;
 - exact due date for planned items, or the current `next_due_date` occurrence
-  for a recurring rule;
+  for a fixed recurring rule (`auto_skip_overdue` must be false/0);
 - exact amount, or a documented quantity multiple for a daily consumable;
 - corroborating category or normalized title/item evidence.
+
+Optional `auto_skip_overdue` recurring rules never take the `close_period`
+pre-booking route: book the receipt expense normally via `operation_add`, then
+skip the covered period once post-booking via `scripts/recurring_reconcile.py`
+when an expense operation matches the rule's category inside `[next_due_date,
+next_occurrence)`.
 
 Store/merchant similarity is supporting evidence, not enough by itself. Do not
 use a broad fuzzy score, cross-currency comparison, or “closest amount.” More
@@ -85,12 +92,38 @@ coverage mode. Never infer this policy merely because a rule is daily.
   1–3 days. This is opt-in and intended for variable budgets such as groceries.
 
 For either mode, use `recurring_item_skip_period`; do not create or link another
-financial fact. The provider rejects `close_period` and `fulfill_existing` on
-analytical recurring ids 16 and 17 with `ANALYTICAL_RECURRING_SKIP_ONLY`. If the current due date has qualifying expenses, skip the
-covered occurrence(s). If a due date is before the run date and has no
-qualifying expense, skip that overdue analytical occurrence. If the current
-date has no qualifying expense, leave it open. This no-evidence catch-up is
-for explicitly configured analytical rules only.
+financial fact. Discover active `analytical_skip_only` bindings dynamically
+via `recurring_policies_list` — those rules reject `close_period` and
+`fulfill_existing` with `ANALYTICAL_RECURRING_SKIP_ONLY`. If the current due
+date has qualifying expenses, skip the covered occurrence(s). If a due date is
+before the run date and has no qualifying expense, skip that overdue analytical
+occurrence. If the current date has no qualifying expense, leave it open. This
+no-evidence catch-up is for explicitly configured analytical rules only.
+
+## Optional `auto_skip_overdue` recurring rules
+
+Variable recurring rules (`auto_skip_overdue = true` / `1`, `auto_skip_after_days`
+in `1..365`) cover recurring spending that does not happen on every due date and
+are NOT covered by an explicit entry in `policies`:
+
+- Book the matching receipt expenses normally via `operation_add` (never via
+  `recurring_item_close_period`).
+- In post-booking reconciliation (`scripts/recurring_reconcile.py`), supply
+  `booked_receipts` (`source_id`, `receipt_index`, `occurrence_date`, and the
+  verified booked `operation_ids`).
+- When an active `auto_skip_overdue` expense rule has a non-empty `category`,
+  same account and currency, and a booked expense on that receipt matches its
+  normalized category inside `[next_due_date, next_occurrence)` (and before
+  `end_date` when set), the planner proposes one `recurring_item_skip_period`
+  action for that open period.
+- If the same operation qualifies for more than one recurring rule, the planner
+  stops with `action_required` so the owner can choose cleanly.
+- If `next_occurrence` crosses `end_date`, expect `active=false` (`observed_active`
+  in readback) with `next_due_date` unchanged.
+- Never synthesize skips for empty overdue `auto_skip_overdue` periods inside the
+  receipt skill: the daily Worker Cron (configurable timezone/hour via
+  `cron_schedule_get` / `cron_schedule_set`, defaulting to `02:00 UTC`) owns
+  empty overdue skipping once `diffDays(next_due_date, today) >= auto_skip_after_days`.
 
 ## Discrete consumables
 
@@ -112,7 +145,8 @@ Use `scripts/recurring_reconcile.py` for post-booking actions. Every evidence
 skip key includes `source_id`, `receipt_index`, `recurring_item_id`, and the
 exact occurrence date. Replaying a processed key must not produce another
 skip. Save `recurring_evidence_skips` only after provider read-back proves the
-expected `next_due_date`, identical operation count, and identical account
+expected `next_due_date`, expected `active` state (`observed_active` when
+`end_date` termination applies), identical operation count, and identical account
 balances. The server-side fulfillment history remains the source of truth for
 materialized, linked, and skipped occurrences.
 

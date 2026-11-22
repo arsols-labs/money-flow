@@ -62,6 +62,14 @@ export const DATA_BLOCK_DEFS = {
     defaultColumn: 'full',
     autoColumn: 'full',
   },
+  rules: {
+    id: 'rules',
+    titleKey: 'data.blocks.rules.title',
+    descriptionKey: 'data.blocks.rules.description',
+    allowedColumns: ['full'],
+    defaultColumn: 'full',
+    autoColumn: 'full',
+  },
 };
 
 export const DEFAULT_DATA_CONFIG = [
@@ -72,6 +80,7 @@ export const DEFAULT_DATA_CONFIG = [
   { id: 'recurring', visible: true, column: 'full' },
   { id: 'rates', visible: true, column: 'full' },
   { id: 'forecast', visible: true, column: 'full' },
+  { id: 'rules', visible: true, column: 'full' },
 ];
 
 export const DEFAULT_DATA_FILTERS = {
@@ -82,6 +91,7 @@ export const DEFAULT_DATA_FILTERS = {
   plannedOpen: false,
   recurringOpen: false,
   ratesOpen: false,
+  rulesOpen: false,
   archivedAccountsOpen: false,
   donePlannedOpen: false,
   pausedRecurringOpen: false,
@@ -201,6 +211,7 @@ export function loadDataFilters() {
           plannedOpen: legacyExpanded.includes('planned'),
           recurringOpen: legacyExpanded.includes('recurring'),
           ratesOpen: legacyExpanded.includes('rates'),
+          rulesOpen: legacyExpanded.includes('rules'),
         };
       }
       return { ...DEFAULT_DATA_FILTERS };
@@ -231,6 +242,9 @@ export function loadDataFilters() {
       ratesOpen: typeof parsed.ratesOpen === 'boolean'
         ? parsed.ratesOpen
         : DEFAULT_DATA_FILTERS.ratesOpen,
+      rulesOpen: typeof parsed.rulesOpen === 'boolean'
+        ? parsed.rulesOpen
+        : DEFAULT_DATA_FILTERS.rulesOpen,
       archivedAccountsOpen: typeof parsed.archivedAccountsOpen === 'boolean'
         ? parsed.archivedAccountsOpen
         : DEFAULT_DATA_FILTERS.archivedAccountsOpen,
@@ -263,6 +277,7 @@ export function saveDataFilters(filters) {
       plannedOpen: Boolean(filters.plannedOpen),
       recurringOpen: Boolean(filters.recurringOpen),
       ratesOpen: Boolean(filters.ratesOpen),
+      rulesOpen: Boolean(filters.rulesOpen),
       archivedAccountsOpen: Boolean(filters.archivedAccountsOpen),
       donePlannedOpen: Boolean(filters.donePlannedOpen),
       pausedRecurringOpen: Boolean(filters.pausedRecurringOpen),
@@ -278,6 +293,7 @@ export function saveDataFilters(filters) {
     if (payload.recurringOpen) openSections.push('recurring');
     if (payload.ratesOpen) openSections.push('rates');
     if (payload.accountsOpen) openSections.push('accounts');
+    if (payload.rulesOpen) openSections.push('rules');
     writeExpanded(openSections);
   } catch {}
 }

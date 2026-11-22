@@ -5,9 +5,9 @@
  */
 
 import { MCP_WIDGET_RPC_SCRIPT } from './mcp-widget-rpc';
-import { MCP_WIDGET_I18N_SCRIPT } from './mcp-widget-i18n';
+import { buildWidgetI18nScript, type WidgetRenderOptions } from './mcp-widget-i18n';
 
-export function getPulseHtml(): string {
+export function getPulseHtml(options: WidgetRenderOptions = {}): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -403,7 +403,7 @@ export function getPulseHtml(): string {
   <script>
     (function() {
 ${MCP_WIDGET_RPC_SCRIPT}
-${MCP_WIDGET_I18N_SCRIPT}
+${buildWidgetI18nScript(options)}
       let currentTheme = 'auto';
 
       // Theme handler
@@ -444,15 +444,9 @@ ${MCP_WIDGET_I18N_SCRIPT}
       });
 
       // Formatters
-      function formatMoney(minor, currency = 'USD') {
-        if (minor === null || minor === undefined) return '—';
-        const amount = minor / 100;
-        return new Intl.NumberFormat(intlLocale(), {
-          style: 'currency',
-          currency: currency,
-          minimumFractionDigits: 0,
-          maximumFractionDigits: 2
-        }).format(amount);
+      let latestCurrencyMeta = null;
+      function formatMoney(minor, currency) {
+        return formatWidgetMoney(minor, currency, latestCurrencyMeta);
       }
 
       function formatDate(dateStr) {
@@ -472,7 +466,8 @@ ${MCP_WIDGET_I18N_SCRIPT}
 
       // Render Pulse UI
       function renderPulse(data) {
-        const baseCur = data.base_currency || 'USD';
+        latestCurrencyMeta = (data && data.currency_meta) || null;
+        const baseCur = data.base_currency || '';
         const horizon = data.horizon_days || 30;
         document.getElementById('horizonBadge').textContent = t('common.days', { n: horizon });
 
@@ -592,12 +587,14 @@ ${MCP_WIDGET_I18N_SCRIPT}
         const padT = 15;
         const padB = 25;
 
-        const values = series.map(s => s.overall_minor / 100);
+        const digits = currencyDigitsFor(baseCur, latestCurrencyMeta);
+        const divisor = digits === null ? 1 : Math.pow(10, digits);
+        const values = series.map(s => s.overall_minor / divisor);
         let minVal = Math.min(...values);
         let maxVal = Math.max(...values);
         if (minVal === maxVal) {
-          minVal -= 100;
-          maxVal += 100;
+          minVal -= divisor;
+          maxVal += divisor;
         }
         const range = maxVal - minVal;
 
@@ -606,7 +603,7 @@ ${MCP_WIDGET_I18N_SCRIPT}
 
         const pts = series.map((s, i) => {
           const x = padL + (i / (series.length - 1)) * chartW;
-          const y = padT + chartH - ((s.overall_minor / 100 - minVal) / range) * chartH;
+          const y = padT + chartH - ((s.overall_minor / divisor - minVal) / range) * chartH;
           return { x, y, date: s.date, val: s.overall_minor };
         });
 

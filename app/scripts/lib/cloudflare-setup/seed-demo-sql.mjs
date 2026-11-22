@@ -972,12 +972,257 @@ ${accountRef(transfer.toAccount)}
   ];
 }
 
+const DEMO_RULE_SETS = [
+    {
+      domain: 'currency_standards',
+      scope_country: 'SHARED',
+      scope_locale: '',
+      set_key: 'demo-currencies',
+      label: 'Demo currency standards',
+      entries: [
+        { entry_key: 'USD', match_type: 'exact', match_field: 'code', pattern: 'USD', priority: 10, payload: { code: 'USD', minor_digits: 2, symbol: '$', is_fx_anchor: true } },
+        { entry_key: 'EUR', match_type: 'exact', match_field: 'code', pattern: 'EUR', priority: 20, payload: { code: 'EUR', minor_digits: 2, symbol: '€', is_fx_anchor: false } },
+        { entry_key: 'GBP', match_type: 'exact', match_field: 'code', pattern: 'GBP', priority: 30, payload: { code: 'GBP', minor_digits: 2, symbol: '£', is_fx_anchor: false } },
+        { entry_key: 'CAD', match_type: 'exact', match_field: 'code', pattern: 'CAD', priority: 40, payload: { code: 'CAD', minor_digits: 2, symbol: 'CA$', is_fx_anchor: false } },
+      ],
+    },
+    {
+      domain: 'fiscal_formats',
+      scope_country: 'SHARED',
+      scope_locale: '',
+      set_key: 'demo-fiscal',
+      label: 'Demo fiscal format',
+      entries: [
+        {
+          entry_key: 'demo-fiscal',
+          match_type: 'url_host',
+          match_field: 'url',
+          pattern: 'example.com',
+          priority: 10,
+          payload: {
+            id: 'demo-fiscal',
+            label: 'Demo Fiscal URL',
+            canonical_scheme: 'https',
+            canonical_host: 'example.com',
+            allowed_hosts: ['example.com'],
+            canonical_path: '/receipts/',
+            pfr_in_text_pattern: '(DEMO-FISCAL-[0-9]+)',
+            pfr_canonical_uppercase: true,
+            default_currency: 'USD',
+          },
+        },
+      ],
+    },
+    {
+      domain: 'delivery_services',
+      scope_country: 'SHARED',
+      scope_locale: '',
+      set_key: 'demo-delivery-services',
+      label: 'Demo delivery services',
+      entries: [
+        { entry_key: 'wolt', match_type: 'tokens', match_field: 'store', pattern: 'Wolt', priority: 10, payload: { label: 'Wolt' } },
+      ],
+    },
+    {
+      domain: 'venue_suffixes',
+      scope_country: 'SHARED',
+      scope_locale: '',
+      set_key: 'demo-venue-suffixes',
+      label: 'Demo venue suffixes',
+      entries: [
+        { entry_key: 'food', match_type: 'suffix', match_field: 'store', pattern: 'Food', priority: 10, payload: { label: 'Food', trim_result: true } },
+        { entry_key: 'bar', match_type: 'suffix', match_field: 'store', pattern: 'Bar', priority: 20, payload: { label: 'Bar', trim_result: true } },
+      ],
+    },
+    {
+      domain: 'merchant_aliases',
+      scope_country: 'SHARED',
+      scope_locale: '',
+      set_key: 'demo-merchant-aliases',
+      label: 'Demo merchant aliases',
+      entries: [
+        { entry_key: 'harbor-cafe', match_type: 'contains', match_field: 'merchant', pattern: 'Harbor Cafe', priority: 10, payload: { target_merchant: 'Harbor Cafe' } },
+      ],
+    },
+    {
+      domain: 'order_hints',
+      scope_country: 'SHARED',
+      scope_locale: '',
+      set_key: 'demo-order-hints',
+      label: 'Demo order hints',
+      entries: [
+        { entry_key: 'order-hash', match_type: 'regex_safe', match_field: 'any', pattern: 'ORDER\\s*#([A-Z0-9-]{4,32})', priority: 10, payload: { label: 'Order #', token_group: 1, uppercase: true } },
+      ],
+    },
+    {
+      domain: 'category_rules',
+      scope_country: 'SHARED',
+      scope_locale: '',
+      set_key: 'demo-category-rules',
+      label: 'Demo category rules',
+      entries: [
+        { entry_key: 'coffee', match_type: 'contains', match_field: 'merchant', pattern: 'Cafe', priority: 10, payload: { category: 'Dining', subcategory: null } },
+      ],
+    },
+    {
+      domain: 'statement_templates',
+      scope_country: 'US',
+      scope_locale: '',
+      set_key: 'demo-statement-templates',
+      label: 'Demo statement templates',
+      entries: [
+        {
+          entry_key: 'demo-csv',
+          match_type: 'template',
+          match_field: 'any',
+          pattern: 'demo-csv',
+          priority: 10,
+          payload: {
+            schemaVersion: 1,
+            id: 'demo-csv',
+            label: 'Example Bank CSV',
+            format: 'csv',
+            csv: {
+              mapping: {
+                date: 'Date',
+                description: 'Description',
+                amount: 'Amount',
+              },
+              options: {
+                delimiter: ',',
+                decimalSeparator: '.',
+                dateFormat: 'YYYY-MM-DD',
+                encoding: 'utf-8',
+                hasHeader: true,
+                defaultCurrency: 'USD',
+              },
+            },
+          },
+        },
+      ],
+    },
+    {
+      domain: 'pdf_layouts',
+      scope_country: 'US',
+      scope_locale: '',
+      set_key: 'demo-pdf-layouts',
+      label: 'Demo PDF layouts',
+      entries: [
+        {
+          entry_key: 'demo-pdf',
+          match_type: 'layout',
+          match_field: 'text',
+          pattern: 'demo-pdf',
+          priority: 10,
+          payload: {
+            id: 'demo-pdf',
+            label: 'Example Bank Statement PDF',
+            template_id: 'demo-csv',
+            currency_code: 'USD',
+            decimal_separator: '.',
+            date_format: 'YYYY-MM-DD',
+            detect: { include_all: ['Example Bank', 'Statement Summary'] },
+            row_mode: 'single_line_regex',
+            row_start_pattern: '^(\\d{4}-\\d{2}-\\d{2})\\s+(.+?)\\s+(-?[0-9]+\\.[0-9]{2})$',
+            date_group: 1,
+            description_group: 2,
+            amount_group: 3,
+          },
+        },
+      ],
+    },
+  ];
+
+function insertDemoBaseCurrencySetting() {
+  return `INSERT INTO settings (key, value)
+SELECT 'base_currency', 'USD'
+WHERE ${SEED_GUARD}
+  AND NOT EXISTS (SELECT 1 FROM settings WHERE key = 'base_currency');`;
+}
+
+function insertDemoRuleSet(set) {
+  return `INSERT INTO rule_sets (
+  domain, scope_country, scope_locale, set_key, version, state,
+  effective_from, effective_to, priority, allow_shared_fallback,
+  label, description, provenance_source, provenance_actor,
+  revision, activated_at, created_at, updated_at
+)
+SELECT
+  ${sqlString(set.domain)},
+  ${sqlString(set.scope_country)},
+  ${sqlString(set.scope_locale)},
+  ${sqlString(set.set_key)},
+  1,
+  'active',
+  NULL,
+  NULL,
+  100,
+  1,
+  ${sqlString(set.label)},
+  NULL,
+  'import',
+  'seed-demo',
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+WHERE ${SEED_GUARD}
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_sets
+    WHERE domain = ${sqlString(set.domain)}
+      AND scope_country = ${sqlString(set.scope_country)}
+      AND scope_locale = ${sqlString(set.scope_locale)}
+      AND set_key = ${sqlString(set.set_key)}
+      AND version = 1
+  );`;
+}
+
+function insertDemoRuleEntry(set, entry) {
+  return `INSERT INTO rule_entries (
+  rule_set_id, entry_key, match_type, match_field, pattern,
+  priority, enabled, payload_json, meta_json, revision, created_at, updated_at
+)
+SELECT
+  rs.id,
+  ${sqlString(entry.entry_key)},
+  ${sqlString(entry.match_type)},
+  ${sqlString(entry.match_field)},
+  ${sqlValue(entry.pattern)},
+  ${entry.priority},
+  1,
+  ${sqlString(JSON.stringify(entry.payload))},
+  NULL,
+  1,
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+FROM rule_sets rs
+WHERE rs.domain = ${sqlString(set.domain)}
+  AND rs.scope_country = ${sqlString(set.scope_country)}
+  AND rs.scope_locale = ${sqlString(set.scope_locale)}
+  AND rs.set_key = ${sqlString(set.set_key)}
+  AND rs.version = 1
+  AND ${SEED_GUARD}
+  AND NOT EXISTS (
+    SELECT 1 FROM rule_entries re
+    WHERE re.rule_set_id = rs.id AND re.entry_key = ${sqlString(entry.entry_key)}
+  );`;
+}
+
 /**
  * @returns {string[]}
  */
 export function buildDemoSeedStatements() {
+  const ruleStatements = [];
+  for (const set of DEMO_RULE_SETS) {
+    ruleStatements.push(insertDemoRuleSet(set));
+    for (const entry of set.entries) {
+      ruleStatements.push(insertDemoRuleEntry(set, entry));
+    }
+  }
   const statements = [
     insertMarker(),
+    insertDemoBaseCurrencySetting(),
+    ...ruleStatements,
     ...DEMO_FX_RATES.map(insertFxRate),
     ...DEMO_ACCOUNTS.map((account, index) => insertAccount(account, { first: index === 0 })),
     ...DEMO_OPERATIONS.map((operation, index) => insertOperation(operation, { first: index === 0 })),

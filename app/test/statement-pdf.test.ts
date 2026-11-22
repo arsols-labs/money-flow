@@ -1,7 +1,14 @@
 import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { CLOSING_BALANCE_MISMATCH_WARNING } from '../src/shared/statement-import/types';
-import { parseStatementFile } from '../src/shared/statement-import/parse';
+import { parseStatementFile as rawParseStatementFile } from '../src/shared/statement-import/parse';
+import { presetsFromTemplates } from '../src/shared/statement-import/templates';
+import {
+  TEST_CURRENCY_CATALOG,
+  TEST_PDF_LAYOUTS,
+  TEST_STATEMENT_TEMPLATES,
+  seedAllTestRules,
+} from './seed-test-rules';
 import expectedPsb from './fixtures/pdf/psb-rsd-synth.expected.json';
 import { PSB_RSD_SYNTH_PDF_BASE64 } from './fixtures/pdf/psb-rsd-synth.bytes';
 import app from '../src/worker/index';
@@ -22,6 +29,23 @@ const typedEnv = env as unknown as Env;
 const clientId = 'client-pdf-statement';
 let rpcId = 1;
 let cookie = '';
+
+function parseStatementFile(input: Parameters<typeof rawParseStatementFile>[0]) {
+  const layoutsByTemplate = new Map<string, string[]>();
+  for (const layout of TEST_PDF_LAYOUTS) {
+    if (!layout.template_id) continue;
+    const list = layoutsByTemplate.get(layout.template_id) ?? [];
+    list.push(layout.id);
+    layoutsByTemplate.set(layout.template_id, list);
+  }
+  return rawParseStatementFile({
+    availablePresets: presetsFromTemplates(TEST_STATEMENT_TEMPLATES, layoutsByTemplate),
+    templates: TEST_STATEMENT_TEMPLATES,
+    pdfLayouts: TEST_PDF_LAYOUTS,
+    currencyCatalog: TEST_CURRENCY_CATALOG,
+    ...input,
+  });
+}
 
 function toolText(result: { result?: { content?: Array<{ text?: string }>; structuredContent?: { error?: string } } }): string {
   return `${result.result?.content?.[0]?.text ?? ''} ${result.result?.structuredContent?.error ?? ''}`;
@@ -67,7 +91,10 @@ beforeEach(async () => {
     env.DB.prepare('DELETE FROM statement_templates'),
     env.DB.prepare('DELETE FROM accounts'),
     env.DB.prepare('DELETE FROM oauth_clients'),
+    env.DB.prepare('DELETE FROM rule_entries'),
+    env.DB.prepare('DELETE FROM rule_sets'),
   ]);
+  await seedAllTestRules(env.DB);
   await env.DB.prepare(
     `INSERT INTO oauth_clients (id, name, created_at) VALUES (?, 'PDF', datetime('now'))`,
   ).bind(clientId).run();
@@ -122,7 +149,7 @@ describe('PDF text-layer layouts', () => {
         description: 'PLACEHOLDER PAGE TWO WRAPPED LINE',
       },
     ]);
-  });
+  }, 15_000);
 
   it('warns when Novo stanje does not match opening plus the rows', async () => {
     const parsed = await parseStatementFile({

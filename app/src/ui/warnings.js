@@ -1,8 +1,9 @@
 // Pure logic for the "Pulse" warning queue. The component is responsible only for
 // markup; the limit, filters, and order are checked separately without the DOM.
 
-import { fractionDigits } from './money';
+import { tryFractionDigits } from './money';
 import i18n from './i18n';
+import { intlLocale } from './language';
 
 export const WARNING_LIMIT = 3;
 
@@ -32,7 +33,8 @@ export function warningRatio(warning) {
   // negative, the closer the color is to `--danger`. Zero is 0.35, not the orange midpoint.
   // An account has no shared threshold, so the scale is its starting balance
   // (at least one major unit of its currency).
-  const unit = 10 ** fractionDigits(warning.currency_code);
+  const digits = tryFractionDigits(warning.currency_code) ?? 2;
+  const unit = 10 ** digits;
   const reference = warning.threshold_minor > 0
     ? warning.threshold_minor
     : Math.max(Math.abs(warning.start_minor), unit);
@@ -53,7 +55,8 @@ function warningImpact(warning) {
   if (warning.threshold_minor > 0) {
     return warning.minimum_projected_minor / warning.threshold_minor;
   }
-  return warning.minimum_projected_minor / 10 ** fractionDigits(warning.currency_code);
+  const digits = tryFractionDigits(warning.currency_code) ?? 2;
+  return warning.minimum_projected_minor / 10 ** digits;
 }
 
 export function warningSeverity(warning) {
@@ -90,7 +93,11 @@ export function compareWarnings(a, b) {
   const dimension = (DIMENSION_ORDER[a.dimension] ?? 99) - (DIMENSION_ORDER[b.dimension] ?? 99);
   if (dimension) return dimension;
 
-  return String(a.dimension_key).localeCompare(String(b.dimension_key), 'ru', { numeric: true });
+  return String(a.dimension_key).localeCompare(
+    String(b.dimension_key),
+    intlLocale(i18n.resolvedLanguage || i18n.language),
+    { numeric: true },
+  );
 }
 
 export function warningFilters(warnings) {

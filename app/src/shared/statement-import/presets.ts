@@ -1,20 +1,10 @@
-import { builtinPresets, type StatementPreset } from './templates';
+import type { StatementPreset } from './templates';
 
 export type { CsvPreset, OfxPreset, PdfPreset, StatementPreset, XlsPreset } from './templates';
 
-/**
- * Built-in bank presets are the JSON files under templates/.
- * Parsers do not branch on a bank id.
- */
-export const STATEMENT_PRESETS: readonly StatementPreset[] = builtinPresets();
-
-export function presetById(id: string): StatementPreset | null {
-  return STATEMENT_PRESETS.find((preset) => preset.id === id) ?? null;
-}
-
 export function presetJson(
   preset: StatementPreset,
-  source: 'builtin' | 'user' = 'builtin',
+  source: 'd1' | 'user' = 'user',
 ): Record<string, unknown> {
   const body = preset.format === 'csv'
     ? {

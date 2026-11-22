@@ -6,6 +6,7 @@
 // (`big`), which takes a whole row and shifts the parity. Since the layout
 // is computed in JS, it has to be tested, or the next rearrangement of cards
 // will silently put a hole back in the grid.
+import './use-ru-i18n';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect } from 'vitest';

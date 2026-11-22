@@ -34,13 +34,18 @@ import {
   inspectLocalSetupDeps,
 } from './deps.mjs';
 import { DEMO_SEED_RELATIVE_PATH, parseYesNo, resolveSeedDemoChoice } from './seed-demo.mjs';
+import { STARTER_CURRENCY_NOTICE, STARTER_CURRENCY_RELATIVE_PATH } from './starter-currency.mjs';
 import {
   isReservedProductionHostname,
+  isReservedProductionName,
   isReservedProductionResourceId,
   isStableWorkersDevHost,
   parseNodeMajor,
   validateAppDomain,
+  validateHostname,
+  validateHostnameMode,
   validateResourceId,
+  validateWorkerName,
 } from './validate.mjs';
 import { runDelete } from './delete.mjs';
 import { SetupError, createWranglerClient, loginHint } from './wrangler.mjs';
@@ -195,6 +200,7 @@ function formatSummary({
   setupToken,
   secretsAlreadySet,
   dryRun,
+  update = false,
   hostnameMode,
   hostname,
   style,
@@ -204,9 +210,14 @@ function formatSummary({
   localConfigInUse,
 }) {
   const paint = style ?? createStyle({ enabled: false });
+  const heading = dryRun
+    ? 'Dry-run complete (no Cloudflare writes).'
+    : update
+      ? 'Update complete.'
+      : 'Setup complete.';
   const lines = [
     '',
-    paint.ok(dryRun ? 'Dry-run complete (no Cloudflare writes).' : 'Setup complete.'),
+    paint.ok(heading),
     '',
     `App origin:     ${paint.info(appOrigin)}`,
     `MCP endpoint:   ${paint.info(`${mcpOrigin}/mcp`)}`,
@@ -218,30 +229,48 @@ function formatSummary({
         : `MCP health:     ${paint.warn('warning — check did not pass; setup still finished')}`,
     );
   }
-  lines.push(
-    `Passkey setup:  ${paint.info(setupUrl)}`,
-    '',
-    'Next steps:',
-    '  1. Open the app origin in a browser.',
-    '  2. Enroll a Passkey at the Passkey setup URL (or the login screen).',
-    '  3. Paste SETUP_TOKEN into the password field. Do not put it in a query string.',
-    '  4. Save SESSION_SECRET and SETUP_TOKEN in a password manager.',
-    '  5. Point an MCP client at the MCP endpoint after you have signed in and created an OAuth client.',
-  );
+  if (!update) {
+    lines.push(
+      `Passkey setup:  ${paint.info(setupUrl)}`,
+      '',
+      'Next steps:',
+      '  1. Open the app origin in a browser.',
+      '  2. Enroll a Passkey at the Passkey setup URL (or the login screen).',
+      '  3. Paste SETUP_TOKEN into the password field. Do not put it in a query string.',
+      '  4. Save SESSION_SECRET and SETUP_TOKEN in a password manager.',
+      '  5. Point an MCP client at the MCP endpoint after you have signed in and created an OAuth client.',
+    );
+    if (!seedDemo) {
+      lines.push('', STARTER_CURRENCY_NOTICE);
+    }
+  }
   if (hostnameMode === 'custom') {
     lines.push('', ...customDomainNextSteps(hostname));
   }
   if (sessionSecret || setupToken) {
     lines.push(...formatPrintedSecrets({ sessionSecret, setupToken, style: paint }));
   } else if (secretsAlreadySet) {
-    lines.push(
-      ...formatExistingSecretsHint({
-        hasSession: secretsAlreadySet.session,
-        hasSetup: secretsAlreadySet.setup,
-      }),
-    );
+    if (update) {
+      const preserved = [
+        secretsAlreadySet.session ? 'SESSION_SECRET' : null,
+        secretsAlreadySet.setup ? 'SETUP_TOKEN' : null,
+      ].filter(Boolean);
+      lines.push('', `Worker secrets unchanged (${preserved.join(', ')}).`);
+    } else {
+      lines.push(
+        ...formatExistingSecretsHint({
+          hasSession: secretsAlreadySet.session,
+          hasSetup: secretsAlreadySet.setup,
+        }),
+      );
+    }
   }
-  if (localConfigInUse) {
+  if (update) {
+    lines.push(
+      '',
+      `Local config:   ${configPath || LOCAL_CONFIG_NAME} (gitignored).`,
+    );
+  } else if (localConfigInUse) {
     lines.push(
       '',
       formatLocalConfigInUseCopy({
@@ -336,6 +365,99 @@ async function ensureLocalWrangler({
   });
 }
 
+async function loadExistingForUpdate({ configPath, fsApi }) {
+  if (!(await fsApi.fileExists(configPath))) {
+    throw new SetupError(
+      `No existing local config found at ${configPath}. Run \`npm run setup\` first to create an install, or pass --config <path>.`,
+      { code: 'config', hint: 'npm run setup' },
+    );
+  }
+  const existing = parseLocalWranglerConfig(await fsApi.readFile(configPath, 'utf8'));
+  const missing = [];
+  if (!existing.name) missing.push('name');
+  if (!existing.d1?.name) missing.push('d1_databases[0].database_name');
+  if (!existing.d1?.id) missing.push('d1_databases[0].database_id');
+  if (!existing.kv?.id) missing.push('kv_namespaces[0].id');
+  if (!existing.appDomain) missing.push('vars.APP_DOMAIN');
+  if (missing.length > 0) {
+    throw new SetupError(
+      `Existing local config at ${configPath} is incomplete (missing ${missing.join(', ')}). Re-run \`npm run setup\` or inspect the file.`,
+      { code: 'config' },
+    );
+  }
+  if (isReservedProductionName(existing.name)) {
+    throw new SetupError('Existing local config Worker name is reserved for production. Refusing.');
+  }
+  if (isReservedProductionName(existing.d1.name)) {
+    throw new SetupError('Existing local config D1 name is reserved for production. Refusing.');
+  }
+  if (isReservedProductionResourceId(existing.d1.id)) {
+    throw new SetupError('Existing local config contains a reserved production D1 id. Delete it and re-run setup.');
+  }
+  if (isReservedProductionResourceId(existing.kv.id)) {
+    throw new SetupError('Existing local config contains a reserved production KV id. Delete it and re-run setup.');
+  }
+  if (isReservedProductionHostname(existing.appDomain)) {
+    throw new SetupError('Existing local config contains a reserved production APP_DOMAIN. Delete it and re-run setup.');
+  }
+  const nameCheck = validateWorkerName(existing.name);
+  if (!nameCheck.ok) throw new SetupError(nameCheck.error, { code: 'config' });
+  const modeCheck = validateHostnameMode(existing.hostnameMode);
+  if (!modeCheck.ok) throw new SetupError(modeCheck.error, { code: 'config' });
+  const domainCheck = validateAppDomain(existing.appDomain);
+  if (!domainCheck.ok) throw new SetupError(domainCheck.error, { code: 'config' });
+  const d1Check = validateResourceId(existing.d1.id, 'D1 id');
+  if (!d1Check.ok) throw new SetupError(d1Check.error, { code: 'config' });
+  const kvCheck = validateResourceId(existing.kv.id, 'KV id');
+  if (!kvCheck.ok) throw new SetupError(kvCheck.error, { code: 'config' });
+  if (modeCheck.value === 'custom') {
+    const hostCheck = validateHostname(existing.hostname || existing.appDomain, { mode: 'custom' });
+    if (!hostCheck.ok) throw new SetupError(hostCheck.error, { code: 'config' });
+  }
+  return existing;
+}
+
+async function syncDependenciesForUpdate({ args, cwd, fsApi, isTTY, run, stdout, stderr, write }) {
+  if (args.skipInstall) {
+    if (!args.dryRun) {
+      const deps = await inspectLocalSetupDeps(fsApi.fileExists, cwd);
+      if (!deps.ready) {
+        write(stderr, formatDepsInstallHint());
+        throw new SetupError('Local Wrangler is required.', {
+          code: 'deps',
+          hint: 'npm install',
+        });
+      }
+    }
+    return;
+  }
+  const hasLockfile = await fsApi.fileExists(path.join(cwd, 'package-lock.json'));
+  const command = hasLockfile ? ['npm', 'ci'] : ['npm', 'install'];
+  if (args.dryRun) {
+    write(stdout, `Dry-run: would run ${command.join(' ')} to sync dependencies.`);
+    return;
+  }
+  write(stdout, `Updating dependencies (${command.join(' ')})…`);
+  const result = await run({
+    command,
+    cwd,
+    inheritStdio: isTTY && !args.nonInteractive,
+  });
+  if (result.code !== 0) {
+    throw new SetupError(`${command.join(' ')} failed.`, {
+      code: 'deps',
+      hint: command.join(' '),
+    });
+  }
+  const after = await inspectLocalSetupDeps(fsApi.fileExists, cwd);
+  if (!after.ready) {
+    throw new SetupError('Dependencies synced, but local Wrangler is still missing.', {
+      code: 'deps',
+      hint: command.join(' '),
+    });
+  }
+}
+
 /**
  * @param {{
  *   argv?: string[],
@@ -405,17 +527,32 @@ export async function runSetup(options = {}) {
   ask = options.ask ?? createLinePrompter(stdin, stdout);
 
   try {
-  await ensureLocalWrangler({
-    args,
-    cwd,
-    fsApi,
-    isTTY,
-    ask,
-    run,
-    stdout,
-    stderr,
-    write,
-  });
+  const configPath = path.resolve(cwd, args.configPath);
+  if (path.basename(configPath) === 'wrangler.jsonc') {
+    throw new SetupError(
+      args.delete
+        ? 'Refusing to use wrangler.jsonc. Delete reads wrangler.local.jsonc so committed production binding ids stay protected.'
+        : 'Refusing to overwrite wrangler.jsonc. The setup path writes wrangler.local.jsonc so committed production binding ids stay protected.',
+    );
+  }
+
+  let existingForUpdate = null;
+  if (args.update) {
+    existingForUpdate = await loadExistingForUpdate({ configPath, fsApi });
+    await syncDependenciesForUpdate({ args, cwd, fsApi, isTTY, run, stdout, stderr, write });
+  } else {
+    await ensureLocalWrangler({
+      args,
+      cwd,
+      fsApi,
+      isTTY,
+      ask,
+      run,
+      stdout,
+      stderr,
+      write,
+    });
+  }
 
   const wranglerVersion = await wrangler.version();
   if (!args.dryRun && !wranglerVersion) {
@@ -457,15 +594,6 @@ export async function runSetup(options = {}) {
   }
   write(stdout, identity.email ? `Cloudflare account: ${identity.email}` : 'Cloudflare account: authenticated.');
 
-  const configPath = path.resolve(cwd, args.configPath);
-  if (path.basename(configPath) === 'wrangler.jsonc') {
-    throw new SetupError(
-      args.delete
-        ? 'Refusing to use wrangler.jsonc. Delete reads wrangler.local.jsonc so committed production binding ids stay protected.'
-        : 'Refusing to overwrite wrangler.jsonc. The setup path writes wrangler.local.jsonc so committed production binding ids stay protected.',
-    );
-  }
-
   if (args.delete) {
     return runDelete({
       args,
@@ -479,8 +607,8 @@ export async function runSetup(options = {}) {
     });
   }
 
-  let existing = null;
-  if (await fsApi.fileExists(configPath)) {
+  let existing = existingForUpdate;
+  if (!existing && (await fsApi.fileExists(configPath))) {
     existing = parseLocalWranglerConfig(await fsApi.readFile(configPath, 'utf8'));
     if (existing.d1.id && isReservedProductionResourceId(existing.d1.id)) {
       throw new SetupError('Existing local config contains a reserved production D1 id. Delete it and re-run setup.');
@@ -493,45 +621,60 @@ export async function runSetup(options = {}) {
     }
   }
 
-  let seedDemoFlag = args.seedDemo;
-  try {
-    seedDemoFlag = resolveSeedDemoChoice({
-      flag: args.seedDemo,
-      envValue: env.SETUP_SEED_DEMO,
+  let answers;
+  if (args.update) {
+    const mode = existing.hostnameMode === 'custom' ? 'custom' : 'workers-dev';
+    answers = {
+      name: existing.name,
+      hostnameMode: mode,
+      hostname: mode === 'custom' ? existing.hostname || existing.appDomain : null,
+      seedDemo: false,
+      reusedExisting: true,
+      reuseNotice: null,
+    };
+    write(stdout, `Updating existing install "${answers.name}" (${existing.appDomain}) from ${configPath}…`);
+  } else {
+    let seedDemoFlag = args.seedDemo;
+    try {
+      seedDemoFlag = resolveSeedDemoChoice({
+        flag: args.seedDemo,
+        envValue: env.SETUP_SEED_DEMO,
+      });
+    } catch (error) {
+      throw new SetupError(error instanceof Error ? error.message : String(error));
+    }
+
+    answers = await collectAnswers({
+      flags: { ...args, seedDemo: seedDemoFlag },
+      existing,
+      configPath,
+      ask,
+      isTTY,
     });
-  } catch (error) {
-    throw new SetupError(error instanceof Error ? error.message : String(error));
+    if (args.nonInteractive && answers.reusedExisting && answers.reuseNotice) {
+      write(
+        stdout,
+        `${answers.reuseNotice}\nReusing this Worker and hostname (--yes).`,
+      );
+    } else if (args.nonInteractive && existing) {
+      write(
+        stdout,
+        formatLocalConfigInUseCopy({
+          configPath,
+          seedDemo: answers.seedDemo,
+        }),
+      );
+    } else if (existing && answers.seedDemo && seedDemoFlag !== true) {
+      write(stdout, SEED_RESET_HINT);
+    }
   }
 
-  const answers = await collectAnswers({
-    flags: { ...args, seedDemo: seedDemoFlag },
-    existing,
-    configPath,
-    ask,
-    isTTY,
-  });
-  if (args.nonInteractive && answers.reusedExisting && answers.reuseNotice) {
-    write(
-      stdout,
-      `${answers.reuseNotice}\nReusing this Worker and hostname (--yes).`,
-    );
-  } else if (args.nonInteractive && existing) {
-    write(
-      stdout,
-      formatLocalConfigInUseCopy({
-        configPath,
-        seedDemo: answers.seedDemo,
-      }),
-    );
-  } else if (existing && answers.seedDemo && seedDemoFlag !== true) {
-    write(stdout, SEED_RESET_HINT);
-  }
+  const d1Name = args.update ? existing.d1.name : (args.d1Name ?? existing?.d1.name ?? `${answers.name}-db`);
+  const kvName = args.update ? `${answers.name}-kv` : (args.kvName ?? `${answers.name}-kv`);
 
-  const d1Name = args.d1Name ?? existing?.d1.name ?? `${answers.name}-db`;
-  const kvName = args.kvName ?? `${answers.name}-kv`;
-
-  const d1 =
-    existing?.d1.id && existing.d1.name === d1Name
+  const d1 = args.update
+    ? existing.d1
+    : existing?.d1.id && existing.d1.name === d1Name
       ? existing.d1
       : await wrangler.createD1(d1Name);
   const d1Check = validateResourceId(d1.id, 'D1 id');
@@ -544,8 +687,9 @@ export async function runSetup(options = {}) {
   const kvCheck = validateResourceId(kv.id, 'KV id');
   if (!kvCheck.ok) throw new SetupError(kvCheck.error);
 
-  const appDomain =
-    answers.hostnameMode === 'custom'
+  const appDomain = args.update
+    ? existing.appDomain
+    : answers.hostnameMode === 'custom'
       ? answers.hostname
       : initialWorkersDevAppDomain({
           name: answers.name,
@@ -602,7 +746,17 @@ export async function runSetup(options = {}) {
     );
     await wrangler.executeSqlFile(d1Name, DEMO_SEED_RELATIVE_PATH, args.configPath);
   } else {
-    write(stdout, 'Leaving the instance empty (no demo seed).');
+    write(
+      stdout,
+      args.dryRun
+        ? 'Dry-run: would write starter currency USD (minor_digits: 2, is_fx_anchor: true) if currency_standards is empty.'
+        : 'Ensuring starter currency USD (minor_digits: 2, is_fx_anchor: true) if currency_standards is empty…',
+    );
+    await wrangler.executeSqlFile(d1Name, STARTER_CURRENCY_RELATIVE_PATH, args.configPath);
+    if (!args.update) {
+      write(stdout, STARTER_CURRENCY_NOTICE);
+      write(stdout, 'Leaving the instance empty (no demo seed).');
+    }
   }
 
   if (!args.skipBuild && !args.skipDeploy) {
@@ -692,7 +846,7 @@ export async function runSetup(options = {}) {
     const hasSetup = existingSecrets.includes('SETUP_TOKEN');
     let rotateSecrets = args.rotateSecrets === true;
     const anyExisting = hasSession || hasSetup;
-    const canOfferRotate = isTTY && !args.nonInteractive && !args.dryRun;
+    const canOfferRotate = isTTY && !args.nonInteractive && !args.dryRun && !args.update;
     if (!rotateSecrets && anyExisting && canOfferRotate) {
       write(
         stdout,
@@ -811,6 +965,7 @@ export async function runSetup(options = {}) {
     setupToken: args.dryRun ? null : setupToken,
     secretsAlreadySet: args.dryRun ? null : secretsAlreadySet,
     dryRun: args.dryRun,
+    update: args.update,
     hostnameMode: answers.hostnameMode,
     hostname: answers.hostname,
     style,
@@ -824,6 +979,7 @@ export async function runSetup(options = {}) {
   return {
     ok: true,
     dryRun: args.dryRun,
+    update: args.update,
     answers,
     seedDemo: answers.seedDemo,
     d1: { name: d1Name, id: d1.id },

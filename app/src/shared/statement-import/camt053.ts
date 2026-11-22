@@ -1,4 +1,9 @@
-import { normalizeIso4217CurrencyCode } from '../currency';
+import {
+  getRuntimeCurrencyCatalog,
+  MissingCurrencyConfigError,
+  normalizeCurrencyCodeSyntax,
+  type CurrencyCatalog,
+} from '../currency';
 import {
   assertRowBudget,
   kindFromSignedAmount,
@@ -149,7 +154,10 @@ function bookingDate(entry: XmlEl): string {
   return parseStatementDate(day, 'YYYY-MM-DD');
 }
 
-export function parseCamt053(text: string): ParsedStatement[] {
+export function parseCamt053(
+  text: string,
+  currencyCatalog: CurrencyCatalog = getRuntimeCurrencyCatalog(),
+): ParsedStatement[] {
   if (!/BkToCstmrStmt|camt\.053/i.test(text)) {
     throw new StatementParseError('CAMT.053 document was not recognized');
   }
@@ -160,7 +168,7 @@ export function parseCamt053(text: string): ParsedStatement[] {
   return statements.map((stmt) => {
     const iban = descendantText(stmt, ['Acct', 'Id', 'IBAN'])
       || descendantText(stmt, ['Acct', 'Id', 'Othr', 'Id']);
-    const statementCurrency = normalizeIso4217CurrencyCode(descendantText(stmt, ['Acct', 'Ccy']));
+    const statementCurrency = normalizeCurrencyCodeSyntax(descendantText(stmt, ['Acct', 'Ccy']));
     const rows: StatementRow[] = [];
     const warnings: string[] = [];
     childrenNamed(stmt, 'Ntry').forEach((entry, index) => {
@@ -168,10 +176,10 @@ export function parseCamt053(text: string): ParsedStatement[] {
       try {
         const amountEl = firstChild(entry, 'Amt');
         if (!amountEl) throw new StatementParseError('Amt is missing');
-        const currency = normalizeIso4217CurrencyCode(amountEl.attrs.Ccy || statementCurrency || '');
-        if (!currency) throw new StatementParseError('entry currency is missing or not ISO 4217');
+        const currency = normalizeCurrencyCodeSyntax(amountEl.attrs.Ccy || statementCurrency || '');
+        if (!currency) throw new StatementParseError('entry currency is missing or invalid');
         const indicator = descendantText(entry, ['CdtDbtInd']).toUpperCase();
-        let amountMinor = parseMajorToMinor(amountEl.text, '.', currency);
+        let amountMinor = parseMajorToMinor(amountEl.text, '.', currency, currencyCatalog);
         if (amountMinor < 0) amountMinor = -amountMinor;
         if (indicator === 'DBIT') amountMinor = -amountMinor;
         else if (indicator !== 'CRDT') throw new StatementParseError('CdtDbtInd must be CRDT or DBIT');
@@ -211,7 +219,7 @@ export function parseCamt053(text: string): ParsedStatement[] {
         total += 1;
         assertRowBudget(total);
       } catch (error) {
-        if (error instanceof StatementLimitError) throw error;
+        if (error instanceof StatementLimitError || error instanceof MissingCurrencyConfigError) throw error;
         const detail = error instanceof Error ? error.message : 'invalid entry';
         warnings.push(`entry ${sourceIndex} skipped: ${detail}`);
       }

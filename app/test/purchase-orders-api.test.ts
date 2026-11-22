@@ -6,6 +6,7 @@ import type { Env } from '../src/worker/types';
 import { parseBackupDocument } from '../src/worker/backup';
 import { PURCHASE_ORDERS_EPOCH_KEY } from '../src/shared/purchase-orders';
 import { expectErrorCode } from './api-error-helpers';
+import { seedAllTestRules } from './seed-test-rules';
 
 let cookie: string;
 
@@ -16,6 +17,8 @@ beforeAll(async () => {
 beforeEach(async () => {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM receipt_group_requests'),
+    env.DB.prepare('DELETE FROM rule_entries'),
+    env.DB.prepare('DELETE FROM rule_sets'),
     env.DB.prepare('DELETE FROM receipt_membership'),
     env.DB.prepare('DELETE FROM purchase_order_components'),
     env.DB.prepare('DELETE FROM purchase_orders'),
@@ -37,6 +40,7 @@ beforeEach(async () => {
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     ),
   ]);
+  await seedAllTestRules(env.DB);
 });
 
 async function api(method: string, path: string, body?: unknown): Promise<Response> {
@@ -243,11 +247,16 @@ describe('purchase orders API', () => {
 
     const empty = await api('GET', '/api/v2/backup/export');
     await api('DELETE', `/api/v2/purchase-orders/${order.id}`);
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM rule_entries'),
+      env.DB.prepare('DELETE FROM rule_sets'),
+    ]);
     const emptyRes = await api('GET', '/api/v2/backup/export');
     const emptyBody = await emptyRes.json() as { tables: Record<string, unknown> };
     expect(emptyBody.tables.purchase_orders).toBeUndefined();
     expect(v235TableGate(emptyBody)).toBe(true);
     expect(empty.status).toBe(200);
+    await seedAllTestRules(env.DB);
 
     await api('POST', '/api/v2/purchase-orders', {
       provider: 'wolt', provider_order_id: 'synthorder0001', order_total_minor: 1334,

@@ -2,9 +2,27 @@ import i18n from './i18n';
 import { parseApiError } from '../shared/api-errors';
 import { IMPORT_UNDO_PHRASE } from '../shared/statement-import/types';
 
-function localizeApiError(body, status) {
+export function localizeApiError(body, status) {
   const parsed = parseApiError(body);
   if (parsed) {
+    if (parsed.code === 'MISSING_CONFIGURATION') {
+      const domain = parsed.params?.domain;
+      if (domain === 'currency_standards') {
+        if (parsed.params?.currency) {
+          return i18n.t('missingConfigAction.currencyCode', { currency: parsed.params.currency });
+        }
+        return i18n.t('missingConfigAction.currencyStandards');
+      }
+      if (domain === 'pdf_layouts') {
+        return i18n.t('missingConfigAction.pdfLayouts');
+      }
+      if (domain === 'statement_templates') {
+        return i18n.t('missingConfigAction.statementTemplates');
+      }
+      if (domain === 'fiscal_formats') {
+        return i18n.t('missingConfigAction.fiscalFormats');
+      }
+    }
     const key = `errors.${parsed.code}`;
     if (i18n.exists(key)) return i18n.t(key, parsed.params || {});
     return parsed.message;
@@ -73,6 +91,7 @@ export const api = {
     request(`/api/v2/accounts/${id}/aliases/${aliasId}`, { method: 'DELETE' }),
 
   listFxRates: () => request('/api/v2/fx-rates'),
+  refreshFxRates: () => request('/api/v2/fx-rates/refresh', { method: 'POST' }),
   putFxRate: (code, rate) =>
     request(`/api/v2/fx-rates/${code}`, { method: 'PUT', body: JSON.stringify({ rate }) }),
   deleteFxRate: (code) => request(`/api/v2/fx-rates/${code}`, { method: 'DELETE' }),
@@ -119,6 +138,9 @@ export const api = {
   getSettings: () => request('/api/v2/settings'),
   putSetting: (key, value) =>
     request(`/api/v2/settings/${key}`, { method: 'PUT', body: JSON.stringify({ value }) }),
+  getCronSchedule: () => request('/api/v2/cron-schedule'),
+  updateCronSchedule: (payload) =>
+    request('/api/v2/cron-schedule', { method: 'PUT', body: JSON.stringify(payload) }),
 
   exportBackup: () => request('/api/v2/backup/export'),
   exportBackupCompat: () => request('/api/v2/backup/export?compat=v2.35'),
@@ -232,5 +254,104 @@ export const api = {
         ...(options.confirm_last ? { body: JSON.stringify({ confirm_last: true }) } : {}),
       },
     ),
+
+  // Runtime configuration & versioned D1 rules
+  getRuntimeConfig: (query = {}) => {
+    const params = new URLSearchParams();
+    if (query.locale) params.set('locale', query.locale);
+    if (query.country) params.set('country', query.country);
+    if (query.as_of_date) params.set('as_of_date', query.as_of_date);
+    const suffix = params.toString();
+    return request(`/api/v2/config/runtime${suffix ? `?${suffix}` : ''}`);
+  },
+  listRuleSets: (query = {}) => {
+    const params = new URLSearchParams();
+    if (query.domain) params.set('domain', query.domain);
+    if (query.state) params.set('state', query.state);
+    if (query.scope_country) params.set('scope_country', query.scope_country);
+    if (query.scope_locale !== undefined && query.scope_locale !== null && query.scope_locale !== '') {
+      params.set('scope_locale', query.scope_locale);
+    }
+    if (query.set_key) params.set('set_key', query.set_key);
+    const suffix = params.toString();
+    return request(`/api/v2/rules/sets${suffix ? `?${suffix}` : ''}`);
+  },
+  createRuleSet: (body) =>
+    request('/api/v2/rules/sets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Money-Flow': '1', 'X-Money-Flow-Source': 'ui' },
+      body: JSON.stringify(body),
+    }),
+  getRuleSet: (id) => request(`/api/v2/rules/sets/${id}`),
+  updateRuleSet: (id, body) =>
+    request(`/api/v2/rules/sets/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'X-Money-Flow': '1', 'X-Money-Flow-Source': 'ui' },
+      body: JSON.stringify(body),
+    }),
+  deleteRuleSet: (id, revision) =>
+    request(`/api/v2/rules/sets/${id}${revision ? `?revision=${revision}` : ''}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', 'X-Money-Flow': '1', 'X-Money-Flow-Source': 'ui' },
+    }),
+  activateRuleSet: (id, revision) =>
+    request(`/api/v2/rules/sets/${id}/activate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Money-Flow': '1', 'X-Money-Flow-Source': 'ui' },
+      body: JSON.stringify(revision ? { revision } : {}),
+    }),
+  retireRuleSet: (id, revision) =>
+    request(`/api/v2/rules/sets/${id}/retire`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Money-Flow': '1', 'X-Money-Flow-Source': 'ui' },
+      body: JSON.stringify(revision ? { revision } : {}),
+    }),
+  cloneRuleSet: (id, body = {}) =>
+    request(`/api/v2/rules/sets/${id}/clone`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Money-Flow': '1', 'X-Money-Flow-Source': 'ui' },
+      body: JSON.stringify(body),
+    }),
+  upsertRuleEntry: (setId, body, entryId = null) =>
+    request(
+      entryId ? `/api/v2/rules/sets/${setId}/entries/${entryId}` : `/api/v2/rules/sets/${setId}/entries`,
+      {
+        method: entryId ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Money-Flow': '1', 'X-Money-Flow-Source': 'ui' },
+        body: JSON.stringify(body),
+      },
+    ),
+  deleteRuleEntry: (setId, entryId, revision) =>
+    request(`/api/v2/rules/sets/${setId}/entries/${entryId}${revision ? `?set_revision=${revision}` : ''}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', 'X-Money-Flow': '1', 'X-Money-Flow-Source': 'ui' },
+    }),
+  previewRuleMatch: (body) =>
+    request('/api/v2/rules/preview', { method: 'POST', body: JSON.stringify(body) }),
+  exportRulesBundle: (query = {}) => {
+    const params = new URLSearchParams();
+    if (query.domain) params.set('domain', query.domain);
+    const suffix = params.toString();
+    return request(`/api/v2/rules/export${suffix ? `?${suffix}` : ''}`);
+  },
+  importRulesBundle: (body) =>
+    request('/api/v2/rules/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Money-Flow': '1', 'X-Money-Flow-Source': 'ui' },
+      body: JSON.stringify(body),
+    }),
+  listRecurringPolicies: () => request('/api/v2/rules/recurring-policies'),
+  createRecurringPolicy: (body) =>
+    request('/api/v2/rules/recurring-policies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Money-Flow': '1', 'X-Money-Flow-Source': 'ui' },
+      body: JSON.stringify(body),
+    }),
+  updateRecurringPolicyState: (id, body) =>
+    request(`/api/v2/rules/recurring-policies/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'X-Money-Flow': '1', 'X-Money-Flow-Source': 'ui' },
+      body: JSON.stringify(body),
+    }),
 };
 

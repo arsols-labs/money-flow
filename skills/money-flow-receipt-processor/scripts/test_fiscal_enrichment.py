@@ -152,7 +152,8 @@ class FetchTests(unittest.TestCase):
         ):
             with self.assertRaises(TimeoutError):
                 fe.fetch_fiscal_page(
-                    "https://suf.purs.gov.rs/v/?vl=synthetic",
+                    "https://fiscal.example/v/?vl=synthetic",
+             allowed_hosts=["fiscal.example"],
                     timeout=0.02,
                 )
         self.assertLess(time.monotonic() - started, 0.5)
@@ -165,7 +166,8 @@ class FetchTests(unittest.TestCase):
         ):
             with self.assertRaises(fe.FiscalNetworkError):
                 fe.fetch_fiscal_page(
-                    "https://suf.purs.gov.rs/v/?vl=synthetic",
+                    "https://fiscal.example/v/?vl=synthetic",
+             allowed_hosts=["fiscal.example"],
                 )
 
     def test_late_dns_result_is_rejected_before_connection(self):
@@ -185,7 +187,8 @@ class FetchTests(unittest.TestCase):
 
         with self.assertRaises(TimeoutError):
             fe.fetch_fiscal_page(
-                "https://suf.purs.gov.rs/v/?vl=synthetic",
+                "https://fiscal.example/v/?vl=synthetic",
+                    allowed_hosts=["fiscal.example"],
                 resolver=late_resolver,
                 connection_factory=forbidden_factory,
                 timeout=2,
@@ -196,7 +199,8 @@ class FetchTests(unittest.TestCase):
     def test_pins_dns_and_fetches_identity_utf8_html(self):
         events = []
         result = fe.fetch_fiscal_page(
-            "https://suf.purs.gov.rs/v/?vl=synthetic",
+            "https://fiscal.example/v/?vl=synthetic",
+             allowed_hosts=["fiscal.example"],
             resolver=public_resolver,
             connection_factory=self.factory(FakeResponse(), events),
         )
@@ -221,7 +225,8 @@ class FetchTests(unittest.TestCase):
             return FakeConnection(FakeResponse(), events)
 
         result = fe.fetch_fiscal_page(
-            "https://suf.purs.gov.rs/v/?vl=synthetic",
+            "https://fiscal.example/v/?vl=synthetic",
+             allowed_hosts=["fiscal.example"],
             resolver=resolver,
             connection_factory=factory,
             timeout=10,
@@ -254,7 +259,8 @@ class FetchTests(unittest.TestCase):
 
         with self.assertRaises(TimeoutError):
             fe.fetch_fiscal_page(
-                "https://suf.purs.gov.rs/v/?vl=synthetic",
+                "https://fiscal.example/v/?vl=synthetic",
+                    allowed_hosts=["fiscal.example"],
                 resolver=resolver,
                 connection_factory=factory,
                 timeout=2,
@@ -266,7 +272,7 @@ class FetchTests(unittest.TestCase):
 
     def test_pinned_connection_requires_matching_peer_and_verified_hostname(self):
         connection = fe.PinnedHTTPSConnection(
-            "suf.purs.gov.rs",
+            "fiscal.example",
             443,
             "93.184.216.34",
             1,
@@ -294,7 +300,8 @@ class FetchTests(unittest.TestCase):
         )
         with self.assertRaises(fe.FiscalSecurityError):
             fe.fetch_fiscal_page(
-                "https://suf.purs.gov.rs/v/?vl=synthetic",
+                "https://fiscal.example/v/?vl=synthetic",
+                    allowed_hosts=["fiscal.example"],
                 resolver=public_resolver,
                 connection_factory=self.factory(response, events),
             )
@@ -335,7 +342,8 @@ class FetchTests(unittest.TestCase):
                 fe.FiscalSecurityError
             ):
                 fe.fetch_fiscal_page(
-                    "https://suf.purs.gov.rs/v/?vl=synthetic",
+                    "https://fiscal.example/v/?vl=synthetic",
+             allowed_hosts=["fiscal.example"],
                     resolver=public_resolver,
                     connection_factory=self.factory(response, []),
                 )
@@ -351,7 +359,7 @@ class ParserTests(unittest.TestCase):
         self.assertEqual([item["total_minor"] for item in parsed["items"]], [5000, 15100])
 
     def test_parses_current_official_page_shape_and_journal_items(self):
-        parsed = fe.parse_fiscal_journal(REAL_SHAPE_HTML)
+        parsed = fe.parse_fiscal_journal(REAL_SHAPE_HTML, default_currency="RSD")
         self.assertEqual(parsed["merchant"], "1000000-001-TEST")
         self.assertEqual(parsed["date"], "2026-08-24")
         self.assertEqual(
@@ -360,7 +368,7 @@ class ParserTests(unittest.TestCase):
         )
         self.assertEqual(parsed["total_minor"], 150000)
         self.assertEqual(parsed["currency"], "RSD")
-        self.assertEqual(parsed["currency_source"], "serbian-fiscal-default")
+        self.assertEqual(parsed["currency_source"], "format-default")
         self.assertEqual(
             [(item["quantity"], item["total_minor"]) for item in parsed["items"]],
             [(1, 50000), (2, 100000)],
@@ -416,7 +424,9 @@ class EnrichmentTests(unittest.TestCase):
     def test_enriches_fiscal_fields_and_preserves_scan_payment_fields(self):
         result = fe.enrich(
             {
-                "qr_url": "https://suf.purs.gov.rs/v/?vl=x",
+                "qr_url": "https://fiscal.example/v/?vl=x",
+                "allowed_fiscal_hosts": ["fiscal.example"],
+                "default_currency": "RSD",
                 "scan_receipt": SCAN,
                 "known_fiscal_receipt_ids": [],
             },
@@ -431,7 +441,9 @@ class EnrichmentTests(unittest.TestCase):
     def test_exact_fiscal_id_is_a_hard_duplicate(self):
         result = fe.enrich(
             {
-                "qr_url": "https://suf.purs.gov.rs/v/?vl=x",
+                "qr_url": "https://fiscal.example/v/?vl=x",
+                "allowed_fiscal_hosts": ["fiscal.example"],
+                "default_currency": "RSD",
                 "scan_receipt": SCAN,
                 "known_fiscal_receipt_ids": ["123/150493ПР"],
             },
@@ -443,7 +455,9 @@ class EnrichmentTests(unittest.TestCase):
         mismatched_scan = dict(SCAN, total_minor=99900)
         mismatched = fe.enrich(
             {
-                "qr_url": "https://suf.purs.gov.rs/v/?vl=x",
+                "qr_url": "https://fiscal.example/v/?vl=x",
+                "allowed_fiscal_hosts": ["fiscal.example"],
+                "default_currency": "RSD",
                 "scan_receipt": mismatched_scan,
                 "known_fiscal_receipt_ids": ["123/150493ПР"],
             },
@@ -456,7 +470,9 @@ class EnrichmentTests(unittest.TestCase):
         scan = dict(SCAN, fiscal_receipt_id="SCAN-ID")
         result = fe.enrich(
             {
-                "qr_url": "https://suf.purs.gov.rs/v/?vl=x",
+                "qr_url": "https://fiscal.example/v/?vl=x",
+                "allowed_fiscal_hosts": ["fiscal.example"],
+                "default_currency": "RSD",
                 "scan_receipt": scan,
             },
             fetch_fn=lambda url: COMPLETE_HTML,
@@ -465,7 +481,7 @@ class EnrichmentTests(unittest.TestCase):
         self.assertEqual(result["receipt"], scan)
 
     def test_merge_preserves_fiscal_currency_provenance(self):
-        fiscal = fe.parse_fiscal_journal(REAL_SHAPE_HTML)
+        fiscal = fe.parse_fiscal_journal(REAL_SHAPE_HTML, default_currency="RSD")
         merged, mismatch = fe.merge_fiscal_and_scan(
             fiscal,
             dict(SCAN, total_minor=150000, currency_source="scan"),
@@ -473,14 +489,16 @@ class EnrichmentTests(unittest.TestCase):
         self.assertIsNone(mismatch)
         self.assertEqual(
             merged["currency_source"],
-            "serbian-fiscal-default",
+            "format-default",
         )
 
     def test_network_parser_and_cross_source_failures_use_full_scan(self):
         mismatch = dict(SCAN, total_minor=99900)
         network = fe.enrich(
             {
-                "qr_url": "https://suf.purs.gov.rs/v/?vl=x",
+                "qr_url": "https://fiscal.example/v/?vl=x",
+                "allowed_fiscal_hosts": ["fiscal.example"],
+                "default_currency": "RSD",
                 "scan_receipt": SCAN,
                 "breaker": {"consecutive_failures": 1},
             },
@@ -492,7 +510,9 @@ class EnrichmentTests(unittest.TestCase):
 
         dns_failure = fe.enrich(
             {
-                "qr_url": "https://suf.purs.gov.rs/v/?vl=x",
+                "qr_url": "https://fiscal.example/v/?vl=x",
+                "allowed_fiscal_hosts": ["fiscal.example"],
+                "default_currency": "RSD",
                 "scan_receipt": SCAN,
                 "breaker": {"consecutive_failures": 1},
             },
@@ -518,7 +538,9 @@ class EnrichmentTests(unittest.TestCase):
 
         protocol_rejection = fe.enrich(
             {
-                "qr_url": "https://suf.purs.gov.rs/v/?vl=x",
+                "qr_url": "https://fiscal.example/v/?vl=x",
+                "allowed_fiscal_hosts": ["fiscal.example"],
+                "default_currency": "RSD",
                 "scan_receipt": SCAN,
                 "breaker": {"consecutive_failures": 1},
             },
@@ -541,7 +563,9 @@ class EnrichmentTests(unittest.TestCase):
             with self.subTest(scan=scan, fetch=fetch):
                 result = fe.enrich(
                     {
-                        "qr_url": "https://suf.purs.gov.rs/v/?vl=x",
+                        "qr_url": "https://fiscal.example/v/?vl=x",
+                "allowed_fiscal_hosts": ["fiscal.example"],
+                "default_currency": "RSD",
                         "scan_receipt": scan,
                         "breaker": {"consecutive_failures": 1},
                     },
@@ -618,7 +642,9 @@ class EnrichmentTests(unittest.TestCase):
 
     def test_consecutive_failures_open_the_next_run(self):
         payload = {
-            "qr_url": "https://suf.purs.gov.rs/v/?vl=x",
+            "qr_url": "https://fiscal.example/v/?vl=x",
+                "allowed_fiscal_hosts": ["fiscal.example"],
+                "default_currency": "RSD",
             "scan_receipt": SCAN,
             "breaker": {
                 "consecutive_failures": 2,

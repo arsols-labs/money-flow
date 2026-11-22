@@ -3,6 +3,7 @@
 // series and warnings. The split is deliberate: the core is tested without a
 // database (test/forecast-build.test.ts), and the API (api.ts) only glues
 // load.ts → buildForecast → JSON.
+import type { CurrencyCatalog } from '../../shared/currency';
 import { addDays } from './dates';
 import { makeConverter } from './convert';
 import type { ForecastAccount, ForecastFlow } from './load';
@@ -12,6 +13,8 @@ export interface BuildForecastInput {
   flows: ForecastFlow[];
   ratesE9: Map<string, number>;
   baseCurrency: string;
+  fxAnchorCurrency?: string | null;
+  currencyCatalog?: CurrencyCatalog;
   asOfDate: string;
   horizonDays: number; // 1..366
   lowBalanceThresholdMinor: bigint;
@@ -81,7 +84,10 @@ export function buildForecast(input: BuildForecastInput): BuildForecastResult {
   // conversion — that is, exactly when a rate was actually needed by someone,
   // not for every currency encountered in the data (see the makeConverter docblock).
   const missingRatesSet = new Set<string>();
-  const convert = makeConverter(ratesE9, baseCurrency, (code) => missingRatesSet.add(code));
+  const convert = makeConverter(ratesE9, baseCurrency, (code) => missingRatesSet.add(code), {
+    fxAnchorCurrency: input.fxAnchorCurrency ?? input.currencyCatalog?.fxAnchorCode ?? null,
+    currencyCatalog: input.currencyCatalog,
+  });
 
   // ---------- flows → account currency, daily series by account ----------
 

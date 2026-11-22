@@ -1,37 +1,46 @@
-// Amount conversion between currencies through rates against the base.
+// Amount conversion between currencies through rates against the configured FX anchor.
 //
 // A separate module, not a private function of build.ts, because two callers
 // convert and they do it differently: the forecast core (build.ts) converts
 // aggregates by account groups, and the `/forecast` route (api.ts) converts
-// amounts of individual upcoming operations for the `upcoming` section. While
-// those were two implementations, they could diverge in rounding and in the
-// meaning of "no rate" — and they would diverge silently, because both emit
-// a plausible number. Here there is one path (Law 3).
+// amounts of individual upcoming operations for the `upcoming` section. Here
+// there is one path (Law 3).
 import { IDENTITY_RATE, convertMinor, rateFromE9, type FxRate } from './fx';
-import { fractionDigits } from '../../shared/currency';
+import {
+  EMPTY_CURRENCY_CATALOG,
+  tryFractionDigits,
+  type CurrencyCatalog,
+} from '../../shared/currency';
 
 export interface Converter {
-  /** `null` means "no rate for at least one side", not "zero". */
+  /** `null` means "no rate or missing currency standard for at least one side", not "zero". */
   (amountMinor: bigint, from: string, to: string): bigint | null;
+}
+
+export interface ConverterOptions {
+  fxAnchorCurrency?: string | null;
+  currencyCatalog?: CurrencyCatalog;
+  onMissingCurrencyStandard?: (code: string) => void;
 }
 
 /**
  * Converter over the rate table `code -> rate_e9`.
  *
- * `onMissingRate` is called exactly when a rate was actually needed and was
- * missing — that is, the "currencies without a rate" list is collected by
- * actual need, not by the mere presence of a currency in the data. The
- * difference shows up on an account in the base currency with an operation in
- * that same currency: no conversion is needed there at all, and there is
- * nothing to report about a missing rate.
+ * `onMissingRate` is called when an FX rate is needed and missing (or FX anchor is unconfigured).
+ * Currency minor-unit exponents come strictly from `currencyCatalog`; missing currency standards
+ * fail closed (return `null`) instead of assuming 2 decimals.
  */
 export function makeConverter(
   ratesE9: Map<string, number>,
-  baseCurrency: string,
+  _baseCurrency: string | null,
   onMissingRate?: (code: string) => void,
+  options: ConverterOptions = {},
 ): Converter {
+  const catalog = options.currencyCatalog ?? EMPTY_CURRENCY_CATALOG;
+  const fxAnchor = options.fxAnchorCurrency ?? catalog.fxAnchorCode ?? null;
+
   function rateOf(code: string): FxRate | null {
-    if (code === 'USD') return IDENTITY_RATE;
+    if (fxAnchor && code === fxAnchor) return IDENTITY_RATE;
     const e9 = ratesE9.get(code);
     if (e9 === undefined) {
       onMissingRate?.(code);
@@ -41,20 +50,26 @@ export function makeConverter(
   }
 
   return (amountMinor, from, to) => {
-    // Identical codes are returned as-is — without a pass through
-    // BigInt math: there is no reason to pay ROUND_HALF_EVEN rounding for an
-    // identity conversion, and a rate is not needed for it (see rateOf above).
     if (from === to) return amountMinor;
+    const fromDigits = tryFractionDigits(from, catalog);
+    const toDigits = tryFractionDigits(to, catalog);
+    if (fromDigits === null) {
+      options.onMissingCurrencyStandard?.(from);
+      onMissingRate?.(from);
+    }
+    if (toDigits === null) {
+      options.onMissingCurrencyStandard?.(to);
+      onMissingRate?.(to);
+    }
     const sourceRate = rateOf(from);
     const targetRate = rateOf(to);
-    // Both rateOf calls happen BEFORE the check on purpose: when both sides
-    // lack a rate, the owner must see both currencies in missing_rates, not
-    // only the first.
-    if (sourceRate === null || targetRate === null) return null;
+    if (fromDigits === null || toDigits === null || sourceRate === null || targetRate === null) {
+      return null;
+    }
     return convertMinor(
       amountMinor,
-      { rate: sourceRate, currency: { exponent: fractionDigits(from) } },
-      { rate: targetRate, currency: { exponent: fractionDigits(to) } },
+      { rate: sourceRate, currency: { exponent: fromDigits } },
+      { rate: targetRate, currency: { exponent: toDigits } },
     );
   };
 }

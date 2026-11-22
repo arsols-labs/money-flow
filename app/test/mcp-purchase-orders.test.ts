@@ -5,6 +5,7 @@ import mcpApp from '../src/worker/mcp-server';
 import { createSessionCookie } from '../src/worker/auth';
 import type { Env } from '../src/worker/types';
 import { PURCHASE_ORDERS_EPOCH_KEY } from '../src/shared/purchase-orders';
+import { seedAllTestRules } from './seed-test-rules';
 
 const typedEnv = env as unknown as Env;
 const clientId = 'client-purchase-orders';
@@ -27,8 +28,11 @@ beforeEach(async () => {
     env.DB.prepare('DELETE FROM accounts'),
     env.DB.prepare('DELETE FROM oauth_tokens'),
     env.DB.prepare('DELETE FROM oauth_clients'),
+    env.DB.prepare('DELETE FROM rule_entries'),
+    env.DB.prepare('DELETE FROM rule_sets'),
     env.DB.prepare('DELETE FROM settings WHERE key = ?').bind(PURCHASE_ORDERS_EPOCH_KEY),
   ]);
+  await seedAllTestRules(env.DB);
   await env.DB.prepare(
     `INSERT INTO oauth_clients (id, name, created_at) VALUES (?, 'Purchase orders', datetime('now'))`,
   ).bind(clientId).run();

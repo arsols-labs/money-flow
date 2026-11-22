@@ -17,7 +17,7 @@ import { timingSafeEqualString } from './crypto-eq';
 import { readDemoSessionId } from './demo-cookie';
 import { isDemoMode } from './demo-flag';
 
-const RP_NAME = 'Money Flow v2';
+const RP_NAME = 'Money Flow';
 const USER_NAME = 'alex';
 const USER_ID = new Uint8Array(new TextEncoder().encode('money-flow-v2-owner'));
 const KV_CREDENTIALS = 'webauthn_credentials';

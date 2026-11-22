@@ -6,12 +6,17 @@ import React, { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pause, Play, Plus, Trash2, ChevronDown, ChevronRight, Check, SkipForward } from 'lucide-react';
 import { api } from './api';
-import { SectionSkeleton,  DataSection, useLoadWhenExpanded  } from './components';
+import { SectionSkeleton, DataSection, InfoToggletip, useLoadWhenExpanded } from './components';
 import { useRefreshNonce } from './RefreshContext';
 import { formatMinor, minorToInputString, parseAmountToMinor } from './money';
 import { describeRecurrence, describeDueDate, FREQUENCY_OPTIONS, formatDayMonth, intervalUnitLabel, todayDateString } from './recurrence';
 import { DATA_BLOCK_DEFS } from './dataLayout';
 import { blockTitle } from './i18nLabels';
+import {
+  CRON_DEFAULT_HOUR,
+  CRON_DEFAULT_TIMEZONE,
+  formatCronHour,
+} from '../shared/cron-schedule';
 
 
 function accountLabel(account, t) {
@@ -161,7 +166,14 @@ function PeriodCloseForm({ item, accounts, onSubmit, onCancel }) {
   );
 }
 
-export function RecurringItemForm({ initial = null, accounts, onSubmit, onCancel, submitLabel }) {
+export function RecurringItemForm({
+  initial = null,
+  accounts,
+  onSubmit,
+  onCancel,
+  submitLabel,
+  cronSchedule = null,
+}) {
   const { t } = useTranslation();
   const isEdit = Boolean(initial);
   const [form, setForm] = useState(() => ({
@@ -175,6 +187,8 @@ export function RecurringItemForm({ initial = null, accounts, onSubmit, onCancel
     day_of_month: initial?.day_of_month != null ? String(initial.day_of_month) : '',
     next_due_date: initial?.next_due_date ?? todayDateString(),
     end_date: initial?.end_date ?? '',
+    auto_skip_overdue: Boolean(initial?.auto_skip_overdue),
+    auto_skip_after_days: String(initial?.auto_skip_after_days != null ? initial.auto_skip_after_days : 1),
   }));
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -231,6 +245,19 @@ export function RecurringItemForm({ initial = null, accounts, onSubmit, onCancel
     }
     if (minor === 0) { setError(t('data.recurring.amountNonZero')); return; }
 
+    const rawAfterDays = form.auto_skip_after_days.trim();
+    const parsedAfterDays = rawAfterDays === '' ? 1 : Number(rawAfterDays);
+    if (
+      form.auto_skip_overdue
+      && (!Number.isInteger(parsedAfterDays) || parsedAfterDays < 1 || parsedAfterDays > 365)
+    ) {
+      setError(t('data.recurring.autoSkipAfterDaysRange'));
+      return;
+    }
+    const autoSkipAfterDays = Number.isInteger(parsedAfterDays) && parsedAfterDays >= 1 && parsedAfterDays <= 365
+      ? parsedAfterDays
+      : 1;
+
     const payload = {
       title,
       amount_minor: form.kind === 'expense' ? -minor : minor,
@@ -238,6 +265,8 @@ export function RecurringItemForm({ initial = null, accounts, onSubmit, onCancel
       frequency: form.frequency,
       interval_count: intervalCount,
       next_due_date: form.next_due_date,
+      auto_skip_overdue: Boolean(form.auto_skip_overdue),
+      auto_skip_after_days: autoSkipAfterDays,
     };
     if (hasDayAnchor) payload.day_of_month = dayOfMonth;
     const category = form.category.trim();
@@ -395,6 +424,50 @@ export function RecurringItemForm({ initial = null, accounts, onSubmit, onCancel
         />
       </label>
 
+      <div className="recurring-auto-skip-box">
+        <div className="recurring-auto-skip-header">
+          <label className="recurring-auto-skip-toggle">
+            <input
+              type="checkbox"
+              checked={form.auto_skip_overdue}
+              onChange={(e) => setForm((f) => ({ ...f, auto_skip_overdue: e.target.checked }))}
+              disabled={busy}
+            />
+            <span>{t('data.recurring.autoSkipLabel')}</span>
+          </label>
+          <InfoToggletip label={t('data.recurring.autoSkipInfoAria')}>
+            {t('data.recurring.autoSkipInfoText')}
+          </InfoToggletip>
+        </div>
+
+        <p className="data-form-note recurring-auto-skip-schedule">
+          {t('data.recurring.autoSkipScheduleHint', {
+            time: formatCronHour(cronSchedule?.recurring_auto_skip_hour ?? CRON_DEFAULT_HOUR),
+            timezone: cronSchedule?.timezone || CRON_DEFAULT_TIMEZONE,
+          })}{' '}
+          <a href="#/data/schedule" className="data-fx-link">
+            {t('data.rates.changeSchedule')}
+          </a>
+        </p>
+
+        {form.auto_skip_overdue && (
+          <label className="data-form-field">
+            <span>{t('data.recurring.fieldAutoSkipAfterDays')}</span>
+            <input
+              type="number"
+              min="1"
+              max="365"
+              value={form.auto_skip_after_days}
+              onChange={set('auto_skip_after_days')}
+              disabled={busy}
+            />
+            <span className="data-form-note">
+              {t('data.recurring.autoSkipAfterDaysHint')}
+            </span>
+          </label>
+        )}
+      </div>
+
       {error && <div className="data-form-error">{error}</div>}
       <div className="data-form-actions">
         <button type="submit" className="btn-primary" disabled={busy}>
@@ -416,11 +489,15 @@ function RecurringRow({
   onSkipPeriod,
   onPauseToggle,
   onDelete,
+  cronSchedule = null,
 }) {
   const { t } = useTranslation();
   const [showCloseForm, setShowCloseForm] = useState(false);
   const account = findAccount(accounts, item.account_id);
-  const meta = [describeRecurrence(item), account?.name].filter(Boolean).join(' · ');
+  const autoSkipMeta = item.auto_skip_overdue
+    ? t('data.recurring.autoSkipMeta', { days: item.auto_skip_after_days ?? 1 })
+    : '';
+  const meta = [describeRecurrence(item), autoSkipMeta, account?.name].filter(Boolean).join(' · ');
   const isExpense = item.amount_minor < 0;
   const due = describeDueDate(item.next_due_date);
 
@@ -530,7 +607,14 @@ function RecurringRow({
             </div>
           )}
 
-          <RecurringItemForm initial={item} accounts={accounts} submitLabel={t('data.recurring.saveRule')} onSubmit={onUpdate} onCancel={onToggle} />
+          <RecurringItemForm
+            initial={item}
+            accounts={accounts}
+            submitLabel={t('data.recurring.saveRule')}
+            onSubmit={onUpdate}
+            onCancel={onToggle}
+            cronSchedule={cronSchedule}
+          />
           <div className="data-row-actions">
             <button type="button" className="btn-secondary" onClick={onPauseToggle}>
               {item.active
@@ -558,6 +642,7 @@ export default function RecurringSection({
   filter = {},
   pausedOpen: propPausedOpen,
   onTogglePausedOpen,
+  cronSchedule = null,
 }) {
   const { t } = useTranslation();
   const refreshNonce = useRefreshNonce();
@@ -673,6 +758,7 @@ export default function RecurringSection({
     onSkipPeriod: () => handleSkipPeriod(item),
     onPauseToggle: () => handlePauseToggle(item),
     onDelete: () => handleDelete(item),
+    cronSchedule,
   });
 
   return (
@@ -711,7 +797,13 @@ export default function RecurringSection({
           )}
 
           {showNew && !noAccounts && (
-            <RecurringItemForm accounts={accounts} submitLabel={t('common.create')} onSubmit={handleCreate} onCancel={() => setShowNew(false)} />
+            <RecurringItemForm
+              accounts={accounts}
+              submitLabel={t('common.create')}
+              onSubmit={handleCreate}
+              onCancel={() => setShowNew(false)}
+              cronSchedule={cronSchedule}
+            />
           )}
 
           {active.length === 0 && !showNew && (

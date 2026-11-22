@@ -529,11 +529,15 @@
       },
       "rates": {
         "title": "Kursevi",
-        "description": "Ručni kursevi prema osnovnoj valuti"
+        "description": "Ručni ili dnevni automatski kursevi prema osnovnoj valuti"
       },
       "forecast": {
         "title": "Prognoza",
         "description": "Prag niskog salda u osnovnoj valuti"
+      },
+      "rules": {
+        "title": "Pravila i referentna podešavanja",
+        "description": "Valute, formati, šabloni, alijasi i poslovna pravila"
       }
     },
     "allSectionsHidden": "Sve sekcije su skrivene u podešavanjima.",
@@ -559,7 +563,7 @@
       "fieldAccountNumber": "Broj računa",
       "placeholderAccountNumber": "IBAN, poslednje 4 cifre ili novčanik…",
       "fieldOwner": "Vlasnik*",
-      "placeholderOwner": "Alex, Porodica, Firma…",
+      "placeholderOwner": "Lično, Porodica, Firma…",
       "fieldCountry": "Zemlja*",
       "placeholderCountry": "Global (ili US, DE, RS, GB, ES, FR, CY, GE, AE, TR, KZ, AM, TH…)",
       "fieldStartingBalance": "Početni saldo",
@@ -602,14 +606,29 @@
       "staleSuffix": " · kurs je zastareo",
       "deleteAria": "Obriši kurs {{code}}",
       "addShort": "Kurs",
-      "manualHint": "Kursevi se unose ručno — u v2.0 nema automatskog ažuriranja.",
+      "autoUpdateToggle": "Automatski ažuriraj kurseve svakog dana ({{time}} {{timezone}})",
+      "autoUpdateHintPrefix": "Opciono dnevno ažuriranje koristi besplatne kurseve bez API ključa preko",
+      "autoUpdateHintSuffix": ". Svaki kurs i dalje možete uneti ili izmeniti ručno.",
+      "refreshNow": "Osveži sada",
+      "refreshing": "Osvežavanje…",
+      "refreshSuccess": "Ažurirano kurseva: {{count}}.",
+      "refreshPartial": "Ažurirano: {{count}}; preskočene nepodržane valute: {{skipped}}.",
+      "refreshNoTargets": "Nema valuta za osvežavanje osim sidrene valute.",
+      "refreshCooldown": "Sačekajte {{seconds}} s pre ponovnog osvežavanja kurseva.",
+      "lastRefresh": "Poslednje osvežavanje: {{when}} · {{status}}",
+      "refreshStatus": {
+        "ok": "U redu",
+        "partial": "Delimično",
+        "error": "Greška"
+      },
       "noBase": "Osnovna valuta nije postavljena — nema u šta da se pretvori.",
       "missingRate_one": "Valuta bez kursa: {{codes}}. Iznosi u njoj ne mogu da se pretvore u {{base}}.",
       "missingRate_other": "Valute bez kursa: {{codes}}. Iznosi u njima ne mogu da se pretvore u {{base}}.",
       "addForCode": "Dodaj kurs {{code}}",
       "empty": "Još nema kurseva",
       "add": "Dodaj kurs",
-      "deleteConfirm": "Obrisati kurs {{code}}?"
+      "deleteConfirm": "Obrisati kurs {{code}}?",
+      "changeSchedule": "Promeni raspored"
     },
     "forecast": {
       "thresholdNegative": "Prag ne može biti negativan",
@@ -1015,7 +1034,15 @@
       "pause": "Pauziraj",
       "resume": "Nastavi",
       "until": " · do {{date}}",
-      "deleteConfirm": "Obrisati ponavljajuću stavku „{{title}}“? Ovo se ne može opozvati."
+      "deleteConfirm": "Obrisati ponavljajuću stavku „{{title}}“? Ovo se ne može opozvati.",
+      "autoSkipLabel": "Opcionalno (automatski pomeraj)",
+      "autoSkipInfoAria": "Kako radi automatsko pomeranje",
+      "autoSkipInfoText": "Za povremene svakodnevne troškove (namirnice, dnevna potrošnja) koji se ne dešavaju uvek. Kada rok zakasni za zadati broj dana, dnevni zadatak označava period kao preskočen i pomera datum bez kreiranja operacije i promene salda. Ostavite isključeno za pretplate koje zahtevaju potvrdu plaćanja.",
+      "fieldAutoSkipAfterDays": "Pomeri posle (dana kašnjenja)",
+      "autoSkipAfterDaysHint": "Ceo broj od 1 do 365 (podrazumevano 1 dan posle datuma dospeća).",
+      "autoSkipAfterDaysRange": "Period kašnjenja mora biti ceo broj od 1 do 365 dana",
+      "autoSkipMeta": "auto-preskok +{{days}}d",
+      "autoSkipScheduleHint": "Planirana dnevna provera: {{time}} {{timezone}}."
     },
     "orders": {
       "provider": "Provajder",
@@ -1102,6 +1129,21 @@
         "missing": "Dokument više nije pronađen",
         "ambiguous": "Ključ odgovara više dokumenata"
       }
+    },
+    "schedule": {
+      "title": "Raspored pozadinskih zadataka",
+      "hint": "Vremenska zona i dnevni sati pokretanja za automatsko osvežavanje kurseva i preskakanje zakasnelih ponavljajućih pravila (najviše jednom u lokalnom kalendarskom danu).",
+      "demoNotice": "Demo režim: pozadinsko cron izvršavanje je isključeno na demo okruženju, dok izmene rasporeda ostaju sačuvane u vašoj tekućoj demo sesiji.",
+      "timezoneLabel": "Vremenska zona (IANA)",
+      "timezoneHint": "Izaberite ili unesite kanonsku IANA vremensku zonu kao što je UTC, Europe/Belgrade ili America/New_York.",
+      "useBrowserTimezone": "Koristi vremensku zonu pregledača",
+      "fxHourLabel": "Sat automatskog osvežavanja kurseva",
+      "recurringHourLabel": "Sat automatskog preskakanja",
+      "lastRunFx": "Poslednje cron osvežavanje kurseva (lokalni datum): {{date}}",
+      "lastRunRecurring": "Poslednje cron preskakanje (lokalni datum): {{date}}",
+      "neverRan": "još nije",
+      "save": "Sačuvaj raspored",
+      "saved": "Raspored sačuvan: {{timezone}} · Kursevi {{fxTime}} · Ponavljajuća {{recurringTime}}."
     }
   },
   "access": {
@@ -1238,7 +1280,7 @@
     "ALIAS_ALREADY_BOUND": "Ovaj alias je već vezan za račun",
     "ALIAS_NOT_FOUND": "Alias nije pronađen na ovom računu",
     "PENDING_ACCOUNT_RESOLVED": "Nepoznati račun je već obrađen ili ne postoji",
-    "CURRENCY_CODE_INVALID": "Kod valute mora imati tačno tri latinična slova (ISO 4217), na primer USD",
+    "CURRENCY_CODE_INVALID": "Kod valute mora imati tačno tri latinična slova , na primer XXX",
     "BASE_CURRENCY_RATE_FORBIDDEN": "Kurs za USD nije potreban: svi kursevi se čuvaju kao usd_per_unit, pa je 1 USD = 1 USD po definiciji. Obrišite red ako već postoji",
     "RATE_REQUIRED": "Pošaljite kurs u polju rate",
     "RATE_INVALID": "Neispravan FX kurs \"{{value}}\" — očekuje se nenegativan decimalni broj sa najviše devet decimala, bez eksponenta i bez predznaka",
@@ -1301,11 +1343,12 @@
     "FIELD_NOT_ZERO": "{{field}} ne može biti nula — operacija bez iznosa nema smisla",
     "INVALID_ISO_DATE": "{{field}} je obavezno i mora biti YYYY-MM-DD string",
     "INVALID_CALENDAR_DATE": "{{field}}: kalendarski datum \"{{value}}\" ne postoji",
-    "INVALID_CURRENCY": "currency mora imati tačno tri latinična slova (ISO 4217), na primer USD",
+    "INVALID_CURRENCY": "currency mora imati tačno tri latinična slova , na primer XXX",
     "INVALID_SORT": "sort mora biti ceo broj unutar ±1 000 000 000",
     "INVALID_KIND": "kind je obavezan i mora biti jedan od: {{values}}",
     "INVALID_FREQUENCY": "frequency je obavezna i mora biti jedna od: {{values}}",
     "INVALID_INTERVAL_COUNT": "interval_count mora biti ceo broj od 1 do 365",
+    "INVALID_AUTO_SKIP_AFTER_DAYS": "auto_skip_after_days mora biti ceo broj od 1 do 365",
     "INVALID_RANGE": "{{field}} mora biti ceo broj od {{min}} do {{max}} ili izostavljen",
     "INVALID_SOURCE": "source mora biti \"manual\", \"receipt\" ili \"agent\"",
     "INVALID_RECEIPT_URL": "receipt_url mora biti http ili https URL od najviše 4096 karaktera",
@@ -1411,7 +1454,21 @@
     "RECEIPT_NOT_IN_GROUP": "Taj račun nije u ovoj grupi",
     "RECEIPT_GROUP_FIELD_INVALID": "Polje {{field}} grupe računa nije ispravno",
     "RECEIPT_GROUP_DATE_MISMATCH": "Računi u novoj grupi moraju biti sa istog kalendarskog datuma",
-    "RECEIPT_GROUP_PLACE_REQUIRED": "Unesite naziv: iz ovih računa se ne može odrediti mesto kupovine"
+    "RECEIPT_GROUP_PLACE_REQUIRED": "Unesite naziv: iz ovih računa se ne može odrediti mesto kupovine",
+    "MISSING_CONFIGURATION": "Pravilo potrebno za ovu radnju još nije dodato. Otvorite „Pravila i referentna podešavanja“ u odeljku Podaci da ga dodate.",
+    "RULE_SET_NOT_FOUND": "Skup pravila nije pronađen",
+    "RULE_ENTRY_NOT_FOUND": "Stavka pravila nije pronađena",
+    "RULE_VALIDATION_FAILED": "Provera pravila nije uspela: {{detail}}",
+    "RULE_CONFLICT": "Konflikt pravila: {{detail}}",
+    "RULE_REGEX_UNSAFE": "Neispravan regex obrazac: {{detail}}",
+    "RULE_REVISION_CONFLICT": "Skup pravila je promenjen u međuvremenu; osvežite",
+    "REVISION_CONFLICT": "Skup pravila je promenjen u međuvremenu; osvežite",
+    "CONFIRMATION_REQUIRED": "Ovaj upis zahteva izričitu potvrdu korisnika (confirm: true)",
+    "FX_PROVIDER_UNAVAILABLE": "Dobavljač kurseva trenutno nije dostupan — postojeći kursevi su sačuvani",
+    "FX_PROVIDER_UNSUPPORTED_ANCHOR": "Sidrena valuta {{currency}} nije podržana od strane automatskog dobavljača kurseva",
+    "SETTING_BOOLEAN_INVALID": "Vrednost mora biti true, false, 1 ili 0",
+    "SETTING_TIMEZONE_INVALID": "Vrednost mora biti važeća IANA vremenska zona (na primer UTC, Europe/Belgrade ili America/New_York)",
+    "SETTING_HOUR_INVALID": "Vrednost mora biti ceo sat od 0 do 23"
   },
   "oauth": {
     "consent": {
@@ -1425,6 +1482,80 @@
       "deny": "Odbij",
       "allow": "Dozvoli pristup",
       "submitting": "Potvrđujemo…"
+    }
+  },
+  "missingConfigAction": {
+    "currencyStandards": "Osnovna valuta ili standardi valuta još nisu podešeni. Podesite ih u odeljku Podaci → Pravila i referentna podešavanja.",
+    "currencyCode": "Valuta {{currency}} još nije dodata. Dodajte je pod Valute u odeljku Pravila i referentna podešavanja.",
+    "pdfLayouts": "Još nije dodat nijedan PDF raspored izvoda. Dodajte PDF raspored u odeljku Pravila i referentna podešavanja da biste uvozili PDF izvode.",
+    "statementTemplates": "Još nije dodat nijedan odgovarajući šablon izvoda. Dodajte šablon u odeljku Pravila i referentna podešavanja ili koristite opšte CSV mapiranje.",
+    "fiscalFormats": "Za ovaj link još nije dodat nijedan format fiskalnog računa. Dodajte ga u odeljku Pravila i referentna podešavanja."
+  },
+  "onboarding": {
+    "bannerTitle": "Potrebno podešavanje valute",
+    "bannerBody": "Dodajte bar jednu valutu i osnovnu kursnu valutu u odeljku Pravila i referentna podešavanja da biste koristili stanja i prognoze.",
+    "openSettings": "Otvori podešavanja",
+    "actionBlocked": "Za ovu radnju je potrebno pravilo koje još nije dodato. Otvorite Podešavanja da ga podesite.",
+    "missingBaseCurrency": "Osnovna valuta ili standardi valuta još nisu podešeni."
+  },
+  "rulesSettings": {
+    "title": "Pravila i referentna podešavanja",
+    "description": "Upravljajte verzionisanim D1 pravilima po državama, standardima, šablonima, PDF rasporedima i ponavljajućim politikama.",
+    "readinessTitle": "Status podešavanja",
+    "configured": "Podešeno",
+    "missing": "Nedostaje",
+    "notAddedYet": "Još nije dodato",
+    "epochLabel": "Epoha pravila {{epoch}}",
+    "domainLabel": "Domen",
+    "countryLabel": "Država",
+    "localeLabel": "Jezik",
+    "stateLabel": "Status",
+    "searchPlaceholder": "Filtriraj pravila…",
+    "createSetTitle": "Napravi skup pravila",
+    "setKeyLabel": "Ključ skupa",
+    "labelField": "Naziv",
+    "effectiveFromLabel": "Važi od",
+    "effectiveToLabel": "Važi do",
+    "priorityLabel": "Prioritet",
+    "allowSharedLabel": "Dozvoli SHARED rezervu",
+    "createSetBtn": "Napravi nacrt",
+    "activate": "Aktiviraj",
+    "retire": "Povući",
+    "clone": "Kloniraj",
+    "addEntry": "Dodaj stavku",
+    "matchTypeLabel": "Tip podudaranja",
+    "matchFieldLabel": "Polje",
+    "patternLabel": "Obrazac",
+    "payloadJsonLabel": "Payload JSON",
+    "saveEntry": "Sačuvaj stavku",
+    "previewTitle": "Test podudaranja",
+    "sampleLabel": "Probni unos",
+    "samplePlaceholder": "Unesite probni tekst…",
+    "runPreview": "Testiraj",
+    "bundleTitle": "Izvoz / uvoz paketa pravila",
+    "exportBundle": "Izvezi JSON",
+    "importBundle": "Uvezi JSON",
+    "importReplaceWarning": "Uvezi paket",
+    "replaceExistingLabel": "Zameni postojeća pravila",
+    "recurringPoliciesTitle": "Politike ponavljanja",
+    "recurringItemIdLabel": "ID ponavljajućeg pravila",
+    "policyTypeLabel": "Tip politike",
+    "addPolicy": "Dodaj politiku",
+    "noSets": "Nema skupova pravila za izabrane filtere",
+    "noEntries": "Nema stavki u ovom skupu",
+    "noPolicies": "Nema podešenih politika ponavljanja",
+    "entryKeyLabel": "Ključ unosa",
+    "domains": {
+      "currency_standards": "Valute",
+      "fiscal_formats": "Formati fiskalnih računa",
+      "merchant_aliases": "Alijasi trgovaca",
+      "delivery_services": "Dostavne službe",
+      "venue_suffixes": "Sufiksi lokacija",
+      "order_hints": "Naznake porudžbina",
+      "category_rules": "Pravila kategorija",
+      "statement_templates": "Šabloni izvoda",
+      "pdf_layouts": "PDF rasporedi",
+      "recurring_policies": "Politike ponavljanja"
     }
   }
 }

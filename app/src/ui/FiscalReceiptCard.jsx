@@ -20,8 +20,8 @@ export default function FiscalReceiptCard({
   const [open, setOpen] = useState(false);
   const calDate = receiptCalendarDate(receipt.date);
   const d = calDate ? new Date(`${calDate}T00:00:00Z`) : new Date(receipt.date);
-  const currency = receipt.account_currency || 'USD';
-  const totalStr = formatMinor(receipt.total_minor, currency);
+  const currency = receipt.account_currency || null;
+  const totalStr = currency ? formatMinor(receipt.total_minor, currency) : String(receipt.total_minor);
   const baseStr = baseMinor !== null && baseMinor !== undefined && baseCurrency
     ? formatMinor(baseMinor, baseCurrency)
     : null;

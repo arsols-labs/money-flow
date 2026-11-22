@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { presetById, STATEMENT_PRESETS } from '../src/shared/statement-import/presets';
 import {
   STATEMENT_TEMPLATE_SCHEMA,
   validateStatementTemplate,
 } from '../src/shared/statement-import/template-schema';
 import {
   BUILTIN_TEMPLATES,
-  builtinAccountAliases,
-  builtinXlsHeaderAliases,
+  mergeAccountAliases,
+  mergeXlsHeaderAliases,
   templateAsPreset,
 } from '../src/shared/statement-import/templates';
 import {
@@ -21,6 +20,85 @@ const schema = STATEMENT_TEMPLATE_SCHEMA as {
   properties: { schemaVersion: { const: number }; format: { enum: string[] } };
 };
 
+const SAMPLE_CSV_TEMPLATE = {
+  schemaVersion: 1,
+  id: 'sample-csv',
+  label: 'Sample CSV',
+  format: 'csv',
+  csv: {
+    mapping: { date: 'Date', description: 'Description', amount: 'Amount', balance: 'Running Bal.' },
+    options: {
+      delimiter: ',',
+      decimalSeparator: '.',
+      dateFormat: 'MM/DD/YYYY',
+      encoding: 'utf-8',
+      hasHeader: true,
+      defaultCurrency: 'USD',
+      skipEmptyAmount: true,
+      checkRunningBalance: true,
+    },
+  },
+} as const;
+
+const SAMPLE_XLS_TEMPLATE = {
+  schemaVersion: 1,
+  id: 'sample-xls',
+  label: 'Sample XLS',
+  format: 'xls',
+  xls: {
+    sheetName: 'Sheet1',
+    accountLabel: 'Account',
+    accountAliases: ['account', 'account number', 'racun', 'broj racuna'],
+    dateFormat: 'DD/MM/YYYY',
+    decimalSeparator: '.',
+    amountMode: 'credit-debit',
+    currencyMode: 'per-row',
+    columns: {
+      valueDate: { index: 1, header: 'Value date' },
+      transactionDate: { index: 2, header: 'Transaction date' },
+      currency: { index: 6, header: 'Currency code' },
+      credit: { index: 8, header: 'Credit' },
+      debit: { index: 10, header: 'Debit' },
+      description: { index: 12, header: 'Description' },
+    },
+    headerAliases: {
+      valueDate: ['value date', 'datum valute'],
+      transactionDate: ['transaction date', 'datum transakcije'],
+      currency: ['currency code', 'sifra valute'],
+      credit: ['credit', 'potrazuje'],
+      debit: ['debit', 'duguje'],
+      description: ['description', 'opis'],
+    },
+    headerVariants: [
+      {
+        id: 'en',
+        columns: {
+          valueDate: { index: 1, header: 'Value date' },
+          transactionDate: { index: 2, header: 'Transaction date' },
+          currency: { index: 6, header: 'Currency code' },
+          credit: { index: 8, header: 'Credit' },
+          debit: { index: 10, header: 'Debit' },
+          description: { index: 12, header: 'Description' },
+        },
+      },
+      {
+        id: 'sr',
+        columns: {
+          valueDate: { index: 1, header: 'Datum valute' },
+          transactionDate: { index: 2, header: 'Datum transakcije' },
+          currency: { index: 6, header: 'Šifra valute' },
+          credit: { index: 8, header: 'Potražuje' },
+          debit: { index: 10, header: 'Duguje' },
+          description: { index: 12, header: 'Opis' },
+        },
+      },
+    ],
+    descriptionFlags: [
+      { id: 'possible_own_account_transfer', pattern: 'otkup strane valute' },
+    ],
+  },
+} as const;
+
 describe('statement template schema', () => {
   it('is versioned and closed to unknown properties', () => {
     expect(schema.additionalProperties).toBe(false);
@@ -28,28 +106,28 @@ describe('statement template schema', () => {
     expect(schema.properties.format.enum).toEqual(['csv', 'xls', 'ofx', 'pdf']);
   });
 
-  it('accepts the built-in files and rejects invalid documents with a path', () => {
-    for (const template of BUILTIN_TEMPLATES) {
-      expect(validateStatementTemplate(template).ok, template.id).toBe(true);
-    }
-    const boa = JSON.parse(JSON.stringify(BUILTIN_TEMPLATES[0])) as Record<string, unknown>;
-    const extra = validateStatementTemplate({ ...boa, note: 'nope' });
+  it('ships zero built-in templates and validates D1 documents cleanly', () => {
+    expect(BUILTIN_TEMPLATES).toEqual([]);
+    expect(validateStatementTemplate(SAMPLE_CSV_TEMPLATE).ok).toBe(true);
+    expect(validateStatementTemplate(SAMPLE_XLS_TEMPLATE).ok).toBe(true);
+    const sample = JSON.parse(JSON.stringify(SAMPLE_CSV_TEMPLATE)) as Record<string, unknown>;
+    const extra = validateStatementTemplate({ ...sample, note: 'nope' });
     expect(extra.ok).toBe(false);
     if (!extra.ok) expect(extra.errors.some((error) => error.path === '/note' && error.message === 'is not allowed')).toBe(true);
 
-    const badId = validateStatementTemplate({ ...boa, id: 'Bad_Bank' });
+    const badId = validateStatementTemplate({ ...sample, id: 'Bad_Bank' });
     expect(badId.ok).toBe(false);
     if (!badId.ok) expect(badId.errors.some((error) => error.path === '/id')).toBe(true);
 
-    expect(validateStatementTemplate({ ...boa, schemaVersion: 2 }).ok).toBe(false);
+    expect(validateStatementTemplate({ ...sample, schemaVersion: 2 }).ok).toBe(false);
     const mixed = validateStatementTemplate({
-      ...boa,
+      ...sample,
       xls: { amountMode: 'credit-debit', currencyMode: 'per-row' },
     });
     expect(mixed.ok).toBe(false);
     if (!mixed.ok) expect(mixed.errors.some((error) => error.path === '/xls')).toBe(true);
 
-    expect(validateStatementTemplate({ ...boa, csv: undefined, format: 'csv' }).ok).toBe(false);
+    expect(validateStatementTemplate({ ...sample, csv: undefined, format: 'csv' }).ok).toBe(false);
   });
 
   it('describes OFX and text-layer PDF templates', () => {
@@ -75,12 +153,17 @@ describe('statement template schema', () => {
   });
 });
 
-describe('built-in template parity', () => {
-  it('keeps the Bank of America preset', () => {
-    expect(STATEMENT_PRESETS.map((preset) => preset.id)).toEqual(['us-bofa', 'us-bofa-pdf', 'rs-bps', 'rs-bps-pdf']);
-    expect(presetById('us-bofa')).toEqual({
-      id: 'us-bofa',
-      label: 'Bank of America',
+describe('D1 statement template conversion and header merging', () => {
+  it('converts validated CSV and XLS templates to StatementPreset and merges aliases from D1 rules', () => {
+    const csvCheck = validateStatementTemplate(SAMPLE_CSV_TEMPLATE);
+    const xlsCheck = validateStatementTemplate(SAMPLE_XLS_TEMPLATE);
+    expect(csvCheck.ok).toBe(true);
+    expect(xlsCheck.ok).toBe(true);
+    if (!csvCheck.ok || !xlsCheck.ok) return;
+
+    expect(templateAsPreset(csvCheck.value)).toEqual({
+      id: 'sample-csv',
+      label: 'Sample CSV',
       format: 'csv',
       mapping: {
         date: 'Date',
@@ -99,41 +182,16 @@ describe('built-in template parity', () => {
         checkRunningBalance: true,
       },
     });
-  });
 
-  it('keeps BPS credit/debit columns, per-row currency, and both header languages', () => {
-    const preset = presetById('rs-bps');
-    expect(preset?.format).toBe('xls');
-    if (preset?.format !== 'xls') return;
-    expect(preset.layout.columns).toEqual({
-      valueDate: { index: 1, header: 'Value date' },
-      transactionDate: { index: 2, header: 'Transaction date' },
-      currency: { index: 6, header: 'Currency code' },
-      credit: { index: 8, header: 'Credit' },
-      debit: { index: 10, header: 'Debit' },
-      description: { index: 12, header: 'Description' },
-    });
-    expect(preset.layout.sheetName).toBe('Sheet1');
-    expect(preset.layout.dateFormat).toBe('DD/MM/YYYY');
-    expect(preset.layout.decimalSeparator).toBe('.');
-    expect(preset.layout.accountLabel).toBe('Account');
-    expect(preset.layout.descriptionFlags).toEqual([
+    const xlsPreset = templateAsPreset(xlsCheck.value);
+    expect(xlsPreset?.format).toBe('xls');
+    if (xlsPreset?.format !== 'xls') return;
+    expect(xlsPreset.layout.columns.credit).toEqual({ index: 8, header: 'Credit' });
+    expect(xlsPreset.layout.descriptionFlags).toEqual([
       { id: 'possible_own_account_transfer', pattern: 'otkup strane valute' },
     ]);
-    expect(builtinXlsHeaderAliases()).toEqual({
-      valueDate: ['value date', 'datum valute'],
-      transactionDate: ['transaction date', 'datum transakcije', 'datum knjizenja', 'datum prometa'],
-      currency: ['currency code', 'oznaka valute', 'sifra valute', 'currency', 'valuta'],
-      credit: ['credit', 'potrazuje', 'potrazivanje', 'odobrenje', 'uplata'],
-      debit: ['debit', 'duguje', 'dugovanje', 'zaduzenje', 'isplata'],
-      description: ['description', 'opis transakcije', 'opis'],
-    });
-    expect([...builtinAccountAliases()]).toEqual(['account', 'account number', 'racun', 'broj racuna']);
-    const bps = BUILTIN_TEMPLATES.find((template) => template.id === 'rs-bps');
-    expect(bps?.xls?.headerVariants?.map((variant) => variant.id)).toEqual(['en', 'sr']);
-    expect(bps?.xls?.headerVariants?.find((variant) => variant.id === 'sr')?.columns.credit.header).toBe('Potražuje');
-    expect(bps?.xls?.amountMode).toBe('credit-debit');
-    expect(bps?.xls?.currencyMode).toBe('per-row');
+    expect(mergeXlsHeaderAliases([xlsCheck.value]).credit).toEqual(['credit', 'potrazuje']);
+    expect(mergeAccountAliases([xlsCheck.value])).toEqual(['account', 'account number', 'racun', 'broj racuna']);
   });
 });
 

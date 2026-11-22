@@ -1,37 +1,57 @@
+import { compileBoundedRegex } from './rules/matcher';
+import type { FiscalFormatPayload, ResolvedRuleEntry } from './rules/types';
+
 /**
  * Canonical fiscal-document identity for duplicate detection.
  *
- * A different receipt URL string is not a different document. Verification
- * links for one receipt vary by parameter order, tracking parameters,
- * percent-encoding, scheme, host case, host alias, and a trailing slash.
- * Only two explicit or extracted fiscal ids that differ are distinct
- * documents. A normalized verification URL can show that two links are the
- * same document. A different opaque `vl`, a PURS host, or any other URL
- * string is not a different document and does not bypass the order-id guard.
+ * All verification URL hosts, query parameters, paths, and fiscal-id patterns
+ * are supplied dynamically from active D1 `fiscal_formats` rules.
  */
 
-const PFR_IN_TEXT = /[A-Za-z0-9]{8}-[A-Za-z0-9]{8}-[0-9]{1,12}/;
-const CANONICAL_PURS_HOST = 'suf.purs.gov.rs';
-
 export type FiscalDocumentIdentity =
-  | { kind: 'pfr'; value: string }
-  | { kind: 'url'; value: string };
+  | { kind: 'pfr'; value: string; format_id?: string }
+  | { kind: 'url'; value: string; format_id: string };
 
-export function normalizeFiscalReceiptId(value: string | null | undefined): string | null {
+export class MissingFiscalFormatConfigError extends Error {
+  readonly code = 'MISSING_CONFIGURATION';
+  readonly domain = 'fiscal_formats';
+
+  constructor(message = 'No active fiscal_formats rules are configured in D1 rules.') {
+    super(message);
+    this.name = 'MissingFiscalFormatConfigError';
+  }
+}
+
+export function normalizeFiscalReceiptId(value: string | null | undefined, uppercase = true): string | null {
   const trimmed = value?.trim();
   if (!trimmed) return null;
-  return trimmed.toUpperCase();
+  return uppercase ? trimmed.toUpperCase() : trimmed;
 }
 
-function isPursHost(hostname: string): boolean {
+function unwrapFormats(
+  formats: ReadonlyArray<FiscalFormatPayload | ResolvedRuleEntry<FiscalFormatPayload>>,
+): FiscalFormatPayload[] {
+  return formats.map((item) => ('payload' in item ? item.payload : item));
+}
+
+function hostMatchesFormat(hostname: string, format: FiscalFormatPayload): boolean {
   const host = hostname.toLowerCase().replace(/\.$/, '').replace(/^www\./, '');
-  return host === 'purs.gov.rs' || host.endsWith('.purs.gov.rs');
+  const allowSubdomains = format.allow_subdomains ?? true;
+  for (const rawAllowed of format.allowed_hosts) {
+    const allowed = rawAllowed.toLowerCase().replace(/\.$/, '').replace(/^www\./, '');
+    if (host === allowed) return true;
+    if (allowSubdomains && host.endsWith(`.${allowed}`)) return true;
+  }
+  return false;
 }
 
-function findPfr(text: string | null | undefined): string | null {
-  if (!text) return null;
-  const match = text.match(PFR_IN_TEXT);
-  return match ? match[0]!.toUpperCase() : null;
+function findFiscalIdInText(text: string | null | undefined, format: FiscalFormatPayload): string | null {
+  if (!text || !format.pfr_in_text_pattern) return null;
+  const regex = compileBoundedRegex(format.pfr_in_text_pattern, 'u');
+  if (!regex) return null;
+  const match = text.slice(0, 4096).match(regex);
+  if (!match?.[0]) return null;
+  return (format.pfr_canonical_uppercase ?? true) ? match[0].toUpperCase() : match[0];
 }
 
 function decodeBase64Payload(value: string): string | null {
@@ -78,14 +98,24 @@ function rawQueryValue(search: string, name: string): string | null {
   return null;
 }
 
-function canonicalOpaqueToken(vl: string): string | null {
-  const decoded = decodeBase64Payload(vl);
-  if (decoded && decoded.length >= 8 && !findPfr(decoded)) return decoded;
-  if (vl.length >= 8 && !findPfr(vl)) return vl;
+function canonicalOpaqueToken(
+  token: string,
+  format: FiscalFormatPayload,
+): string | null {
+  if (format.vl_token_pattern) {
+    const tokenRe = compileBoundedRegex(format.vl_token_pattern, 'u');
+    if (tokenRe && !tokenRe.test(token)) return null;
+  }
+  const decoded = (format.vl_base64_scan ?? true) ? decodeBase64Payload(token) : null;
+  if (decoded && decoded.length >= 8 && !findFiscalIdInText(decoded, format)) return decoded;
+  if (token.length >= 8 && !findFiscalIdInText(token, format)) return token;
   return null;
 }
 
-function identityFromReceiptUrl(value: string | null | undefined): FiscalDocumentIdentity | null {
+export function matchFiscalFormatForUrl(
+  value: string | null | undefined,
+  formats: ReadonlyArray<FiscalFormatPayload | ResolvedRuleEntry<FiscalFormatPayload>> = [],
+): FiscalFormatPayload | null {
   const trimmed = value?.trim();
   if (!trimmed) return null;
   let url: URL;
@@ -96,30 +126,90 @@ function identityFromReceiptUrl(value: string | null | undefined): FiscalDocumen
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
   if (url.username || url.password) return null;
-  if (url.port && url.port !== '80' && url.port !== '443') return null;
-  if (!isPursHost(url.hostname)) return null;
 
-  const vl = rawQueryValue(url.search, 'vl')?.trim() ?? '';
-  const decoded = vl ? decodeBase64Payload(vl) : null;
-  const pfr = findPfr(vl) ?? findPfr(decoded) ?? findPfr(`${url.pathname}${url.search}`);
-  if (pfr) return { kind: 'pfr', value: pfr };
-
-  const path = (url.pathname.replace(/\/+$/, '') || '/').toLowerCase();
-  if (path !== '/v') return null;
-  const token = vl ? canonicalOpaqueToken(vl) : null;
-  if (!token) return null;
-  // Only `vl` identifies the verification link. Parameter order, tracking
-  // parameters, scheme, host case, host alias, and a trailing slash do not.
-  return { kind: 'url', value: `https://${CANONICAL_PURS_HOST}/v?vl=${encodeURIComponent(token)}` };
+  for (const format of unwrapFormats(formats)) {
+    const allowedPorts = format.allowed_ports ?? [80, 443];
+    if (url.port && !allowedPorts.includes(Number(url.port))) continue;
+    if (hostMatchesFormat(url.hostname, format)) return format;
+  }
+  return null;
 }
 
-export function canonicalFiscalIdentity(input: {
-  fiscal_receipt_id?: string | null;
-  receipt_url?: string | null;
-}): FiscalDocumentIdentity | null {
+export function identityFromReceiptUrl(
+  value: string | null | undefined,
+  formats: ReadonlyArray<FiscalFormatPayload | ResolvedRuleEntry<FiscalFormatPayload>> = [],
+): FiscalDocumentIdentity | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  if (url.username || url.password) return null;
+
+  for (const format of unwrapFormats(formats)) {
+    const allowedPorts = format.allowed_ports ?? [80, 443];
+    if (url.port && !allowedPorts.includes(Number(url.port))) continue;
+    if (!hostMatchesFormat(url.hostname, format)) continue;
+
+    const queryParam = format.query_param?.trim() ?? '';
+    const paramVal = queryParam ? (rawQueryValue(url.search, queryParam)?.trim() ?? '') : '';
+    const decoded = paramVal && (format.vl_base64_scan ?? true) ? decodeBase64Payload(paramVal) : null;
+    const pfr = findFiscalIdInText(paramVal, format)
+      ?? findFiscalIdInText(decoded, format)
+      ?? findFiscalIdInText(`${url.pathname}${url.search}`, format);
+    if (pfr) return { kind: 'pfr', value: pfr, format_id: format.id };
+
+    const expectedPath = (format.canonical_path ?? '/').replace(/\/+$/, '') || '/';
+    const actualPath = (url.pathname.replace(/\/+$/, '') || '/').toLowerCase();
+    if (actualPath !== expectedPath.toLowerCase()) continue;
+
+    if (!queryParam) {
+      return {
+        kind: 'url',
+        value: `${format.canonical_scheme}://${format.canonical_host}${expectedPath}`,
+        format_id: format.id,
+      };
+    }
+
+    const token = paramVal ? canonicalOpaqueToken(paramVal, format) : null;
+    if (!token) continue;
+    return {
+      kind: 'url',
+      value: `${format.canonical_scheme}://${format.canonical_host}${expectedPath}?${encodeURIComponent(queryParam)}=${encodeURIComponent(token)}`,
+      format_id: format.id,
+    };
+  }
+  return null;
+}
+
+export function canonicalFiscalIdentity(
+  input: {
+    fiscal_receipt_id?: string | null;
+    receipt_url?: string | null;
+  },
+  formats: ReadonlyArray<FiscalFormatPayload | ResolvedRuleEntry<FiscalFormatPayload>> = [],
+): FiscalDocumentIdentity | null {
   const explicit = normalizeFiscalReceiptId(input.fiscal_receipt_id);
   if (explicit) return { kind: 'pfr', value: explicit };
-  return identityFromReceiptUrl(input.receipt_url);
+  return identityFromReceiptUrl(input.receipt_url, formats);
+}
+
+/**
+ * Requires at least one active fiscal format rule when validating a verification URL.
+ */
+export function requireFiscalUrlIdentity(
+  receiptUrl: string,
+  formats: ReadonlyArray<FiscalFormatPayload | ResolvedRuleEntry<FiscalFormatPayload>>,
+): FiscalDocumentIdentity | null {
+  const list = unwrapFormats(formats);
+  if (list.length === 0) {
+    throw new MissingFiscalFormatConfigError();
+  }
+  return identityFromReceiptUrl(receiptUrl, list);
 }
 
 /**
@@ -130,9 +220,10 @@ export function canonicalFiscalIdentity(input: {
 export function fiscalDocumentsAreDistinct(
   left: { fiscal_receipt_id?: string | null; receipt_url?: string | null },
   right: { fiscal_receipt_id?: string | null; receipt_url?: string | null },
+  formats: ReadonlyArray<FiscalFormatPayload | ResolvedRuleEntry<FiscalFormatPayload>> = [],
 ): boolean {
-  const a = canonicalFiscalIdentity(left);
-  const b = canonicalFiscalIdentity(right);
+  const a = canonicalFiscalIdentity(left, formats);
+  const b = canonicalFiscalIdentity(right, formats);
   if (!a || !b || a.kind !== 'pfr' || b.kind !== 'pfr') return false;
   return a.value !== b.value;
 }
@@ -141,8 +232,9 @@ export function fiscalDocumentsAreDistinct(
 export function normalizedVerificationUrlsMatch(
   left: { fiscal_receipt_id?: string | null; receipt_url?: string | null },
   right: { fiscal_receipt_id?: string | null; receipt_url?: string | null },
+  formats: ReadonlyArray<FiscalFormatPayload | ResolvedRuleEntry<FiscalFormatPayload>> = [],
 ): boolean {
-  const a = canonicalFiscalIdentity(left);
-  const b = canonicalFiscalIdentity(right);
+  const a = canonicalFiscalIdentity(left, formats);
+  const b = canonicalFiscalIdentity(right, formats);
   return Boolean(a && b && a.kind === 'url' && b.kind === 'url' && a.value === b.value);
 }

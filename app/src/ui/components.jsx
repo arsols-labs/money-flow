@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Sun, Moon, Monitor, Check, SunMoon, Languages, ChevronDown, ChevronRight,
+  Sun, Moon, Monitor, Check, SunMoon, Languages, ChevronDown, ChevronRight, Info,
 } from 'lucide-react';
 import { chooseLanguage, isSupportedLanguage, SUPPORTED_LANGUAGES } from './language';
 import { formatRelativeDate, daysSince, STALE_RATE_DAYS } from './money';
@@ -474,10 +474,10 @@ export function useLoadWhenExpanded(expanded, load, refreshNonce = 0) {
  * `collapsedActions` is an action in the header of a collapsed block (for example, a visible CTA
  * "+ Add account" on an empty database).
  */
-export function DataSection({ id, title, expanded, onToggle, actions, collapsedActions, children }) {
+export function DataSection({ id, sectionId = undefined, className = '', title, expanded, onToggle, actions, collapsedActions, children }) {
   const bodyId = `data-section-${id}`;
   return (
-    <section className="data-section">
+    <section id={sectionId} className={`data-section${className ? ` ${className}` : ''}`}>
       <div className="data-section-header">
         {/* The button is INSIDE the heading, not the other way around — the WAI-ARIA
             Accordion pattern. The reverse order is invalid: a button's content is phrasing
@@ -728,5 +728,91 @@ export function SectionSkeleton() {
       <div className="skeleton-line" style={{ height: '80px' }} />
       <div className="skeleton-line" style={{ height: '80px' }} />
     </div>
+  );
+}
+
+let interestTooltipRuntimeInitialized = false;
+
+function ensureInterestTooltipRuntime() {
+  if (interestTooltipRuntimeInitialized) return;
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  interestTooltipRuntimeInitialized = true;
+
+  // Feature-detect interest invokers and load polyfill only when missing.
+  if (typeof HTMLButtonElement !== 'undefined' && !('interestForElement' in HTMLButtonElement.prototype)) {
+    void import('interestfor');
+  }
+
+  // Fallback for browsers with popover auto/manual support but without popover="hint":
+  // switch toggletip popovers to "auto" on beforetoggle so light-dismiss works cleanly.
+  const probe = document.createElement('div');
+  if ('popover' in probe) {
+    probe.popover = 'hint';
+    if (probe.popover !== 'hint') {
+      document.addEventListener(
+        'beforetoggle',
+        (event) => {
+          const target = event.target;
+          if (!(target instanceof HTMLElement)) return;
+          const nextState = /** @type {{ newState?: string }} */ (event).newState;
+          const hasInvoker =
+            target.getAttribute('popover') === 'hint'
+            && target.id
+            && document.querySelector(`[popovertarget="${CSS.escape(target.id)}"]`);
+          if (nextState === 'open' && hasInvoker) {
+            target.popover = 'auto';
+          }
+        },
+        true,
+      );
+    }
+  }
+}
+
+/**
+ * Accessible "i" toggletip: opens on hover/focus/long-press (interestfor) and
+ * click/tap/Enter (popovertargetaction="show"), syncing aria-expanded from toggle.
+ */
+export function InfoToggletip({ label, children, className = '' }) {
+  const tipId = useId();
+  const popoverRef = useRef(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    ensureInterestTooltipRuntime();
+    const node = popoverRef.current;
+    if (!node) return undefined;
+    const handleToggle = (event) => {
+      setOpen(event.newState === 'open');
+    };
+    node.addEventListener('toggle', handleToggle);
+    return () => node.removeEventListener('toggle', handleToggle);
+  }, []);
+
+  return (
+    <span className={`info-toggletip ${className}`.trim()}>
+      <button
+        type="button"
+        className="info-toggletip-trigger"
+        aria-label={label}
+        aria-expanded={open}
+        {...({
+          interestfor: tipId,
+          popoverTarget: tipId,
+          popoverTargetAction: 'show',
+        })}
+      >
+        <Info size={14} aria-hidden="true" />
+      </button>
+      <div
+        id={tipId}
+        ref={popoverRef}
+        role="tooltip"
+        className="info-toggletip-popover"
+        {...({ popover: 'hint' })}
+      >
+        {children}
+      </div>
+    </span>
   );
 }

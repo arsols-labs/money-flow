@@ -1,4 +1,4 @@
-/** Serbian TaxCore / PURS PFR numbers and similar fiscal document ids. */
+/** Fiscal receipt document identifiers. */
 export const FISCAL_RECEIPT_ID_MAX_LENGTH = 128;
 
 const FISCAL_WHITESPACE = /\s/gu;

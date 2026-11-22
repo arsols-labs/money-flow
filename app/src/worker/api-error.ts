@@ -7,6 +7,8 @@ import {
   type ApiErrorParams,
   apiErrorBody,
 } from '../shared/api-errors';
+import { MissingCurrencyConfigError } from '../shared/currency';
+import { MissingFiscalFormatConfigError } from '../shared/fiscal-identity';
 
 export { AppError };
 
@@ -42,5 +44,18 @@ export function failFrom(c: Context, error: AppError) {
 /** Re-throw unknown errors; return the envelope for coded domain errors. */
 export function failCaught(c: Context, error: unknown) {
   if (error instanceof AppError) return failFrom(c, error);
+  if (error instanceof MissingCurrencyConfigError) {
+    return fail(c, 'MISSING_CONFIGURATION', 422, {
+      domain: 'currency_standards',
+      ...(error.currencyCode ? { currency: error.currencyCode } : {}),
+      detail: error.message,
+    });
+  }
+  if (error instanceof MissingFiscalFormatConfigError) {
+    return fail(c, 'MISSING_CONFIGURATION', 422, {
+      domain: 'fiscal_formats',
+      detail: error.message,
+    });
+  }
   throw error;
 }

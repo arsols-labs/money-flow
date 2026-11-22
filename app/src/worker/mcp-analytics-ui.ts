@@ -5,9 +5,9 @@
  */
 
 import { MCP_WIDGET_RPC_SCRIPT } from './mcp-widget-rpc';
-import { MCP_WIDGET_I18N_SCRIPT } from './mcp-widget-i18n';
+import { buildWidgetI18nScript, type WidgetRenderOptions } from './mcp-widget-i18n';
 
-export function getAnalyticsHtml(): string {
+export function getAnalyticsHtml(options: WidgetRenderOptions = {}): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -502,7 +502,7 @@ export function getAnalyticsHtml(): string {
   <script>
     (function() {
 ${MCP_WIDGET_RPC_SCRIPT}
-${MCP_WIDGET_I18N_SCRIPT}
+${buildWidgetI18nScript(options)}
       let currentPeriod = 'd30';
       let currentGranularity = 'day';
       let selectedCats = new Set();
@@ -598,15 +598,9 @@ ${MCP_WIDGET_I18N_SCRIPT}
       });
 
       // Formatters
-      function formatMoney(minor, currency = 'USD') {
-        if (minor === null || minor === undefined) return '0 $';
-        const amount = minor / 100;
-        return new Intl.NumberFormat(intlLocale(), {
-          style: 'currency',
-          currency: currency,
-          minimumFractionDigits: 0,
-          maximumFractionDigits: 2
-        }).format(amount);
+      let latestCurrencyMeta = null;
+      function formatMoney(minor, currency) {
+        return formatWidgetMoney(minor, currency, latestCurrencyMeta);
       }
 
       function formatDateTs(ts) {
@@ -667,6 +661,8 @@ ${MCP_WIDGET_I18N_SCRIPT}
       // Render Analytics UI
       function renderAnalytics(data) {
         lastAnalyticsData = data;
+        latestCurrencyMeta = (data && data.currency_meta) || null;
+        const baseCur = data.base_currency || '';
         renderFilterTags();
 
         const stats = data.stats || {};
@@ -690,7 +686,7 @@ ${MCP_WIDGET_I18N_SCRIPT}
             <div class="bar-row \${isSelected ? 'active-filter-row' : ''}" data-type="cat" data-value="\${escapeHtml(c.label)}">
               <div class="bar-row-header">
                 <span class="bar-label">\${escapeHtml(c.label)}</span>
-                <span class="bar-meta">\${formatMoney(c.value_minor)}</span>
+                <span class="bar-meta">\${formatMoney(c.value_minor, baseCur)}</span>
               </div>
               <div class="bar-track">
                 <div class="bar-fill" style="width: \${pct}%;"></div>
@@ -708,7 +704,7 @@ ${MCP_WIDGET_I18N_SCRIPT}
             <div class="bar-row \${isSelected ? 'active-filter-row' : ''}" data-type="merchant" data-value="\${escapeHtml(m.label)}">
               <div class="bar-row-header">
                 <span class="bar-label">\${escapeHtml(m.label)}</span>
-                <span class="bar-meta">\${formatMoney(m.value_minor)}</span>
+                <span class="bar-meta">\${formatMoney(m.value_minor, baseCur)}</span>
               </div>
               <div class="bar-track">
                 <div class="bar-fill" style="width: \${pct}%;"></div>
@@ -721,7 +717,7 @@ ${MCP_WIDGET_I18N_SCRIPT}
         const topItemsRows = topExpenses.slice(0, 5).map(item => \`
           <div class="item-row">
             <span class="item-name">\${escapeHtml(item.label)} \${item.count > 1 ? \`<span style="color:var(--text-muted);font-size:10px;">(×\${item.count})</span>\` : ''}</span>
-            <span class="item-amount">\${formatMoney(item.value_minor)}</span>
+            <span class="item-amount">\${formatMoney(item.value_minor, baseCur)}</span>
           </div>
         \`).join('');
 
@@ -730,25 +726,25 @@ ${MCP_WIDGET_I18N_SCRIPT}
           <div class="metrics-grid">
             <div class="card">
               <div class="card-label">\${t('analytics.spent')}</div>
-              <div class="card-value val-spent">\${formatMoney(totalSpent)}</div>
+              <div class="card-value val-spent">\${formatMoney(totalSpent, baseCur)}</div>
               <div class="card-sub">\${t('analytics.positions', { p: positionsCount, r: receiptsCount })}</div>
             </div>
 
             <div class="card">
               <div class="card-label">\${t('analytics.perDay')}</div>
-              <div class="card-value">\${formatMoney(perDay)}</div>
+              <div class="card-value">\${formatMoney(perDay, baseCur)}</div>
               <div class="card-sub">\${t('analytics.avgSpend')}</div>
             </div>
 
             <div class="card">
               <div class="card-label">\${t('analytics.avgReceipt')}</div>
-              <div class="card-value">\${formatMoney(avgReceipt)}</div>
+              <div class="card-value">\${formatMoney(avgReceipt, baseCur)}</div>
               <div class="card-sub">\${t('analytics.perReceipt')}</div>
             </div>
 
             <div class="card">
               <div class="card-label">\${t('analytics.income')}</div>
-              <div class="card-value val-income">\${formatMoney(totalIncome)}</div>
+              <div class="card-value val-income">\${formatMoney(totalIncome, baseCur)}</div>
               <div class="card-sub">\${t('analytics.forPeriod')}</div>
             </div>
           </div>
@@ -897,7 +893,7 @@ ${MCP_WIDGET_I18N_SCRIPT}
           tooltip.style.display = 'block';
           tooltip.style.left = \`\${e.clientX + 10}px\`;
           tooltip.style.top = \`\${e.clientY - 25}px\`;
-          tooltip.innerHTML = \`<strong>\${formatDateTs(s.ts)}</strong>: \${formatMoney(s.total_minor)}\`;
+          tooltip.innerHTML = \`<strong>\${formatDateTs(s.ts)}</strong>: \${formatMoney(s.total_minor, (lastAnalyticsData && lastAnalyticsData.base_currency) || '')}\`;
         };
 
         container.onmouseleave = () => {

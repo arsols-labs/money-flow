@@ -67,7 +67,7 @@ export function purchaseOrderToolDefinitions(notes: { mrtr: string; noAutoConfir
       outputSchema: {
         type: 'object',
         properties: {
-          orders: { type: 'array' },
+          orders: { type: 'array', items: { type: 'object' } },
           next_cursor: { type: ['number', 'null'] },
           limit: { type: ['number', 'null'] },
           error: { type: 'string' },

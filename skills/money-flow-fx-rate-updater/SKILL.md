@@ -1,53 +1,85 @@
 ---
 name: money-flow-fx-rate-updater
-description: Refresh Money Flow v2's USD-anchored FX reference through its MCP server. Use when an authorized agent must reconcile stored or missing currency rates; do not use to change base currency or configure a scheduler.
+description: Manage and refresh Money Flow v2's exchange rates relative to the workspace FX anchor currency through its MCP server (using built-in ExchangeRate-API daily auto-update, on-demand refresh, or external market data via fx_rate_set). Do not use to change base currency or configure a client scheduler unless requested for a custom external source.
 ---
 
 # Money Flow FX Rate Updater
 
-Use this skill to refresh the FX reference of Money Flow v2 through its MCP
-server. It updates reference data only; it never transfers money, changes an
-account balance, or changes the application's base-currency setting.
+Use this skill to manage and refresh foreign-exchange rates in Money Flow v2 through
+its MCP server. It reads or updates FX configuration and reference rates only; it
+never transfers money, changes an account balance, or changes the workspace
+`base_currency` setting.
 
 ## Preconditions
 
-- The caller has an authorized Money Flow MCP client with both `read` and
-  `write` scopes.
-- The user has asked for the update, or has already authorized the external
-  scheduled job that invokes it.
+- The caller has an authorized Money Flow MCP client with `read` (and `write` for
+  mutations) scopes.
+- The user has asked for the refresh/configuration change, or already authorized
+  the scheduled job invoking this skill.
 - Inspect `tools/list` when the client exposes it, and use the server's current
-  schemas rather than assuming a client-specific wrapper has the same shape.
+  schemas (`fx_rates_list`, `accounts_list`, `fx_rates_refresh`, `fx_rate_set`,
+  `setting_set`) rather than assuming a client-specific wrapper shape.
 
-The application does not fetch market data or own a schedule. An agent chooses
-and reads an external market-data source; its host may schedule that agent.
+## Two supported workflows
+
+Money Flow v2 includes a built-in free ExchangeRate-API integration (no API key
+required) alongside manual/external overrides:
+
+1. **Built-in automatic or on-demand refresh (recommended default):**
+   - Daily Worker Cron updates all tracked and missing currencies when
+     `fx_auto_update` is enabled (**disabled by default**), running at the
+     configured `fx_auto_update_hour` in `cron_timezone` (defaults to
+     `02:00 UTC`). Toggle or adjust schedule via UI (`Data -> Exchange rates` /
+     `Data -> Background schedule`), API (`PUT /api/v2/settings/fx_auto_update`,
+     `PUT /api/v2/cron-schedule`), or MCP (`setting_set` / `cron_schedule_set`).
+   - Trigger an immediate refresh anytime via `fx_rates_refresh` (requires `write`
+     scope, fresh UUID `idempotency_key`, and standard MRTR confirmation; subject
+     to a 60-second cooldown).
+2. **External market-data override (`fx_rate_set`):**
+   - Use when the user specifies another market-data source or needs a currency
+     that the built-in feed does not cover.
 
 ## Determine the update set
 
-1. Call `fx_rates_list`. Record `base_currency`, every existing `rates[].code`,
-   and `missing`.
+1. Call `fx_rates_list`. Record `fx_anchor_currency` (usually `USD`),
+   `base_currency`, every existing `rates[].code`, `missing`, and `auto_update`.
 2. Call `accounts_list` and collect every `accounts[].currency`, including
    archived accounts.
-3. Update the uppercase, non-`USD` union of those three lists. This refreshes
-   existing reference rows and fills currencies currently needed by the
-   application. Do not create a rate for `USD`: it is always exactly 1 USD and
-   the server rejects it.
+3. Exclude `fx_anchor_currency`: the anchor currency is always `1` relative to
+   itself and the server rejects setting an FX rate for it. The uppercase union
+   of `rates[].code`, `missing`, and `accounts[].currency` (minus
+   `fx_anchor_currency`) is the target set.
 
 `missing` is authoritative for currencies referenced outside accounts as well
 (for example, planned or recurring items), so do not derive the update set from
 accounts alone.
 
-## Obtain and normalize market data
+## Built-in refresh / auto-update (`fx_rates_refresh` & `setting_set`)
 
-For each target, obtain a current quote from a source whose quote direction and
-as-of time are clear. Money Flow stores:
+- To enable or disable built-in daily updates (ExchangeRate-API, no API key;
+  configurable schedule via `cron_schedule_set`, defaults to `02:00 UTC`), call
+  `setting_set` with `key: "fx_auto_update"`, `value: "1"` (on) or `"0"` (off),
+  and a fresh UUID `idempotency_key`. Confirm via MRTR (`requestState`) unless an
+  explicitly authorized unattended run passes `auto_confirm: true`.
+- To refresh immediately using the built-in provider, call `fx_rates_refresh`
+  with a fresh UUID `idempotency_key` and complete the two-step `requestState`
+  confirmation (or `auto_confirm: true` inside an explicitly authorized run).
+  Inspect `updated` and `skipped` in the response before reading back
+  `fx_rates_list`.
+
+## Obtain and normalize external market data (when not using `fx_rates_refresh`)
+
+For each target when using an external source, obtain a current quote whose quote
+direction and as-of time are clear. Money Flow stores:
 
 ```text
-usd_per_unit = USD value of 1 unit of the foreign currency
+anchor_per_unit = value of 1 unit of the foreign currency in fx_anchor_currency
 ```
 
-Thus an `EUR/USD` quote of `1.1564` is used directly. A source with `USD` as
-its base that returns `EUR = 0.8647` instead means 1 USD buys 0.8647 EUR; use
-the reciprocal as `usd_per_unit`.
+For example, when `fx_anchor_currency` is `USD`, an `EUR/USD` quote of `1.1564`
+is used directly. A source with `USD` as its base that returns `EUR = 0.8647`
+instead means 1 USD buys 0.8647 EUR; use the reciprocal (`1 / 0.8647`) as
+`anchor_per_unit`.
 
 Before writing, ensure each value is a positive ordinary decimal with no more
 than nine digits after the decimal point and no exponent notation. Round only
@@ -57,15 +89,15 @@ If a source is unavailable, incomplete, stale for the requested run, or
 ambiguous about quote direction, leave that currency unchanged and report the
 blocker.
 
-## Write safely
+## Write safely via `fx_rate_set`
 
 For each currency generate one fresh UUID `idempotency_key` and retain it for
 all retries of that exact currency and value.
 
 For an authenticated (non-anonymous) client, `fx_rate_set` writes immediately
-by default. `auto_confirm` defaults to true: omit it, or pass `true`. Passing
-`auto_confirm: true` is also an immediate write. MRTR confirmation runs only
-when `auto_confirm` is explicitly `false`.
+by default (`auto_confirm` defaults to `true`). MRTR confirmation runs when
+`auto_confirm` is explicitly `false` (recommended for interactive runs unless the
+user wants immediate writes) or when the client is anonymous.
 
 ```json
 {
@@ -92,20 +124,22 @@ duplicate or overwrite.
 
 ## Verify and report
 
-Call `fx_rates_list` after all writes. For every successfully updated code,
-verify the returned rate equals the normalized `usd_per_unit` value (allowing
-only insignificant trailing-zero formatting) and that `updated_at` is fresh.
+Call `fx_rates_list` after all writes or refreshes. For every updated code, verify
+the returned rate equals the expected normalized value (allowing only
+insignificant trailing-zero formatting) and that `updated_at` is fresh.
 For a full reconciliation run, `missing` must be empty; otherwise report each
 remaining missing or failed code explicitly.
 
-Report the data-source name and as-of time, target currencies, values actually
-verified, currencies deliberately unchanged, and any failures. Do not report
-success merely because an update was requested or a confirmation was issued.
+Report whether the built-in ExchangeRate-API (`fx_rates_refresh`) or a named
+external data source was used, the as-of time, target currencies, verified
+values, skipped/unchanged currencies, and any failures.
 
 ## Scheduling boundary
 
-Create or alter a recurring job only when the user explicitly requests it and
-the agent host provides a verified scheduling capability. Configure that host to
-invoke this skill at the requested time and to preserve the verification
-summary. Do not assume tools named `schedules:*` exist, and do not represent an
-external scheduler as a Money Flow application feature.
+Prefer Money Flow's built-in `fx_auto_update` setting (daily Worker Cron in
+the Worker, off by default, configurable timezone/hour via `cron_schedule_set`)
+for standard automatic FX updates. Configure an
+external host scheduler only when the user explicitly requests a custom external
+market-data source or schedule outside ExchangeRate-API, and verify that the
+agent host actually provides a scheduling capability (do not assume tools named
+`schedules:*` exist).

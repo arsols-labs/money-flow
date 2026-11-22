@@ -20,6 +20,7 @@ export const HOSTNAME_MODES = /** @type {const} */ (['workers-dev', 'custom']);
 
 export const COMPATIBILITY_DATE = '2026-08-08';
 export const COMPATIBILITY_FLAGS = Object.freeze(['global_fetch_strictly_public']);
+export const DEFAULT_CRON_TRIGGERS = Object.freeze(['0 * * * *']);
 
 export const ASSETS_CONFIG = Object.freeze({
   directory: 'dist/client',

@@ -3,23 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { AlertTriangle, X } from 'lucide-react';
 import { api } from './api';
 import { useRefreshNonce } from './RefreshContext';
-import { BUILTIN_TEMPLATES } from '../shared/statement-import/templates';
 import {
   inspectTemplateDocument,
   slugTemplateId,
   templateFileName,
   templateFromMapping,
 } from './statementImportState';
-
-function builtinRows() {
-  return BUILTIN_TEMPLATES.map((document) => ({
-    source: 'builtin',
-    readonly: true,
-    document,
-    created_at: null,
-    updated_at: null,
-  }));
-}
 
 function errorText(err, fallback) {
   return err?.message || fallback;
@@ -43,7 +32,7 @@ export function StatementTemplatesPanel({
 }) {
   const { t } = useTranslation();
   const nonce = useRefreshNonce();
-  const [templates, setTemplates] = useState(builtinRows);
+  const [templates, setTemplates] = useState([]);
   const [name, setName] = useState('');
   const [error, setError] = useState(null);
   const [message, setMessage] = useState(null);

@@ -1,7 +1,18 @@
+import '../src/ui/i18n.js';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { env } from 'cloudflare:test';
+import { EMPTY_CURRENCY_CATALOG, setRuntimeCurrencyCatalog } from '../src/shared/currency';
+import { installTestRuntimeCurrencies } from './seed-test-rules';
+
+beforeAll(() => {
+  installTestRuntimeCurrencies();
+});
+
+afterAll(() => {
+  setRuntimeCurrencyCatalog(EMPTY_CURRENCY_CATALOG);
+});
 import { AnalyticsReceiptList } from '../src/ui/Analytics.jsx';
 import FiscalReceiptCard from '../src/ui/FiscalReceiptCard.jsx';
 import FiscalReceiptsSection, { ReceiptGroupToolbar } from '../src/ui/FiscalReceiptsSection.jsx';

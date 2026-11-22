@@ -19,7 +19,17 @@ import {
   isProviderSlug,
 } from '../shared/purchase-orders';
 import { validateStatementTemplate } from '../shared/statement-import/template-schema';
-import { isBuiltinTemplateId } from '../shared/statement-import/templates';
+import { bumpRulesEpoch } from './rules-store';
+import { isIsoDateString } from './forecast/dates';
+import { FX_AUTO_UPDATE_SETTING_KEY } from './fx-auto-update';
+import {
+  CRON_TIMEZONE_SETTING_KEY,
+  FX_AUTO_UPDATE_HOUR_SETTING_KEY,
+  RECURRING_AUTO_SKIP_HOUR_SETTING_KEY,
+  isReservedCronSettingKey,
+  normalizeCronHour,
+  normalizeCronTimezone,
+} from '../shared/cron-schedule';
 
 export const BACKUP_FORMAT = 'money-flow-v2-backup';
 export const BACKUP_VERSION = 2;
@@ -45,6 +55,9 @@ export const USER_TABLES = [
   'purchase_order_components',
   'receipt_membership',
   'receipt_group_requests',
+  'rule_sets',
+  'rule_entries',
+  'recurring_policy_bindings',
 ] as const;
 
 /** Older backup documents predate statement import and purchase orders. Missing tables import as empty. */
@@ -55,6 +68,9 @@ const OPTIONAL_EMPTY_TABLES = new Set<UserTableName>([
   'purchase_order_components',
   'receipt_membership',
   'receipt_group_requests',
+  'rule_sets',
+  'rule_entries',
+  'recurring_policy_bindings',
 ]);
 
 /** Omitted from a full export when empty, so an older Worker can still restore that file. */
@@ -63,6 +79,9 @@ export const BACKUP_TABLES_OMITTED_WHEN_EMPTY: readonly UserTableName[] = [
   'purchase_order_components',
   'receipt_membership',
   'receipt_group_requests',
+  'rule_sets',
+  'rule_entries',
+  'recurring_policy_bindings',
 ];
 
 export type UserTableName = (typeof USER_TABLES)[number];
@@ -78,8 +97,7 @@ export const EXCLUDED_FROM_BACKUP = [
 export const RESET_CONFIRM_PHRASE = 'RESET';
 
 export const EMPTY_INSTANCE_SETTINGS = [
-  { key: 'base_currency', value: 'USD' },
-  { key: 'low_balance_threshold_minor', value: '100000' },
+  { key: 'low_balance_threshold_minor', value: '0' },
 ] as const;
 
 const PRESERVED_SETTING_EXACT = new Set(['auth_epoch']);
@@ -95,6 +113,9 @@ export function isPreservedSettingKey(key: string): boolean {
 }
 
 const DELETE_ORDER: UserTableName[] = [
+  'rule_entries',
+  'recurring_policy_bindings',
+  'rule_sets',
   'receipt_group_requests',
   'receipt_membership',
   'purchase_order_components',
@@ -138,6 +159,9 @@ const INSERT_ORDER: UserTableName[] = [
   'recurring_period_fulfillments',
   'imported_receipt_items',
   'operation_fulfillment_links',
+  'rule_sets',
+  'rule_entries',
+  'recurring_policy_bindings',
 ];
 
 const TABLE_COLUMNS: Record<UserTableName, readonly string[]> = {
@@ -158,6 +182,7 @@ const TABLE_COLUMNS: Record<UserTableName, readonly string[]> = {
     'id', 'title', 'amount_minor', 'currency', 'account_id', 'category',
     'frequency', 'interval_count', 'day_of_month', 'month_of_year',
     'next_due_date', 'active', 'end_date', 'revision',
+    'auto_skip_overdue', 'auto_skip_after_days',
   ],
   transfers: ['id'],
   operations: [
@@ -201,6 +226,20 @@ const TABLE_COLUMNS: Record<UserTableName, readonly string[]> = {
   purchase_order_components: [
     'id', 'order_id', 'component_type', 'target_kind', 'pfr_canonical', 'ledger_epoch',
     'expected_amount_minor', 'expected_currency', 'label', 'created_at',
+  ],
+  rule_sets: [
+    'id', 'domain', 'scope_country', 'scope_locale', 'set_key', 'version', 'state',
+    'effective_from', 'effective_to', 'priority', 'allow_shared_fallback', 'label', 'description',
+    'provenance_source', 'provenance_actor', 'revision', 'activated_at', 'retired_at', 'created_at', 'updated_at',
+  ],
+  rule_entries: [
+    'id', 'rule_set_id', 'entry_key', 'match_type', 'match_field', 'pattern',
+    'priority', 'enabled', 'payload_json', 'meta_json', 'revision', 'created_at', 'updated_at',
+  ],
+  recurring_policy_bindings: [
+    'id', 'recurring_item_id', 'policy_type', 'scope_country', 'version', 'state',
+    'effective_from', 'effective_to', 'priority', 'provenance_source', 'provenance_actor',
+    'revision', 'notes', 'created_at', 'updated_at',
   ],
 };
 
@@ -356,9 +395,29 @@ function normalizeRow(
 
   switch (table) {
     case 'settings': {
-      row.key = requireNonEmpty(table, index, 'key', row.key);
+      const settingKey = requireNonEmpty(table, index, 'key', row.key);
+      row.key = settingKey;
       if (typeof row.value !== 'string') rowInvalid(table, index, 'value');
-      if (row.key === PURCHASE_ORDERS_EPOCH_KEY && !isLedgerEpoch(row.value)) {
+      if (settingKey === PURCHASE_ORDERS_EPOCH_KEY && !isLedgerEpoch(row.value)) {
+        rowInvalid(table, index, 'value');
+      }
+      if (settingKey === FX_AUTO_UPDATE_SETTING_KEY && row.value !== '0' && row.value !== '1') {
+        rowInvalid(table, index, 'value');
+      }
+      if (settingKey === CRON_TIMEZONE_SETTING_KEY) {
+        const normalizedTimezone = normalizeCronTimezone(row.value);
+        if (normalizedTimezone === null) rowInvalid(table, index, 'value');
+        row.value = normalizedTimezone;
+      }
+      if (
+        settingKey === FX_AUTO_UPDATE_HOUR_SETTING_KEY
+        || settingKey === RECURRING_AUTO_SKIP_HOUR_SETTING_KEY
+      ) {
+        const normalizedHour = normalizeCronHour(row.value);
+        if (normalizedHour === null) rowInvalid(table, index, 'value');
+        row.value = String(normalizedHour);
+      }
+      if (isReservedCronSettingKey(settingKey) && !isIsoDateString(row.value)) {
         rowInvalid(table, index, 'value');
       }
       return row;
@@ -484,6 +543,23 @@ function normalizeRow(
         rowInvalid(table, index, 'revision');
       }
       row.revision = typeof row.revision === 'string' && row.revision.trim() ? row.revision.trim() : null;
+
+      if (row.auto_skip_overdue === undefined || row.auto_skip_overdue === null) {
+        row.auto_skip_overdue = 0;
+      } else {
+        const autoSkipOverdue = asFlag(row.auto_skip_overdue);
+        if (autoSkipOverdue === null) rowInvalid(table, index, 'auto_skip_overdue');
+        row.auto_skip_overdue = autoSkipOverdue;
+      }
+      if (row.auto_skip_after_days === undefined || row.auto_skip_after_days === null) {
+        row.auto_skip_after_days = 1;
+      } else {
+        const afterDays = asSafeInt(row.auto_skip_after_days);
+        if (afterDays === null || afterDays < 1 || afterDays > 365) {
+          rowInvalid(table, index, 'auto_skip_after_days');
+        }
+        row.auto_skip_after_days = afterDays;
+      }
 
       const day = row.day_of_month === null || row.day_of_month === undefined
         ? null
@@ -635,7 +711,7 @@ function normalizeRow(
     case 'statement_templates': {
       row.id = requireId(table, index, 'id', row.id);
       const templateId = requireNonEmpty(table, index, 'template_id', row.template_id);
-      if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(templateId) || isBuiltinTemplateId(templateId)) {
+      if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(templateId)) {
         rowInvalid(table, index, 'template_id');
       }
       row.template_id = templateId;
@@ -870,6 +946,107 @@ function normalizeRow(
       row.created_at = requireIsoMoment(table, index, 'created_at', row.created_at);
       return row;
     }
+    case 'rule_sets': {
+      row.id = requireId(table, index, 'id', row.id);
+      row.domain = requireNonEmpty(table, index, 'domain', row.domain);
+      row.scope_country = requireNonEmpty(table, index, 'scope_country', row.scope_country);
+      if (typeof row.scope_locale !== 'string') rowInvalid(table, index, 'scope_locale');
+      row.set_key = requireNonEmpty(table, index, 'set_key', row.set_key);
+      row.version = requireId(table, index, 'version', row.version);
+      if (row.state !== 'draft' && row.state !== 'active' && row.state !== 'retired') {
+        rowInvalid(table, index, 'state');
+      }
+      if (
+        row.effective_from !== null && row.effective_from !== undefined
+        && (typeof row.effective_from !== 'string' || !isIsoDateOnly(row.effective_from))
+      ) {
+        rowInvalid(table, index, 'effective_from');
+      }
+      row.effective_from = row.effective_from ?? null;
+      if (
+        row.effective_to !== null && row.effective_to !== undefined
+        && (typeof row.effective_to !== 'string' || !isIsoDateOnly(row.effective_to))
+      ) {
+        rowInvalid(table, index, 'effective_to');
+      }
+      row.effective_to = row.effective_to ?? null;
+      const priority = asSafeInt(row.priority);
+      if (priority === null || priority < 0 || priority > 1_000_000) rowInvalid(table, index, 'priority');
+      row.priority = priority;
+      if (row.allow_shared_fallback !== 0 && row.allow_shared_fallback !== 1) {
+        rowInvalid(table, index, 'allow_shared_fallback');
+      }
+      row.label = requireNonEmpty(table, index, 'label', row.label);
+      row.description = asOptionalString(row.description) ?? null;
+      row.provenance_source = requireNonEmpty(table, index, 'provenance_source', row.provenance_source);
+      row.provenance_actor = asOptionalString(row.provenance_actor) ?? null;
+      const revision = asSafeInt(row.revision);
+      if (revision === null || revision < 1) rowInvalid(table, index, 'revision');
+      row.revision = revision;
+      row.activated_at = row.activated_at === null || row.activated_at === undefined
+        ? null : requireIsoMoment(table, index, 'activated_at', row.activated_at);
+      row.retired_at = row.retired_at === null || row.retired_at === undefined
+        ? null : requireIsoMoment(table, index, 'retired_at', row.retired_at);
+      row.created_at = requireIsoMoment(table, index, 'created_at', row.created_at);
+      row.updated_at = requireIsoMoment(table, index, 'updated_at', row.updated_at);
+      return row;
+    }
+    case 'rule_entries': {
+      row.id = requireId(table, index, 'id', row.id);
+      row.rule_set_id = requireId(table, index, 'rule_set_id', row.rule_set_id);
+      row.entry_key = requireNonEmpty(table, index, 'entry_key', row.entry_key);
+      row.match_type = asOptionalString(row.match_type) ?? null;
+      row.match_field = asOptionalString(row.match_field) ?? null;
+      row.pattern = typeof row.pattern === 'string' ? row.pattern : null;
+      const priority = asSafeInt(row.priority);
+      if (priority === null || priority < 0 || priority > 1_000_000) rowInvalid(table, index, 'priority');
+      row.priority = priority;
+      if (row.enabled !== 0 && row.enabled !== 1) rowInvalid(table, index, 'enabled');
+      row.payload_json = requireNonEmpty(table, index, 'payload_json', row.payload_json);
+      row.meta_json = typeof row.meta_json === 'string' ? row.meta_json : null;
+      const revision = asSafeInt(row.revision);
+      if (revision === null || revision < 1) rowInvalid(table, index, 'revision');
+      row.revision = revision;
+      row.created_at = requireIsoMoment(table, index, 'created_at', row.created_at);
+      row.updated_at = requireIsoMoment(table, index, 'updated_at', row.updated_at);
+      return row;
+    }
+    case 'recurring_policy_bindings': {
+      row.id = requireId(table, index, 'id', row.id);
+      row.recurring_item_id = requireId(table, index, 'recurring_item_id', row.recurring_item_id);
+      row.policy_type = requireNonEmpty(table, index, 'policy_type', row.policy_type);
+      row.scope_country = requireNonEmpty(table, index, 'scope_country', row.scope_country);
+      row.version = requireId(table, index, 'version', row.version);
+      if (row.state !== 'draft' && row.state !== 'active' && row.state !== 'retired') {
+        rowInvalid(table, index, 'state');
+      }
+      if (
+        row.effective_from !== null && row.effective_from !== undefined
+        && (typeof row.effective_from !== 'string' || !isIsoDateOnly(row.effective_from))
+      ) {
+        rowInvalid(table, index, 'effective_from');
+      }
+      row.effective_from = row.effective_from ?? null;
+      if (
+        row.effective_to !== null && row.effective_to !== undefined
+        && (typeof row.effective_to !== 'string' || !isIsoDateOnly(row.effective_to))
+      ) {
+        rowInvalid(table, index, 'effective_to');
+      }
+      row.effective_to = row.effective_to ?? null;
+      const priority = asSafeInt(row.priority);
+      if (priority === null || priority < 0 || priority > 1_000_000) rowInvalid(table, index, 'priority');
+      row.priority = priority;
+      row.provenance_source = requireNonEmpty(table, index, 'provenance_source', row.provenance_source);
+      row.provenance_actor = asOptionalString(row.provenance_actor) ?? null;
+      const revision = asSafeInt(row.revision);
+      if (revision === null || revision < 1) rowInvalid(table, index, 'revision');
+      row.revision = revision;
+      row.notes = asOptionalString(row.notes) ?? null;
+      row.created_at = requireIsoMoment(table, index, 'created_at', row.created_at);
+      row.updated_at = requireIsoMoment(table, index, 'updated_at', row.updated_at);
+      return row;
+    }
     default: {
       const _never: never = table;
       throw new ValidationError('BACKUP_TABLE_INVALID', { table: String(_never) });
@@ -952,7 +1129,7 @@ function assertReferences(tables: BackupTables): void {
   );
 
   const settingKeys = new Set(tables.settings.map((r) => r.key as string));
-  if (!settingKeys.has('base_currency') || !settingKeys.has('low_balance_threshold_minor')) {
+  if (!settingKeys.has('low_balance_threshold_minor')) {
     throw new ValidationError('BACKUP_ROW_INVALID', {
       table: 'settings',
       index: 0,
@@ -1067,6 +1244,19 @@ function assertReferences(tables: BackupTables): void {
     'idempotency_key',
     tables.receipt_group_requests.map((row) => row.idempotency_key as string),
   );
+  const ruleSetIds = uniqueOrFail('rule_sets', 'id', tables.rule_sets.map((row) => row.id as number));
+  uniqueOrFail('rule_entries', 'id', tables.rule_entries.map((row) => row.id as number));
+  for (const row of tables.rule_entries) {
+    if (!ruleSetIds.has(row.rule_set_id as number)) {
+      refInvalid('rule_entries', 'rule_set_id', row.rule_set_id as number);
+    }
+  }
+  uniqueOrFail('recurring_policy_bindings', 'id', tables.recurring_policy_bindings.map((row) => row.id as number));
+  for (const row of tables.recurring_policy_bindings) {
+    if (!recurringIds.has(row.recurring_item_id as number)) {
+      refInvalid('recurring_policy_bindings', 'recurring_item_id', row.recurring_item_id as number);
+    }
+  }
   const tokens = tables.operations
     .map((row) => row.receipt_identity_token)
     .filter((token): token is string => typeof token === 'string');
@@ -1189,6 +1379,15 @@ export function presentBackupExport(
   if (options.compatV235 || document.tables.receipt_group_requests.length === 0) {
     delete tables.receipt_group_requests;
   }
+  if (options.compatV235 || document.tables.rule_sets.length === 0) {
+    delete tables.rule_sets;
+  }
+  if (options.compatV235 || document.tables.rule_entries.length === 0) {
+    delete tables.rule_entries;
+  }
+  if (options.compatV235 || document.tables.recurring_policy_bindings.length === 0) {
+    delete tables.recurring_policy_bindings;
+  }
   const body: Record<string, unknown> = {
     format: document.format,
     version: document.version,
@@ -1232,13 +1431,15 @@ export async function importUserState(
   db: D1Database,
   tables: BackupTables,
 ): Promise<BackupImportResult> {
-  const statements: D1PreparedStatement[] = DELETE_ORDER.map((name) =>
-    db.prepare(`DELETE FROM ${name}`),
-  );
+  const statements: D1PreparedStatement[] = [
+    db.prepare('DELETE FROM rule_config_mutations'),
+    ...DELETE_ORDER.map((name) => db.prepare(`DELETE FROM ${name}`)),
+  ];
   for (const name of INSERT_ORDER) {
     statements.push(...insertStatements(db, name, tables[name]));
   }
   await db.batch(statements);
+  await bumpRulesEpoch(db);
 
   const imported = {} as Record<UserTableName, number>;
   for (const name of USER_TABLES) imported[name] = tables[name].length;
@@ -1249,7 +1450,7 @@ export type ResetUserStateResult = {
   ok: true;
   reset: true;
   defaults: {
-    base_currency: string;
+    base_currency: string | null;
     low_balance_threshold_minor: string;
   };
 };
@@ -1263,6 +1464,7 @@ export function parseResetConfirmation(body: unknown): void {
 export async function resetUserState(db: D1Database): Promise<ResetUserStateResult> {
   const statements: D1PreparedStatement[] = [
     db.prepare('DELETE FROM statement_import_uploads'),
+    db.prepare('DELETE FROM rule_config_mutations'),
     ...DELETE_ORDER
       .filter((name) => name !== 'settings')
       .map((name) => db.prepare(`DELETE FROM ${name}`)),
@@ -1278,22 +1480,21 @@ export async function resetUserState(db: D1Database): Promise<ResetUserStateResu
   );
   statements.push(
     db.prepare(
-      `INSERT INTO settings (key, value) VALUES (?, ?), (?, ?)
+      `INSERT INTO settings (key, value) VALUES (?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     ).bind(
       EMPTY_INSTANCE_SETTINGS[0].key,
       EMPTY_INSTANCE_SETTINGS[0].value,
-      EMPTY_INSTANCE_SETTINGS[1].key,
-      EMPTY_INSTANCE_SETTINGS[1].value,
     ),
   );
   await db.batch(statements);
+  await bumpRulesEpoch(db);
   return {
     ok: true,
     reset: true,
     defaults: {
-      base_currency: EMPTY_INSTANCE_SETTINGS[0].value,
-      low_balance_threshold_minor: EMPTY_INSTANCE_SETTINGS[1].value,
+      base_currency: null,
+      low_balance_threshold_minor: EMPTY_INSTANCE_SETTINGS[0].value,
     },
   };
 }

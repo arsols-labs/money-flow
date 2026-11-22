@@ -10,7 +10,7 @@
 // drop junk from storage and keep out of screen state anything the code
 // no longer has.
 
-export const DATA_SECTION_KEYS = ['operations', 'receipts', 'planned', 'recurring', 'rates', 'accounts'];
+export const DATA_SECTION_KEYS = ['operations', 'receipts', 'planned', 'recurring', 'rates', 'accounts', 'rules'];
 
 export const DATA_SECTIONS_STORAGE_KEY = 'money-flow-v2.data-sections.expanded';
 
@@ -83,6 +83,7 @@ export function toggleExpanded(keys, key) {
  */
 export function sectionFromHash(hash) {
   if (typeof hash !== 'string' || !hash) return null;
+  if (hash === '#/settings' || hash === '#/data/settings') return 'rules';
   const match = hash.match(/^#\/data\/([a-z]+)$/);
   if (!match) return null;
   const key = match[1];

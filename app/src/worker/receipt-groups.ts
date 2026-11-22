@@ -4,7 +4,9 @@
 // treated as a new request, and there is no silent expiry.
 
 import { ValidationError } from './api-error';
+import type { CurrencyCatalog } from '../shared/currency';
 import { loadForecastSettings, loadRates } from './forecast/load';
+import { loadCurrencyCatalog, loadReceiptGroupRules } from './rules-store';
 import { canonicalizePfr, groupFiscalReceipts, type FiscalReceiptGroup } from '../shared/fiscal-receipts';
 import { PURCHASE_ORDERS_EPOCH_KEY, isLedgerEpoch } from '../shared/purchase-orders';
 import {
@@ -21,6 +23,7 @@ import {
   tokenFromOperationKey,
   type MembershipClaim,
   type ReceiptGroup,
+  type ReceiptGroupRules,
   type ReceiptIdentityOperation,
 } from '../shared/receipt-groups';
 
@@ -66,7 +69,9 @@ interface LoadedLedger {
   componentPfrs: Set<string>;
   manual: ManualRow[];
   ratesE9: Map<string, number>;
-  baseCurrency: string;
+  baseCurrency: string | null;
+  currencyCatalog: CurrencyCatalog;
+  groupRules: ReceiptGroupRules;
 }
 
 function nowIso(): string {
@@ -189,7 +194,8 @@ export async function ensureReceiptIdentityTokens(db: D1Database): Promise<void>
 }
 
 async function loadLedger(db: D1Database): Promise<LoadedLedger> {
-  const [operations, epochRow, claims, components, manual, ratesE9, settings] = await Promise.all([
+  const currencyCatalog = await loadCurrencyCatalog(db);
+  const [operations, epochRow, claims, components, manual, ratesE9, settings, groupRules] = await Promise.all([
     db.prepare(
       `SELECT o.id, o.date, o.account_id, o.kind, o.store, o.item, o.category, o.subcategory,
               o.amount_minor, o.comment, o.receipt_url, o.fiscal_receipt_id, o.receipt_identity_token,
@@ -209,7 +215,8 @@ async function loadLedger(db: D1Database): Promise<LoadedLedger> {
          FROM purchase_orders WHERE kind = 'manual'`,
     ).all<ManualRow>(),
     loadRates(db),
-    loadForecastSettings(db),
+    loadForecastSettings(db, currencyCatalog),
+    loadReceiptGroupRules(db),
   ]);
   return {
     operations: operations.results ?? [],
@@ -219,6 +226,8 @@ async function loadLedger(db: D1Database): Promise<LoadedLedger> {
     manual: manual.results ?? [],
     ratesE9,
     baseCurrency: settings.baseCurrency,
+    currencyCatalog,
+    groupRules,
   };
 }
 
@@ -271,7 +280,13 @@ function projectOne(
     loaded.claims,
     loaded.operations,
     loaded.epoch,
-    { ratesE9: loaded.ratesE9, baseCurrency: loaded.baseCurrency },
+    {
+      ratesE9: loaded.ratesE9,
+      baseCurrency: loaded.baseCurrency,
+      fxAnchorCurrency: loaded.currencyCatalog.fxAnchorCode,
+      currencyCatalog: loaded.currencyCatalog,
+      rules: loaded.groupRules,
+    },
   );
   const wanted = new Set(group.receipts.filter((receipt) => receipt.resolution === 'resolved').map((receipt) => receipt.receipt_key));
   const tokenById = new Map<number, string | null>();
@@ -350,7 +365,7 @@ export async function createReceiptGroup(
   if (!dateCheck.ok || !dateCheck.date) {
     throw new ValidationError('RECEIPT_GROUP_DATE_MISMATCH');
   }
-  const place = resolveReceiptGroupPlace(matchedCards, input.name);
+  const place = resolveReceiptGroupPlace(matchedCards, input.name, loaded.groupRules);
   if (!place) {
     throw new ValidationError('RECEIPT_GROUP_PLACE_REQUIRED');
   }
@@ -363,7 +378,13 @@ export async function createReceiptGroup(
     input.receipt_keys.map((receipt_key) => ({ order_id: 0, receipt_key, ledger_epoch: epoch })),
     loaded.operations,
     epoch,
-    { ratesE9: loaded.ratesE9, baseCurrency: loaded.baseCurrency },
+    {
+      ratesE9: loaded.ratesE9,
+      baseCurrency: loaded.baseCurrency,
+      fxAnchorCurrency: loaded.currencyCatalog.fxAnchorCode,
+      currencyCatalog: loaded.currencyCatalog,
+      rules: loaded.groupRules,
+    },
   );
   const snapshot = {
     receipts: preview.receipts,
@@ -587,7 +608,7 @@ export async function renameReceiptGroup(
   const order = await requireManual(db, input.group_id);
   const loaded = await loadLedger(db);
   const projected = projectOne(order, loaded);
-  const target = receiptGroupRenameTarget(projected.cards, input.name);
+  const target = receiptGroupRenameTarget(projected.cards, input.name, loaded.groupRules);
   if (!target) throw new ValidationError('RECEIPT_GROUP_PLACE_REQUIRED');
 
   const renamed = projectOne({ ...order, display_name: target.displayName }, loaded).group;

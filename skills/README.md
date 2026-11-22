@@ -12,9 +12,9 @@ in the selected skill.
 
 | Skill | Use it for | Entrypoint |
 |---|---|---|
-| `money-flow-fx-rate-updater` | Reconcile the USD-anchored FX reference with a current external market-data source and verify the stored result. | [SKILL.md](money-flow-fx-rate-updater/SKILL.md) |
-| `money-flow-bank-statement-import` | Import one CSV, Excel, or OFX statement through the statement template and import tools, then show the batch so the user can undo it. | [SKILL.md](money-flow-bank-statement-import/SKILL.md) |
-| `money-flow-receipt-processor` | Configure notification delivery, then extract, validate, book, recover mid-receipt `UNCERTAIN` writes by reconciling landed lines, link existing facts to expectations, and reconcile analytical/discrete recurring periods through Money Flow MCP without double-counting balances. | [SKILL.md](money-flow-receipt-processor/SKILL.md) |
+| `money-flow-fx-rate-updater` | Refresh exchange rates relative to the FX anchor currency using built-in `fx_auto_update` / `fx_rates_refresh` or external quotes via `fx_rate_set`, and verify the stored result. | [SKILL.md](money-flow-fx-rate-updater/SKILL.md) |
+| `money-flow-bank-statement-import` | Import one CSV, Excel 97 `.xls`, OFX/QFX, or text-layer PDF statement through the statement template and import tools, then show the batch so the user can undo it. | [SKILL.md](money-flow-bank-statement-import/SKILL.md) |
+| `money-flow-receipt-processor` | Configure notification delivery, then extract, validate, book, recover mid-receipt `UNCERTAIN` writes by reconciling landed lines, link existing facts to expectations, and reconcile analytical, discrete, and `auto_skip_overdue` recurring periods through Money Flow MCP without double-counting balances. | [SKILL.md](money-flow-receipt-processor/SKILL.md) |
 
 When importing `money-flow-receipt-processor`, choose its notification delivery
 policy during installation when the host supports onboarding. Otherwise the

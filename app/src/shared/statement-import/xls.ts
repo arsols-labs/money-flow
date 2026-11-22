@@ -1,4 +1,9 @@
-import { normalizeIso4217CurrencyCode } from '../currency';
+import {
+  getRuntimeCurrencyCatalog,
+  MissingCurrencyConfigError,
+  normalizeCurrencyCodeSyntax,
+  type CurrencyCatalog,
+} from '../currency';
 import {
   assertRowBudget,
   descriptionHasFlag,
@@ -6,7 +11,11 @@ import {
   parseMajorToMinor,
   parseStatementDate,
 } from './amounts';
-import { builtinAccountAliases, builtinXlsHeaderAliases } from './templates';
+import {
+  mergeAccountAliases,
+  mergeXlsHeaderAliases,
+} from './templates';
+import type { StatementTemplate } from './template-schema';
 import {
   type ParsedStatement,
   type StatementRow,
@@ -72,8 +81,8 @@ function matchList(aliases: XlsHeaderAliases): HeaderMatch[] {
     .sort((left, right) => right.alias.length - left.alias.length);
 }
 
-function resolvedAliases(layout: XlsLayout): XlsHeaderAliases {
-  const base = layout.headerAliases ?? builtinXlsHeaderAliases();
+function resolvedAliases(layout: XlsLayout, fallbackTemplates: readonly StatementTemplate[]): XlsHeaderAliases {
+  const base = layout.headerAliases ?? mergeXlsHeaderAliases(fallbackTemplates);
   const merged: Record<HeaderRole, string[]> = {
     valueDate: [...base.valueDate],
     transactionDate: [...base.transactionDate],
@@ -151,8 +160,12 @@ function headerMatches(row: unknown[], column: { index: number; header: string }
   return want.length > 0 && (have === want || have.includes(want));
 }
 
-function findHeader(rows: unknown[][], layout: XlsLayout): { headerIndex: number; columns: ResolvedColumns } | null {
-  const named = findByAliases(rows, matchList(resolvedAliases(layout)));
+function findHeader(
+  rows: unknown[][],
+  layout: XlsLayout,
+  fallbackTemplates: readonly StatementTemplate[],
+): { headerIndex: number; columns: ResolvedColumns } | null {
+  const named = findByAliases(rows, matchList(resolvedAliases(layout, fallbackTemplates)));
   if (named) return named;
   const columns = Object.values(layout.columns);
   for (let index = 0; index < rows.length; index += 1) {
@@ -211,8 +224,14 @@ function parseFlexibleDate(raw: string, preferred: XlsLayout['dateFormat']): str
   throw new StatementParseError(`invalid date "${raw}"`);
 }
 
-function accountFromPreamble(rows: unknown[][], until: number, layout: XlsLayout): string | null {
-  const labels = new Set((layout.accountAliases ?? builtinAccountAliases()).map((alias) => normalizeHeaderLabel(alias)));
+function accountFromPreamble(
+  rows: unknown[][],
+  until: number,
+  layout: XlsLayout,
+  fallbackTemplates: readonly StatementTemplate[],
+): string | null {
+  const aliases = layout.accountAliases ?? mergeAccountAliases(fallbackTemplates);
+  const labels = new Set(aliases.map((alias) => normalizeHeaderLabel(alias)));
   if (layout.accountLabel) labels.add(normalizeHeaderLabel(layout.accountLabel));
   for (let index = 0; index < until; index += 1) {
     const row = rows[index] ?? [];
@@ -228,24 +247,36 @@ function accountFromPreamble(rows: unknown[][], until: number, layout: XlsLayout
   return null;
 }
 
-const DEFAULT_XLS_LAYOUT: XlsLayout = {
-  sheetName: null,
-  columns: {
-    valueDate: { index: 1, header: 'Value date' },
-    transactionDate: { index: 2, header: 'Transaction date' },
-    currency: { index: 3, header: 'Currency code' },
-    credit: { index: 4, header: 'Credit' },
-    debit: { index: 5, header: 'Debit' },
-    description: { index: 6, header: 'Description' },
-  },
-  dateFormat: 'DD/MM/YYYY',
-  decimalSeparator: '.',
-  accountLabel: 'Account',
-  descriptionFlags: [{ id: 'possible_own_account_transfer', pattern: 'otkup strane valute' }],
-};
+export interface ParseXlsOptions {
+  templates?: readonly StatementTemplate[];
+  currencyCatalog?: CurrencyCatalog;
+}
 
-export async function parseXls(bytes: Uint8Array, layout: XlsLayout | null): Promise<ParsedStatement> {
-  const effective = layout ?? DEFAULT_XLS_LAYOUT;
+export async function parseXls(
+  bytes: Uint8Array,
+  layout: XlsLayout | null,
+  options: ParseXlsOptions = {},
+): Promise<ParsedStatement> {
+  const fallbackTemplates = options.templates ?? [];
+  const effective = layout ?? (fallbackTemplates.find((t) => t.format === 'xls' && t.xls)?.xls
+    ? {
+      sheetName: null,
+      columns: fallbackTemplates.find((t) => t.format === 'xls' && t.xls)!.xls!.columns,
+      dateFormat: fallbackTemplates.find((t) => t.format === 'xls' && t.xls)!.xls!.dateFormat,
+      decimalSeparator: fallbackTemplates.find((t) => t.format === 'xls' && t.xls)!.xls!.decimalSeparator,
+      accountLabel: fallbackTemplates.find((t) => t.format === 'xls' && t.xls)!.xls!.accountLabel ?? null,
+      descriptionFlags: fallbackTemplates.find((t) => t.format === 'xls' && t.xls)!.xls!.descriptionFlags ?? [],
+      headerAliases: mergeXlsHeaderAliases(fallbackTemplates),
+      accountAliases: mergeAccountAliases(fallbackTemplates),
+    }
+    : null);
+  if (!effective) {
+    throw new StatementParseError(
+      'No matching XLS statement template is configured in D1 rules.',
+      'MISSING_CONFIGURATION',
+    );
+  }
+  const currencyCatalog = options.currencyCatalog ?? getRuntimeCurrencyCatalog();
   const xlsx = await loadXlsx();
   let book: ReturnType<XlsxModule['read']>;
   try {
@@ -263,7 +294,7 @@ export async function parseXls(bytes: Uint8Array, layout: XlsLayout | null): Pro
     const sheet = book.Sheets[sheetName];
     if (!sheet) continue;
     const candidate = xlsx.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
-    const header = findHeader(candidate, effective);
+    const header = findHeader(candidate, effective, fallbackTemplates);
     if (!header) continue;
     table = candidate;
     resolved = header;
@@ -271,7 +302,7 @@ export async function parseXls(bytes: Uint8Array, layout: XlsLayout | null): Pro
   }
   if (!table || !resolved) throw new StatementParseError('Excel header row was not found');
   const { headerIndex, columns } = resolved;
-  const accountRef = accountFromPreamble(table, headerIndex, effective);
+  const accountRef = accountFromPreamble(table, headerIndex, effective, fallbackTemplates);
   const amountSamples: string[] = [];
   for (let index = headerIndex + 1; index < table.length && amountSamples.length < 20; index += 1) {
     const source = table[index] ?? [];
@@ -286,13 +317,13 @@ export async function parseXls(bytes: Uint8Array, layout: XlsLayout | null): Pro
     const blank = Object.values(columns).every((column) => cellText(source, column) === '');
     if (blank) continue;
     try {
-      const currency = normalizeIso4217CurrencyCode(cellText(source, columns.currency));
-      if (!currency) throw new StatementParseError('currency is missing or not an ISO 4217 code');
+      const currency = normalizeCurrencyCodeSyntax(cellText(source, columns.currency));
+      if (!currency) throw new StatementParseError('currency is missing or invalid');
       const creditText = cellText(source, columns.credit);
       const debitText = cellText(source, columns.debit);
       if (!creditText && !debitText) continue;
       if (creditText && debitText) throw new StatementParseError('both credit and debit are filled');
-      const magnitude = parseMajorToMinor(creditText || debitText, decimalSeparator, currency);
+      const magnitude = parseMajorToMinor(creditText || debitText, decimalSeparator, currency, currencyCatalog);
       const amountMinor = debitText ? (magnitude > 0 ? -magnitude : magnitude) : (magnitude < 0 ? -magnitude : magnitude);
       if (amountMinor === 0) {
         warnings.push(`row ${sourceIndex} skipped: amount is zero`);
@@ -321,7 +352,7 @@ export async function parseXls(bytes: Uint8Array, layout: XlsLayout | null): Pro
       });
       assertRowBudget(rows.length);
     } catch (error) {
-      if (error instanceof StatementLimitError) throw error;
+      if (error instanceof StatementLimitError || error instanceof MissingCurrencyConfigError) throw error;
       const detail = error instanceof Error ? error.message : 'invalid row';
       warnings.push(`row ${sourceIndex} skipped: ${detail}`);
     }

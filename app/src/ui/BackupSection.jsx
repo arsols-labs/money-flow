@@ -1,6 +1,5 @@
 // Backup on the "Data" screen.
-// v2 has no separate `#/settings` — the section lives here, like the other
-// data settings. `#/settings` and `#/data/backup` only scroll to here.
+// `#/data/backup` scrolls directly to this section.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle, AlertTriangle, Download, Upload, X } from 'lucide-react';
@@ -108,7 +107,7 @@ export default function BackupSection() {
 
   useEffect(() => {
     const hash = typeof window !== 'undefined' ? window.location.hash : '';
-    if (hash === '#/settings' || hash === '#/data/backup') {
+    if (hash === '#/data/backup') {
       document.getElementById('backup')?.scrollIntoView({ block: 'start' });
     }
     refreshOmitted();

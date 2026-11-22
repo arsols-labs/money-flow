@@ -365,6 +365,303 @@ class RecurringReconcileTests(unittest.TestCase):
                 self.assertEqual(result["actions"], [])
                 self.assertTrue(any("amount_minor must be a non-zero integer" in error for error in result["errors"]))
 
+    def test_auto_skip_rule_skips_current_period_on_booked_receipt_category_match(self):
+        payload = analytical_payload()
+        payload["policies"] = []
+        payload["evidence"] = []
+        payload["recurring_items"] = [{
+            "id": 25,
+            "title": "Every 3 days groceries",
+            "amount_minor": -3000,
+            "currency": "RSD",
+            "account_id": 7,
+            "category": "  food ",
+            "frequency": "daily",
+            "interval_count": 3,
+            "next_due_date": "2026-08-25",
+            "end_date": None,
+            "active": True,
+            "auto_skip_overdue": True,
+            "auto_skip_after_days": 2,
+        }]
+        payload["operations"] = [
+            operation(101, -600, "Bread"),
+            {**operation(102, -400, "Soap"), "category": "Household"},
+            {**operation(103, -900, "Milk"), "date": "2026-08-27"},
+        ]
+        payload["booked_receipts"] = [
+            {
+                "source_id": "rec-a",
+                "receipt_index": 0,
+                "occurrence_date": "2026-08-26",
+                "operation_ids": [101, 102],
+            },
+            {
+                "source_id": "rec-b",
+                "receipt_index": 1,
+                "occurrence_date": "2026-08-27",
+                "operation_ids": [103],
+            },
+        ]
+        result = rr.plan(payload)
+        self.assertTrue(result["safe"], result)
+        self.assertEqual(len(result["actions"]), 1)
+        action = result["actions"][0]
+        self.assertEqual(action["tool"], "recurring_item_skip_period")
+        self.assertEqual(action["arguments"], {"recurring_item_id": 25})
+        self.assertEqual(action["occurrence_date"], "2026-08-25")
+        self.assertEqual(action["expected_next_due_date"], "2026-08-28")
+        self.assertTrue(action["expected_active"])
+        self.assertEqual(len(action["checkpoint_keys"]), 2)
+
+        verified = copy.deepcopy(payload)
+        verified["readbacks"] = [{
+            "durable_key": action["durable_key"],
+            "observed_next_due_date": "2026-08-28",
+            "observed_active": True,
+            "operation_count_before": 50,
+            "operation_count_after": 50,
+            "balances_before": {"7": 10000},
+            "balances_after": {"7": 10000},
+        }]
+        v_result = rr.plan(verified)
+        self.assertTrue(v_result["safe"], v_result)
+        self.assertEqual(v_result["checkpoint_updates"], sorted(action["checkpoint_keys"]))
+
+    def test_auto_skip_rule_deactivates_when_next_occurrence_passes_end_date(self):
+        payload = analytical_payload()
+        payload["policies"] = []
+        payload["evidence"] = []
+        payload["recurring_items"] = [{
+            "id": 26,
+            "title": "Weekly produce",
+            "amount_minor": -1500,
+            "currency": "RSD",
+            "account_id": 7,
+            "category": "Food",
+            "frequency": "weekly",
+            "interval_count": 1,
+            "next_due_date": "2026-08-24",
+            "end_date": "2026-08-30",
+            "active": True,
+            "auto_skip_overdue": True,
+            "auto_skip_after_days": 1,
+        }]
+        payload["operations"] = [operation(101, -600, "Tomatoes")]
+        payload["booked_receipts"] = [{
+            "source_id": "rec-w",
+            "receipt_index": 0,
+            "occurrence_date": "2026-08-26",
+            "operation_ids": [101],
+        }]
+        result = rr.plan(payload)
+        self.assertTrue(result["safe"], result)
+        self.assertEqual(len(result["actions"]), 1)
+        action = result["actions"][0]
+        self.assertEqual(action["expected_next_due_date"], "2026-08-24")
+        self.assertFalse(action["expected_active"])
+
+        wrong_active = copy.deepcopy(payload)
+        wrong_active["readbacks"] = [{
+            "durable_key": action["durable_key"],
+            "observed_next_due_date": "2026-08-24",
+            "observed_active": True,
+            "operation_count_before": 10,
+            "operation_count_after": 10,
+            "balances_before": {"7": 5000},
+            "balances_after": {"7": 5000},
+        }]
+        bad_res = rr.plan(wrong_active)
+        self.assertFalse(bad_res["safe"])
+        self.assertEqual(bad_res["checkpoint_updates"], [])
+
+    def test_auto_skip_rule_ignores_empty_overdue_days_and_non_optional_rules(self):
+        payload = analytical_payload()
+        payload["run_date"] = "2026-08-30"
+        payload["policies"] = []
+        payload["evidence"] = []
+        payload["operations"] = [operation(101)]
+        payload["recurring_items"] = [
+            {
+                "id": 27,
+                "title": "Optional empty overdue",
+                "amount_minor": -1000,
+                "currency": "RSD",
+                "account_id": 7,
+                "category": "Food",
+                "frequency": "daily",
+                "interval_count": 1,
+                "next_due_date": "2026-08-20",
+                "active": True,
+                "auto_skip_overdue": True,
+            },
+            {
+                "id": 28,
+                "title": "Mandatory daily rule",
+                "amount_minor": -1000,
+                "currency": "RSD",
+                "account_id": 7,
+                "category": "Food",
+                "frequency": "daily",
+                "interval_count": 1,
+                "next_due_date": "2026-08-26",
+                "active": True,
+                "auto_skip_overdue": False,
+            },
+        ]
+        payload["booked_receipts"] = [{
+            "source_id": "rec-other",
+            "receipt_index": 0,
+            "occurrence_date": "2026-08-26",
+            "operation_ids": [101],
+        }]
+        result = rr.plan(payload)
+        self.assertTrue(result["safe"], result)
+        self.assertEqual(result["actions"], [])
+
+    def test_auto_skip_multi_rule_category_conflict_stops_with_action_required(self):
+        payload = analytical_payload()
+        payload["policies"] = []
+        payload["evidence"] = []
+        payload["operations"] = [operation(101)]
+        payload["recurring_items"] = [
+            {
+                "id": 29,
+                "title": "Food A",
+                "amount_minor": -1000,
+                "currency": "RSD",
+                "account_id": 7,
+                "category": "Food",
+                "frequency": "daily",
+                "interval_count": 1,
+                "next_due_date": "2026-08-26",
+                "active": True,
+                "auto_skip_overdue": True,
+            },
+            {
+                "id": 30,
+                "title": "Food B",
+                "amount_minor": -1500,
+                "currency": "RSD",
+                "account_id": 7,
+                "category": "Food",
+                "frequency": "weekly",
+                "interval_count": 1,
+                "next_due_date": "2026-08-25",
+                "active": True,
+                "auto_skip_overdue": True,
+            },
+        ]
+        payload["booked_receipts"] = [{
+            "source_id": "rec-ambig",
+            "receipt_index": 0,
+            "occurrence_date": "2026-08-26",
+            "operation_ids": [101],
+        }]
+        result = rr.plan(payload)
+        self.assertFalse(result["safe"])
+        self.assertEqual(result["actions"], [])
+        self.assertEqual(result["action_required"][0]["recurring_item_ids"], [29, 30])
+
+    def test_explicit_policy_takes_precedence_and_malformed_booked_receipts_fail_closed(self):
+        payload = analytical_payload()
+        payload["recurring_items"][0]["auto_skip_overdue"] = True
+        payload["booked_receipts"] = [{
+            "source_id": "receipt-a",
+            "receipt_index": 0,
+            "occurrence_date": "2026-08-26",
+            "operation_ids": [101],
+        }]
+        res_explicit = rr.plan(payload)
+        self.assertTrue(res_explicit["safe"], res_explicit)
+        self.assertEqual(len(res_explicit["actions"]), 1)
+
+        bad_payload = analytical_payload()
+        bad_payload["booked_receipts"] = [{"source_id": "", "receipt_index": 0, "occurrence_date": "2026-08-26", "operation_ids": []}]
+        res_bad = rr.plan(bad_payload)
+        self.assertFalse(res_bad["safe"])
+        self.assertEqual(res_bad["actions"], [])
+
+        falsy_dict = analytical_payload()
+        falsy_dict["booked_receipts"] = {}
+        res_dict = rr.plan(falsy_dict)
+        self.assertFalse(res_dict["safe"])
+        self.assertIn("booked_receipts must be an array", res_dict["errors"])
+
+    def test_auto_skip_income_rules_ignored_and_replay_plus_readback_compatibility(self):
+        payload = analytical_payload()
+        payload["policies"] = []
+        payload["evidence"] = []
+        payload["operations"] = [operation(101)]
+        payload["recurring_items"] = [
+            {
+                "id": 40,
+                "title": "Freelance income auto-shift",
+                "amount_minor": 50000,
+                "currency": "RSD",
+                "account_id": 7,
+                "category": "Freelance",
+                "frequency": "monthly",
+                "interval_count": 1,
+                "day_of_month": 25,
+                "next_due_date": "2026-08-25",
+                "active": True,
+                "auto_skip_overdue": True,
+            },
+            {
+                "id": 41,
+                "title": "End-date food",
+                "amount_minor": -1000,
+                "currency": "RSD",
+                "account_id": 7,
+                "category": "Food",
+                "frequency": "daily",
+                "interval_count": 1,
+                "next_due_date": "2026-08-26",
+                "end_date": "2026-08-26",
+                "active": True,
+                "auto_skip_overdue": True,
+            },
+        ]
+        payload["booked_receipts"] = [{
+            "source_id": "rec-inc",
+            "receipt_index": 0,
+            "occurrence_date": "2026-08-26",
+            "operation_ids": [101],
+        }]
+        first = rr.plan(payload)
+        self.assertTrue(first["safe"], first)
+        self.assertEqual(len(first["actions"]), 1)
+        action = first["actions"][0]
+        self.assertEqual(action["arguments"]["recurring_item_id"], 41)
+        self.assertFalse(action["expected_active"])
+
+        # Replay with checkpoint key suppresses duplicate skip
+        replay = copy.deepcopy(payload)
+        replay["recurring_evidence_skips"] = action["checkpoint_keys"]
+        replay_res = rr.plan(replay)
+        self.assertTrue(replay_res["safe"], replay_res)
+        self.assertEqual(replay_res["actions"], [])
+
+        # Readback works both with observed_active=False and when omitted (legacy format)
+        for include_active in (True, False):
+            with self.subTest(include_active=include_active):
+                ver = copy.deepcopy(payload)
+                rb = {
+                    "durable_key": action["durable_key"],
+                    "observed_next_due_date": action["expected_next_due_date"],
+                    "operation_count_before": 5,
+                    "operation_count_after": 5,
+                    "balances_before": {"7": 10000},
+                    "balances_after": {"7": 10000},
+                }
+                if include_active:
+                    rb["observed_active"] = False
+                ver["readbacks"] = [rb]
+                v_res = rr.plan(ver)
+                self.assertTrue(v_res["safe"], v_res)
+                self.assertEqual(v_res["checkpoint_updates"], action["checkpoint_keys"])
+
 
 if __name__ == "__main__":
     unittest.main()

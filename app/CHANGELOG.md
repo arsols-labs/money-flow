@@ -2,6 +2,97 @@
 
 All notable changes to the Money Flow app are documented here.
 
+## 2.46.0 - 2026-11-22
+
+### Added
+
+- Non-interactive self-host upgrade command (`npm run update` / `npm run setup -- --update`, with `--skip-install` and `--dry-run`): syncs npm dependencies, refreshes `wrangler.local.jsonc` schema settings (such as `triggers.crons`) while preserving existing Worker, custom domain/routes, D1, KV bindings, and secrets, applies additive forward-only D1 migrations, runs idempotent `starter-currency.sql`, rebuilds/redeploys, and checks `/mcp` + OAuth discovery health.
+- Added self-host upgrade documentation in `README.md` and `app/README.md` (`Updating an existing install`) and clarified `npm run deploy:local` scope.
+- App package version bumped to `2.46.0`.
+
+## 2.45.0 - 2026-11-22
+
+### Added
+
+- Configurable schedule time and canonical IANA timezone for Worker cron jobs (`cron_timezone`, `fx_auto_update_hour`, `recurring_auto_skip_hour`, defaulting to UTC at 02:00). The hourly Worker cron trigger evaluates each job once per local calendar date in the configured timezone, configurable in Settings (`PUT /api/v2/cron-schedule` / `GET /api/v2/cron-schedule`) and over MCP (`cron_schedule_get`, `cron_schedule_set`, `setting_set`).
+
+## 2.44.0 - 2026-11-21
+
+### Changed
+
+- Updated packaged MCP skills (`money-flow-receipt-processor`, `money-flow-fx-rate-updater`, `money-flow-bank-statement-import`, and `skills/README.md`) to integrate `auto_skip_overdue` recurring rules and built-in `fx_auto_update` / `fx_rates_refresh` tools.
+
+## 2.43.0 - 2026-11-21
+
+### Added
+
+- Optional overdue auto-skip for variable/non-mandatory recurring rules (`auto_skip_overdue` defaulting to `0`, `auto_skip_after_days` 1..365 defaulting to `1`) via additive migration `0029_recurring_auto_skip.sql`. Supported in Recurring UI, API, MCP tools, and Worker cron execution without posting operations or changing balances.
+
+## 2.42.0 - 2026-11-21
+
+### Added
+
+- Automatic daily exchange rate refresh via Worker Cron (`fx_auto_update` setting, ExchangeRate-API source, and manual `fx_rates_refresh` MCP trigger with a 60s cooldown), configurable in Settings and over MCP.
+
+## 2.41.1 - 2026-11-21
+
+### Fixed
+
+- Sanitized MCP `outputSchema` definitions and fixed Streamable HTTP transport handling.
+
+## 2.41.0 - 2026-11-21
+
+### Added
+
+- Added MCP server description and `initialize` workflow instructions.
+
+## 2.40.7 - 2026-11-20
+
+### Fixed
+
+- Made `DemoSession` Durable Object schema upgrades atomic and persistent across evictions and legacy sessions (`demo_schema_version` completion marker stored in Durable Object KV storage).
+
+## 2.40.6 - 2026-11-20
+
+### Changed
+
+- Updated major app npm dependencies (`i18next`, `react-i18next`).
+
+## 2.40.4 - 2026-11-20
+
+### Changed
+
+- Updated minor and patch app npm dependencies (`hono`, `lucide-react`, `recharts`, `unpdf`, `@cloudflare/vitest-plugin`, `@cloudflare/workers-types`, `@vitejs/plugin-react`, `vite`, `wrangler`).
+
+## 2.40.1 - 2026-11-15
+
+### Changed
+
+- Neutralized remaining internal comment references in `scripts/seed-mcp-data.sql` and finalized English migration comments.
+
+## 2.40.0 - 2026-11-15
+
+### Added
+
+- Served complete MCP command catalog and group workflow documentation through MCP resources (`money-flow://docs/`).
+
+## 2.39.1 - 2026-11-13
+
+### Changed
+
+- Removed the optional-rules home banner and made the Settings rules section collapsible.
+
+## 2.39.0 - 2026-11-13
+
+### Added
+
+- Moved business rules and reference data (`currency_standards`, `fiscal_formats`, `merchant_aliases`, `delivery_services`, `venue_suffixes`, `order_hints`, `category_rules`, `statement_templates`, and `pdf_layouts`) plus `recurring_policy_bindings` to country-scoped, versioned D1 tables via additive migration `0028_country_versioned_rules.sql`, with UI settings, API endpoints, and MCP rule/bundle tools.
+
+### Changed
+
+- Removed hardcoded built-in bank statement JSON template files (`rs-bps.json`, `rs-bps-pdf.json`, `us-bofa.json`, `us-bofa-pdf.json`) and shipped business lists from application code.
+- Clean `npm run setup` (non-demo path) initializes only a starter `USD` currency (`minor_digits: 2`, `is_fx_anchor: true`) via `scripts/starter-currency.sql` when `currency_standards` is empty.
+
 ## 2.38.5 - 2026-11-12
 
 ### Changed

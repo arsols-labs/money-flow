@@ -306,6 +306,131 @@ class ReceiptPlanTests(unittest.TestCase):
                 self.assertFalse(result["safe"])
                 self.assertIn(expected, result["errors"])
 
+    def test_auto_skip_rule_keeps_operation_add_and_surfaces_candidate(self):
+        payload = base_payload()
+        payload["recurring_items"] = [{
+            "id": 21,
+            "title": "Groceries budget",
+            "amount_minor": -30000,
+            "currency": "RSD",
+            "account_id": 7,
+            "category": "  food ",
+            "frequency": "daily",
+            "interval_count": 3,
+            "next_due_date": "2026-08-25",
+            "end_date": None,
+            "active": True,
+            "auto_skip_overdue": True,
+            "auto_skip_after_days": 1,
+        }]
+        result = rp.plan(payload)
+        self.assertTrue(result["safe"], result)
+        self.assertTrue(all(line["route"]["type"] == "operation_add" for line in result["lines"]))
+        self.assertEqual(result["auto_skip_recurring_candidates"], [{
+            "recurring_item_id": 21,
+            "category": "  food ",
+            "occurrence_date": "2026-08-25",
+            "expected_next_due_date": "2026-08-28",
+            "expected_active": True,
+            "line_indices": [0, 1],
+        }])
+
+    def test_auto_skip_candidate_respects_end_date_and_monthly_window(self):
+        payload = base_payload()
+        payload["receipt"]["date"] = "2026-08-31"
+        payload["recurring_items"] = [{
+            "id": 22,
+            "title": "Monthly treats",
+            "amount_minor": -5000,
+            "currency": "RSD",
+            "account_id": 7,
+            "category": "Food",
+            "frequency": "monthly",
+            "interval_count": 1,
+            "day_of_month": 31,
+            "month_of_year": None,
+            "next_due_date": "2026-08-31",
+            "end_date": "2026-09-15",
+            "active": True,
+            "auto_skip_overdue": 1,
+            "auto_skip_after_days": 2,
+        }]
+        result = rp.plan(payload)
+        self.assertTrue(result["safe"], result)
+        self.assertEqual(result["auto_skip_recurring_candidates"], [{
+            "recurring_item_id": 22,
+            "category": "Food",
+            "occurrence_date": "2026-08-31",
+            "expected_next_due_date": "2026-08-31",
+            "expected_active": False,
+            "line_indices": [0, 1],
+        }])
+
+    def test_auto_skip_candidate_ignores_receipt_outside_period_window(self):
+        payload = base_payload()
+        payload["receipt"]["date"] = "2026-08-27"
+        payload["recurring_items"] = [{
+            "id": 23,
+            "title": "Daily food",
+            "amount_minor": -1000,
+            "currency": "RSD",
+            "account_id": 7,
+            "category": "Food",
+            "frequency": "daily",
+            "interval_count": 1,
+            "next_due_date": "2026-08-26",
+            "active": True,
+            "auto_skip_overdue": True,
+        }]
+        result = rp.plan(payload)
+        self.assertTrue(result["safe"], result)
+        self.assertEqual(result["auto_skip_recurring_candidates"], [])
+
+    def test_auto_skip_excludes_linked_routes_and_handles_calendar_clamping(self):
+        self.assertEqual(
+            rp._next_occurrence(
+                {"frequency": "monthly", "interval_count": 1, "day_of_month": 31},
+                rp.date(2026, 1, 31),
+            ),
+            rp.date(2026, 2, 28),
+        )
+        self.assertEqual(
+            rp._next_occurrence(
+                {"frequency": "yearly", "interval_count": 1, "day_of_month": 29, "month_of_year": 2},
+                rp.date(2024, 2, 29),
+            ),
+            rp.date(2025, 2, 28),
+        )
+        payload = base_payload()
+        payload["planned_items"] = [{
+            "id": 9,
+            "title": "Bread",
+            "account_id": 7,
+            "currency": "RSD",
+            "date": "2026-08-26",
+            "amount_minor": -5000,
+            "category": "Food",
+            "done": False,
+        }]
+        payload["recurring_items"] = [{
+            "id": 24,
+            "title": "Daily food",
+            "amount_minor": -1000,
+            "currency": "RSD",
+            "account_id": 7,
+            "category": "Food",
+            "frequency": "daily",
+            "interval_count": 1,
+            "next_due_date": "2026-08-26",
+            "active": True,
+            "auto_skip_overdue": True,
+        }]
+        result = rp.plan(payload)
+        self.assertTrue(result["safe"], result)
+        self.assertEqual(result["lines"][0]["route"]["type"], "planned_item_update")
+        self.assertEqual(result["lines"][1]["route"]["type"], "operation_add")
+        self.assertEqual(result["auto_skip_recurring_candidates"][0]["line_indices"], [1])
+
 
 if __name__ == "__main__":
     unittest.main()
