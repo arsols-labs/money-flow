@@ -5,10 +5,15 @@ import { tryFractionDigits } from './money';
 
 /**
  * Minor units into a number for recharts.
+ * Returns null when the currency's minor-unit scale is not yet configured.
+ * @param {number} minor
+ * @param {string} currency
+ * @param {number | null} [digits]
+ * @returns {number | null}
  */
-export function toMajor(minor, currency) {
-  const digits = tryFractionDigits(currency);
-  return digits === null ? minor : minor / 10 ** digits;
+export function toMajor(minor, currency, digits = tryFractionDigits(currency)) {
+  if (digits === null) return null;
+  return minor / 10 ** digits;
 }
 
 /**
@@ -94,22 +99,29 @@ export function userFromKey(key) {
  * `{ts, date, overall, ['c:'+country]: value, ['a:'+id]: value, ['u:'+owner]: value}`.
  * Amounts are already in base_currency (the server converted them) — here only minor→major.
  * by_account / by_owner may be missing on an old response — then there are no keys.
+ * @param {any[]} series
+ * @param {string} baseCurrency
+ * @returns {Array<Record<string, any>>}
  */
 export function chartData(series, baseCurrency) {
+  if (!Array.isArray(series) || series.length === 0) return [];
+  const digits = tryFractionDigits(baseCurrency);
+  if (digits === null) return [];
   return series.map((d) => {
+    /** @type {Record<string, any>} */
     const point = {
       ts: parseDateOnly(d.date).getTime(),
       date: d.date,
-      overall: toMajor(d.overall_minor, baseCurrency),
+      overall: toMajor(d.overall_minor, baseCurrency, digits),
     };
     for (const [country, minor] of Object.entries(d.by_country || {})) {
-      point[countryKey(country)] = toMajor(minor, baseCurrency);
+      point[countryKey(country)] = toMajor(minor, baseCurrency, digits);
     }
     for (const [id, minor] of Object.entries(d.by_account || {})) {
-      point[accountKey(id)] = toMajor(minor, baseCurrency);
+      point[accountKey(id)] = toMajor(minor, baseCurrency, digits);
     }
     for (const [owner, minor] of Object.entries(d.by_owner || {})) {
-      point[userKey(owner)] = toMajor(minor, baseCurrency);
+      point[userKey(owner)] = toMajor(minor, baseCurrency, digits);
     }
     return point;
   });

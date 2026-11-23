@@ -139,7 +139,10 @@ export async function maybeDemoFetch(
   const nextRequest = new Request(request, { headers });
   const bound = proxyDemoEnv(env, createDemoD1(stub));
   const response = await next(nextRequest, bound, ctx);
-  if (responseClearsDemoCookie(response)) return response;
+  // Skip Set-Cookie when the request already carried a valid demo cookie: a
+  // concurrent read finishing after POST /api/auth/logout must never
+  // resurrect a cleared cookie, and steady-state reads avoid body buffering.
+  if (existing || responseClearsDemoCookie(response)) return response;
   const secure = new URL(request.url).protocol === 'https:';
   return await withDemoCookie(response, demoSessionCookie(sessionId, secure, DEMO_SESSION_TTL_SECONDS));
 }

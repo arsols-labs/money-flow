@@ -178,11 +178,10 @@ export async function loadRulesSnapshot(db: D1Database): Promise<RulesSnapshot> 
   return snapshot;
 }
 
-export async function loadCurrencyCatalog(
-  db: D1Database,
+export function currencyCatalogFromSnapshot(
+  snapshot: RulesSnapshot,
   options: { country?: string | null; asOfDate?: string | null } = {},
-): Promise<CurrencyCatalog> {
-  const snapshot = await loadRulesSnapshot(db);
+): CurrencyCatalog {
   const resolved = resolveRuleEntries<CurrencyStandardPayload>(
     snapshot.sets,
     snapshot.entriesBySetId,
@@ -196,11 +195,17 @@ export async function loadCurrencyCatalog(
   return buildCurrencyCatalog(resolved);
 }
 
-export async function loadFiscalFormats(
+export async function loadCurrencyCatalog(
   db: D1Database,
   options: { country?: string | null; asOfDate?: string | null } = {},
-): Promise<FiscalFormatPayload[]> {
-  const snapshot = await loadRulesSnapshot(db);
+): Promise<CurrencyCatalog> {
+  return currencyCatalogFromSnapshot(await loadRulesSnapshot(db), options);
+}
+
+export function fiscalFormatsFromSnapshot(
+  snapshot: RulesSnapshot,
+  options: { country?: string | null; asOfDate?: string | null } = {},
+): FiscalFormatPayload[] {
   const resolved = resolveRuleEntries<FiscalFormatPayload>(
     snapshot.sets,
     snapshot.entriesBySetId,
@@ -216,6 +221,13 @@ export async function loadFiscalFormats(
     if (!byId.has(item.payload.id)) byId.set(item.payload.id, item.payload);
   }
   return Array.from(byId.values());
+}
+
+export async function loadFiscalFormats(
+  db: D1Database,
+  options: { country?: string | null; asOfDate?: string | null } = {},
+): Promise<FiscalFormatPayload[]> {
+  return fiscalFormatsFromSnapshot(await loadRulesSnapshot(db), options);
 }
 
 export async function loadMerchantAliases(
@@ -278,7 +290,7 @@ export async function loadBookingGuardRules(
       includeAllCountriesWhenUnscoped: true,
     },
   );
-  const fiscalFormats = await loadFiscalFormats(db, options);
+  const fiscalFormats = fiscalFormatsFromSnapshot(snapshot, options);
   const analyticalSkipOnlyRecurringIds = resolveRecurringPolicyIds(
     snapshot.recurringPolicies,
     'analytical_skip_only',
@@ -328,16 +340,15 @@ export async function loadCategoryRulesFromD1(
     }));
 }
 
-export async function loadStatementRuleConfig(
-  db: D1Database,
+export function statementRuleConfigFromSnapshot(
+  snapshot: RulesSnapshot,
   options: { country?: string | null; asOfDate?: string | null } = {},
-): Promise<{
+): {
   templates: StatementTemplate[];
   presets: StatementPreset[];
   pdfLayouts: PdfLayoutPayload[];
   resolvedTemplates: ResolvedRuleEntry<StatementTemplate>[];
-}> {
-  const snapshot = await loadRulesSnapshot(db);
+} {
   const resolvedTemplates = resolveRuleEntries<StatementTemplate>(
     snapshot.sets,
     snapshot.entriesBySetId,
@@ -386,6 +397,18 @@ export async function loadStatementRuleConfig(
   return { templates, presets, pdfLayouts, resolvedTemplates };
 }
 
+export async function loadStatementRuleConfig(
+  db: D1Database,
+  options: { country?: string | null; asOfDate?: string | null } = {},
+): Promise<{
+  templates: StatementTemplate[];
+  presets: StatementPreset[];
+  pdfLayouts: PdfLayoutPayload[];
+  resolvedTemplates: ResolvedRuleEntry<StatementTemplate>[];
+}> {
+  return statementRuleConfigFromSnapshot(await loadRulesSnapshot(db), options);
+}
+
 export function computeReadiness(snapshot: RulesSnapshot): DomainReadiness[] {
   const result: DomainReadiness[] = RULE_DOMAINS.map((domain) => {
     const activeSets = snapshot.sets.filter((s) => s.domain === domain && s.state === 'active');
@@ -414,14 +437,17 @@ export async function buildRuntimeConfig(
   db: D1Database,
   options: { country?: string | null; asOfDate?: string | null } = {},
 ): Promise<RuntimeConfigPayload> {
-  const snapshot = await loadRulesSnapshot(db);
-  const currencyCatalog = await loadCurrencyCatalog(db, options);
-  const fiscalFormats = await loadFiscalFormats(db, options);
-  const stmt = await loadStatementRuleConfig(db, options);
+  const [snapshot, baseSetting] = await Promise.all([
+    loadRulesSnapshot(db),
+    db
+      .prepare(`SELECT value FROM settings WHERE key = 'base_currency'`)
+      .first<{ value: string }>()
+      .catch(() => null),
+  ]);
+  const currencyCatalog = currencyCatalogFromSnapshot(snapshot, options);
+  const fiscalFormats = fiscalFormatsFromSnapshot(snapshot, options);
+  const stmt = statementRuleConfigFromSnapshot(snapshot, options);
 
-  const baseSetting = await db
-    .prepare(`SELECT value FROM settings WHERE key = 'base_currency'`)
-    .first<{ value: string }>();
   const baseCurrency = normalizeConfiguredCurrencyCode(baseSetting?.value, currencyCatalog);
 
   const scopesByTemplate = new Map<string, Set<string>>();

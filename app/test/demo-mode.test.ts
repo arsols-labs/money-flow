@@ -265,6 +265,24 @@ describe('DEMO_MODE session isolation', { timeout: 30_000 }, () => {
     expect(demoCookie(next)).not.toBe(cookie);
   });
 
+  it('does not re-emit Set-Cookie when an existing mf_demo_sid cookie is already present', async () => {
+    const initial = await demoFetch('/api/config');
+    expect(initial.status).toBe(200);
+    const cookie = demoCookie(initial);
+
+    const existingRead = await demoFetch('/api/v2/passkeys', {}, cookie);
+    expect(existingRead.status).toBe(200);
+    expect(
+      existingRead.headers.getSetCookie().some((header) => header.startsWith('mf_demo_sid=')),
+    ).toBe(false);
+
+    const accountsRead = await demoFetch('/api/v2/accounts', {}, cookie);
+    expect(accountsRead.status).toBe(200);
+    expect(
+      accountsRead.headers.getSetCookie().some((header) => header.startsWith('mf_demo_sid=')),
+    ).toBe(false);
+  });
+
   it('fails closed without a DemoSession binding and does not touch shared D1', async () => {
     const missing = new Proxy(bindings(), {
       get(target, prop) {

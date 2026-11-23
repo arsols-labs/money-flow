@@ -15,6 +15,7 @@ import {
 import PurchaseOrderCard from './PurchaseOrderCard';
 import { nestManualGroupsInReceiptList } from '../shared/receipt-groups';
 import { useRefreshNonce } from './RefreshContext';
+import { loadRuntimeConfig, useRuntimeConfig } from './runtimeConfig';
 import { formatMinor, formatMajor, tryFractionDigits } from './money';
 import { splitTrendPoint, trendHasRefunds, TREND_EXPENSE_COLOR, TREND_REFUND_COLOR } from './analyticsTrend';
 import { compactComment, ReceiptUrlLink } from './ReceiptUrlLink';
@@ -1375,6 +1376,7 @@ export function AnalyticsDashboard({
 export default function Analytics({ isCustomizing: externalCustomizing = false, onCustomizingChange }) {
   const { t } = useTranslation();
   const refreshNonce = useRefreshNonce();
+  const runtimeConfig = useRuntimeConfig();
   const [internalCustomizing, setInternalCustomizing] = useState(false);
   const isCustomizing = onCustomizingChange ? externalCustomizing : internalCustomizing;
   const setIsCustomizing = onCustomizingChange || setInternalCustomizing;
@@ -1507,6 +1509,8 @@ export default function Analytics({ isCustomizing: externalCustomizing = false, 
 
   const activeCount = state.cats.size + state.merchants.size + state.accounts.size + state.currencies.size;
   const baseCurrency = data?.base_currency ?? null;
+  const baseCurrencyDigits = baseCurrency ? tryFractionDigits(baseCurrency) : null;
+  const waitingForRuntimeConfig = !error && runtimeConfig.loading && (!runtimeConfig.loaded || (Boolean(baseCurrency) && baseCurrencyDigits === null));
   const stats = data?.stats;
 
   const categories = data?.categories ?? [];
@@ -1562,29 +1566,54 @@ export default function Analytics({ isCustomizing: externalCustomizing = false, 
         </div>
       )}
 
-      <AnalyticsDashboard
-        data={data}
-        fxRates={fxRates}
-        baseCurrency={baseCurrency}
-        stats={stats}
-        categories={categories}
-        subcategories={subcategories}
-        merchants={merchants}
-        recurringOps={recurringOps}
-        recurringDetails={recurringDetails}
-        receipts={receipts}
-        receiptGroups={receiptGroups}
-        onRenameReceiptGroup={renameReceiptGroup}
-        config={analyticsConfig}
-        blockFilters={analyticsFilters}
-        onUpdateFilter={handleUpdateBlockFilter}
-        onCategoryClick={handleCategoryClick}
-        onMerchantClick={handleMerchantClick}
-        activeCats={state.cats}
-        activeMerchants={state.merchants}
-        onOpenSettings={() => setIsCustomizing(true)}
-        onResetConfig={handleResetConfig}
-      />
+      {waitingForRuntimeConfig ? (
+        <SectionSkeleton />
+      ) : data && baseCurrency && baseCurrencyDigits === null ? (
+        runtimeConfig.error || !runtimeConfig.loaded ? (
+          <div className="data-error-panel">
+            <p>{runtimeConfig.error || t('common.loadFailed')}</p>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                loadRuntimeConfig();
+                loadData();
+              }}
+            >
+              {t('common.retry')}
+            </button>
+          </div>
+        ) : (
+          <div className="data-error-panel">
+            <p>{t('missingConfigAction.currencyCode', { currency: baseCurrency })}</p>
+            <a className="btn-secondary" href="#/data/rules">{t('onboarding.openSettings')}</a>
+          </div>
+        )
+      ) : (
+        <AnalyticsDashboard
+          data={data}
+          fxRates={fxRates}
+          baseCurrency={baseCurrency}
+          stats={stats}
+          categories={categories}
+          subcategories={subcategories}
+          merchants={merchants}
+          recurringOps={recurringOps}
+          recurringDetails={recurringDetails}
+          receipts={receipts}
+          receiptGroups={receiptGroups}
+          onRenameReceiptGroup={renameReceiptGroup}
+          config={analyticsConfig}
+          blockFilters={analyticsFilters}
+          onUpdateFilter={handleUpdateBlockFilter}
+          onCategoryClick={handleCategoryClick}
+          onMerchantClick={handleMerchantClick}
+          activeCats={state.cats}
+          activeMerchants={state.merchants}
+          onOpenSettings={() => setIsCustomizing(true)}
+          onResetConfig={handleResetConfig}
+        />
+      )}
 
       <DashboardSettingsModal
         open={isCustomizing}

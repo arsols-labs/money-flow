@@ -4,7 +4,13 @@ import app from '../src/worker/index';
 import mcpApp from '../src/worker/mcp-server';
 import { createSessionCookie } from '../src/worker/auth';
 import { normMerchant } from '../src/worker/analytics';
-import { invalidateRulesCache } from '../src/worker/rules-store';
+import { buildRuntimeConfig, invalidateRulesCache } from '../src/worker/rules-store';
+import { api as uiApi } from '../src/ui/api';
+import {
+  getRuntimeConfigSnapshot,
+  loadRuntimeConfig,
+  resetRuntimeConfig,
+} from '../src/ui/runtimeConfig';
 import {
   canonicalFiscalIdentity,
   MissingFiscalFormatConfigError,
@@ -12,7 +18,7 @@ import {
 } from '../src/shared/fiscal-identity';
 import type { Env } from '../src/worker/types';
 import { expectErrorCode } from './api-error-helpers';
-import { seedTestCurrencyRules } from './seed-test-rules';
+import { seedAllTestRules, seedTestCurrencyRules } from './seed-test-rules';
 
 const typedEnv = env as unknown as Env;
 const clientId = 'client-rules-engine';
@@ -352,5 +358,182 @@ describe('country-scoped D1 rules engine & empty-install fail-closed guards', ()
       idempotency_key: 'mcp-import-confirmed',
     });
     expect(imported.result.structuredContent.written).toBe(true);
+  });
+
+  it('buildRuntimeConfig returns consistent snapshot config from a single rules load', async () => {
+    await seedAllTestRules(env.DB);
+    await env.DB.prepare(
+      `INSERT INTO settings (key, value) VALUES ('base_currency', 'USD')
+       ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+    ).run();
+
+    const runtime = await buildRuntimeConfig(env.DB);
+    expect(runtime.base_currency).toBe('USD');
+    expect(runtime.fx_anchor_currency).toBe('USD');
+    expect(runtime.currencies.map((c) => c.code)).toContain('USD');
+    expect(runtime.fiscal_formats.map((f) => f.id)).toContain('rs-purs');
+    expect(runtime.statement_templates.map((t) => t.id)).toContain('us-bofa');
+    expect(runtime.pdf_layouts.map((l) => l.id)).toContain('us-bofa-pdf');
+    expect(runtime.configured.currencies).toBe(true);
+    expect(runtime.configured.fx_anchor).toBe(true);
+    expect(runtime.configured.base_currency).toBe(true);
+    expect(runtime.configured.fiscal_formats).toBe(true);
+    expect(runtime.configured.statement_templates).toBe(true);
+    expect(runtime.configured.pdf_layouts).toBe(true);
+  });
+
+  it('loadRuntimeConfig ignores out-of-order stale responses', async () => {
+    resetRuntimeConfig();
+    const originalGetRuntimeConfig = uiApi.getRuntimeConfig;
+    const resolvers: Array<(payload: unknown) => void> = [];
+    uiApi.getRuntimeConfig = () =>
+      new Promise((resolve) => {
+        resolvers.push(resolve);
+      });
+
+    try {
+      const first = loadRuntimeConfig();
+      const second = loadRuntimeConfig();
+      expect(resolvers).toHaveLength(2);
+
+      // Newer response resolves first with USD.
+      resolvers[1]!({
+        rules_epoch: 2,
+        base_currency: 'USD',
+        fx_anchor_currency: 'USD',
+        currencies: [{ code: 'USD', minor_digits: 2, symbol: '$', is_fx_anchor: true }],
+        readiness: [{ domain: 'currency_standards', configured: true }],
+        configured: true,
+      });
+      await second;
+
+      // Older response resolves late with JPY — must be ignored.
+      resolvers[0]!({
+        rules_epoch: 1,
+        base_currency: 'JPY',
+        fx_anchor_currency: 'JPY',
+        currencies: [{ code: 'JPY', minor_digits: 0, symbol: '¥', is_fx_anchor: true }],
+        readiness: [{ domain: 'currency_standards', configured: true }],
+        configured: true,
+      });
+      await first;
+
+      const snap = getRuntimeConfigSnapshot();
+      expect(snap.rules_epoch).toBe(2);
+      expect(snap.base_currency).toBe('USD');
+      expect(snap.currencies.map((c: { code: string }) => c.code)).toEqual(['USD']);
+    } finally {
+      uiApi.getRuntimeConfig = originalGetRuntimeConfig;
+      resetRuntimeConfig();
+    }
+  });
+
+  it('loadRuntimeConfig ignores late rejections and responses after resetRuntimeConfig', async () => {
+    resetRuntimeConfig();
+    const originalGetRuntimeConfig = uiApi.getRuntimeConfig;
+    const deferreds: Array<{
+      resolve: (payload: unknown) => void;
+      reject: (err: Error) => void;
+    }> = [];
+    uiApi.getRuntimeConfig = () =>
+      new Promise((resolve, reject) => {
+        deferreds.push({ resolve, reject });
+      });
+
+    try {
+      const stale = loadRuntimeConfig();
+      const fresh = loadRuntimeConfig();
+      expect(deferreds).toHaveLength(2);
+
+      deferreds[1]!.resolve({
+        rules_epoch: 5,
+        base_currency: 'EUR',
+        fx_anchor_currency: 'EUR',
+        currencies: [{ code: 'EUR', minor_digits: 2, symbol: '€', is_fx_anchor: true }],
+        readiness: [{ domain: 'currency_standards', configured: true }],
+        configured: true,
+      });
+      await fresh;
+
+      // Late rejection of the older request must not overwrite newer snapshot with an error.
+      deferreds[0]!.reject(new Error('stale network failure'));
+      await stale;
+      expect(getRuntimeConfigSnapshot().error).toBeNull();
+      expect(getRuntimeConfigSnapshot().base_currency).toBe('EUR');
+
+      // Resetting while a new load is in flight invalidates its eventual resolution.
+      const beforeReset = loadRuntimeConfig();
+      expect(deferreds).toHaveLength(3);
+      resetRuntimeConfig();
+      deferreds[2]!.resolve({
+        rules_epoch: 6,
+        base_currency: 'GBP',
+        fx_anchor_currency: 'GBP',
+        currencies: [{ code: 'GBP', minor_digits: 2, symbol: '£', is_fx_anchor: true }],
+        readiness: [{ domain: 'currency_standards', configured: true }],
+        configured: true,
+      });
+      await beforeReset;
+      const afterReset = getRuntimeConfigSnapshot();
+      expect(afterReset.loaded).toBe(false);
+      expect(afterReset.currencies).toEqual([]);
+    } finally {
+      uiApi.getRuntimeConfig = originalGetRuntimeConfig;
+      resetRuntimeConfig();
+    }
+  });
+
+  it('loadRuntimeConfig preserves loaded=false on initial failure and across retry until success', async () => {
+    resetRuntimeConfig();
+    const originalGetRuntimeConfig = uiApi.getRuntimeConfig;
+    const deferreds: Array<{
+      resolve: (payload: unknown) => void;
+      reject: (err: Error) => void;
+    }> = [];
+    uiApi.getRuntimeConfig = () =>
+      new Promise((resolve, reject) => {
+        deferreds.push({ resolve, reject });
+      });
+
+    try {
+      const initial = loadRuntimeConfig();
+      deferreds[0]!.reject(new Error('HTTP 500'));
+      await initial;
+
+      const afterError = getRuntimeConfigSnapshot();
+      expect(afterError.loading).toBe(false);
+      expect(afterError.loaded).toBe(false);
+      expect(afterError.error).toBe('HTTP 500');
+
+      const retry = loadRuntimeConfig();
+      const duringRetry = getRuntimeConfigSnapshot();
+      expect(duringRetry.loading).toBe(true);
+      expect(duringRetry.loaded).toBe(false);
+      expect(duringRetry.error).toBeNull();
+
+      deferreds[1]!.resolve({
+        rules_epoch: 3,
+        base_currency: 'USD',
+        fx_anchor_currency: 'USD',
+        currencies: [{ code: 'USD', minor_digits: 2, symbol: '$', is_fx_anchor: true }],
+        readiness: [{ domain: 'currency_standards', configured: true }],
+        configured: true,
+      });
+      await retry;
+      expect(getRuntimeConfigSnapshot().loaded).toBe(true);
+      expect(getRuntimeConfigSnapshot().error).toBeNull();
+
+      // Subsequent refresh failure keeps prior loaded=true and currencies intact.
+      const refresh = loadRuntimeConfig();
+      deferreds[2]!.reject(new Error('transient timeout'));
+      await refresh;
+      const afterRefreshError = getRuntimeConfigSnapshot();
+      expect(afterRefreshError.loaded).toBe(true);
+      expect(afterRefreshError.error).toBe('transient timeout');
+      expect(afterRefreshError.currencies.map((c: { code: string }) => c.code)).toEqual(['USD']);
+    } finally {
+      uiApi.getRuntimeConfig = originalGetRuntimeConfig;
+      resetRuntimeConfig();
+    }
   });
 });

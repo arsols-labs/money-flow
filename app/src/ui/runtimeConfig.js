@@ -24,6 +24,7 @@ const INITIAL_STATE = {
 
 let snapshot = { ...INITIAL_STATE };
 const listeners = new Set();
+let loadSeq = 0;
 
 function emit() {
   for (const listener of listeners) {
@@ -39,7 +40,13 @@ export function getFxAnchorCurrency() {
   return snapshot.fx_anchor_currency;
 }
 
-export function applyRuntimeConfigPayload(payload) {
+export function applyRuntimeConfigPayload(payload, expectedSeq = null) {
+  if (expectedSeq !== null && expectedSeq !== loadSeq) {
+    return snapshot;
+  }
+  if (expectedSeq === null) {
+    loadSeq += 1;
+  }
   const currencies = Array.isArray(payload?.currencies) ? payload.currencies : [];
   setRuntimeCurrencyCatalog(buildCurrencyCatalog(currencies));
   snapshot = {
@@ -65,12 +72,14 @@ export function applyRuntimeConfigPayload(payload) {
 }
 
 export function resetRuntimeConfig() {
+  loadSeq += 1;
   setRuntimeCurrencyCatalog(EMPTY_CURRENCY_CATALOG);
   snapshot = { ...INITIAL_STATE };
   emit();
 }
 
 export async function loadRuntimeConfig(options = {}) {
+  const seq = ++loadSeq;
   snapshot = { ...snapshot, loading: true, error: null };
   emit();
   try {
@@ -78,12 +87,14 @@ export async function loadRuntimeConfig(options = {}) {
       ...(options.country ? { country: options.country } : {}),
       ...(options.as_of_date ? { as_of_date: options.as_of_date } : {}),
     });
-    return applyRuntimeConfigPayload(payload);
+    if (seq !== loadSeq) return snapshot;
+    return applyRuntimeConfigPayload(payload, seq);
   } catch (err) {
+    if (seq !== loadSeq) return snapshot;
     snapshot = {
       ...snapshot,
       loading: false,
-      loaded: true,
+      loaded: snapshot.loaded,
       error: err instanceof Error ? err.message : String(err),
     };
     emit();
