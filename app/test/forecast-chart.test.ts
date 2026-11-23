@@ -19,6 +19,7 @@ import {
   forecastSeriesItems,
   forecastYDomain,
   resolveForecastGroupMode,
+  toMajor,
   userKey,
 } from '../src/ui/forecast.js';
 
@@ -48,6 +49,19 @@ describe('forecast chart grouping', () => {
     const [point] = chartData([{ date: '2026-09-21', overall_minor: 50_00, by_country: { SRB: 50_00 } }], 'USD');
     expect(point[countryKey('SRB')]).toBe(50);
     expect(Object.keys(point).some((key) => key.startsWith('a:') || key.startsWith('u:'))).toBe(false);
+  });
+
+  it('chartData and toMajor fail closed until currency catalog knows baseCurrency minor digits', () => {
+    setRuntimeCurrencyCatalog(EMPTY_CURRENCY_CATALOG);
+    try {
+      expect(toMajor(100_00, 'USD')).toBeNull();
+      expect(chartData(series, 'USD')).toEqual([]);
+    } finally {
+      installTestRuntimeCurrencies();
+    }
+    expect(toMajor(100_00, 'USD')).toBe(100);
+    const [point] = chartData(series, 'USD');
+    expect(point.overall).toBe(100);
   });
 
   it('hides user grouping until two household owners exist', () => {

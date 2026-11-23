@@ -2,6 +2,16 @@
 
 All notable changes to the Money Flow app are documented here.
 
+## 2.47.3 - 2026-11-23
+
+### Fixed
+
+- Recomputed Pulse Balance Forecast chart points whenever the runtime currency catalog loads (`useRuntimeConfig()` + `baseCurrencyDigits` memo dependency), made `toMajor()` / `chartData()` fail closed when minor digits are unknown instead of scaling by 1, and held Pulse and Analytics behind loading skeletons or a retry/settings error panel while `/api/v2/config/runtime` is loading or fails.
+- Added monotonic sequence guards in `loadRuntimeConfig()` so stale out-of-order responses, late rejections, or in-flight fetches across `resetRuntimeConfig()` cannot overwrite newer currency config snapshots, and preserved `loaded: false` across retries after initial failure.
+- Consolidated `buildRuntimeConfig()` and `loadBookingGuardRules()` onto a single `loadRulesSnapshot(db)` query via synchronous snapshot helpers to eliminate redundant D1 reads and race windows.
+- Stopped re-emitting `Set-Cookie: mf_demo_sid=...` on steady-state `DEMO_MODE` requests that already carry a valid demo cookie, preventing concurrent background reads from resurrecting a cookie cleared by `POST /api/auth/logout`.
+- App package version bumped to `2.47.3`.
+
 ## 2.47.1 - 2026-11-22
 
 ### Fixed

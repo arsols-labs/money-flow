@@ -13,8 +13,9 @@ import { AlertTriangle, DatabaseZap, SlidersHorizontal, RotateCcw } from 'lucide
 import { api } from './api';
 import { selectPayments, paymentDateLabel, paymentRefreshDue, paymentColors, paymentDateColor } from './payments';
 import { useRefreshNonce } from './RefreshContext';
+import { loadRuntimeConfig, useRuntimeConfig } from './runtimeConfig';
 import { SectionSkeleton,  MetricCard, CardGrid, CollapsibleSection, FxFooter  } from './components';
-import { formatMinor, formatMajor, formatMajorCompact } from './money';
+import { formatMinor, formatMajor, formatMajorCompact, tryFractionDigits } from './money';
 import {
   chartData,
   parseDateOnly,
@@ -251,7 +252,7 @@ function ForecastSection({
   // Switching the period slices the already loaded series on the client — the period does not
   // re-request the server (365 days are loaded once up front).
   const sliced = useMemo(() => fullSeries.slice(0, periodDef.days), [fullSeries, periodDef]);
-  const truncated = sliced.length < periodDef.days && sliced.length === fullSeries.length;
+  const truncated = fullSeries.length > 0 && sliced.length < periodDef.days && sliced.length === fullSeries.length;
 
   return (
     <section className="card">
@@ -383,6 +384,7 @@ function WarningRow({ warning, accountsById, baseCurrency }) {
 
 function WarningsPanel({ warnings, accounts, baseCurrency, fullWidth = false, filter = 'all', onFilterChange = undefined }) {
   const { t } = useTranslation();
+  const runtimeConfig = useRuntimeConfig();
   const accountsById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
   const [internalFilter, setInternalFilter] = useState('all');
   const actualFilter = onFilterChange ? filter : internalFilter;
@@ -393,7 +395,7 @@ function WarningsPanel({ warnings, accounts, baseCurrency, fullWidth = false, fi
 
   const selection = useMemo(
     () => warningSelection(warnings, actualFilter, visibleLimit),
-    [warnings, actualFilter, visibleLimit],
+    [warnings, actualFilter, visibleLimit, runtimeConfig.currencies],
   );
 
   useEffect(() => {
@@ -889,6 +891,7 @@ function LowestBalanceCard({ lowest, baseCurrency, thresholdMinor, big = false, 
 export default function Pulse({ isCustomizing: externalCustomizing = false, onCustomizingChange }) {
   const { t } = useTranslation();
   const refreshNonce = useRefreshNonce();
+  const runtimeConfig = useRuntimeConfig();
   const [status, setStatus] = useState('loading'); // loading | ready | error
   const [loadError, setLoadError] = useState(null);
   const [forecast, setForecast] = useState(null);
@@ -958,12 +961,15 @@ export default function Pulse({ isCustomizing: externalCustomizing = false, onCu
     };
   }, [forecast, load]);
 
+  const baseCurrencyDigits = forecast ? tryFractionDigits(forecast.base_currency) : null;
   const points = useMemo(
-    () => (forecast ? chartData(forecast.series, forecast.base_currency) : []),
-    [forecast],
+    () => (forecast && baseCurrencyDigits !== null
+      ? chartData(forecast.series, forecast.base_currency)
+      : []),
+    [forecast, baseCurrencyDigits],
   );
 
-  if (status === 'loading') {
+  if (status === 'loading' || (status !== 'error' && runtimeConfig.loading && (!runtimeConfig.loaded || (forecast && baseCurrencyDigits === null)))) {
     return (
       <div className="pulse-dashboard">
         <div className="pulse-main-col">
@@ -994,6 +1000,36 @@ export default function Pulse({ isCustomizing: externalCustomizing = false, onCu
         <h2>{t('pulse.empty.title')}</h2>
         <p>{t('pulse.empty.description')}</p>
         <a className="btn-primary" href="#/data/accounts">{t('pulse.empty.goToData')}</a>
+      </div>
+    );
+  }
+
+  if (baseCurrencyDigits === null) {
+    if (runtimeConfig.error || !runtimeConfig.loaded) {
+      return (
+        <div className="data-error-panel">
+          <p>{runtimeConfig.error || t('common.loadFailed')}</p>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              loadRuntimeConfig();
+              load();
+            }}
+          >
+            {t('common.retry')}
+          </button>
+        </div>
+      );
+    }
+    return (
+      <div className="data-error-panel">
+        <p>
+          {forecast.base_currency
+            ? t('missingConfigAction.currencyCode', { currency: forecast.base_currency })
+            : t('onboarding.missingBaseCurrency')}
+        </p>
+        <a className="btn-secondary" href="#/data/rules">{t('onboarding.openSettings')}</a>
       </div>
     );
   }
